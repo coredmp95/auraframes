@@ -9,8 +9,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Toolchain
 
-- [ ] **ENV-01**: Dependency management migrated to `uv` with a `pyproject.toml`, replacing the UTF-16 `requirements.txt`
-- [ ] **ENV-02**: All dependencies resolve and install/build on Python 3.14 via `uv`
+- [x] **ENV-01**: Dependency management migrated to `uv` with a `pyproject.toml`, replacing the UTF-16 `requirements.txt`
+- [x] **ENV-02**: All dependencies resolve and install/build on Python 3.14 via `uv`
 - [ ] **ENV-03**: The pydantic model layer is migrated to pydantic v2, preserving the `AllOptional` partial-model behaviour
 - [ ] **ENV-04**: A developer can set up the environment and run the client using documented `uv` commands
 
@@ -66,8 +66,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENV-01 | Phase 1 | Pending |
-| ENV-02 | Phase 1 | Pending |
+| ENV-01 | Phase 1 | Complete |
+| ENV-02 | Phase 1 | Complete |
 | ENV-03 | Phase 1 | Pending |
 | ENV-04 | Phase 3 | Pending |
 | READ-01 | Phase 2 | Pending |
