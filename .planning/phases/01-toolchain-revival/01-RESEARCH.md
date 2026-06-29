@@ -380,18 +380,20 @@ This is a code/packaging migration (rename of a dependency *mechanism* + API sur
 
 *(Dependency versions and every migration idiom are `[VERIFIED]` by execution, not assumed.)*
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Base-model `Optional[...]` defaults — fix now or defer to Phase 2?**
+> Resolved during planning (see `01-02-PLAN.md` objective). Q#1 → **fix now** (add `= None` in 01-02 Task 2). Q#2 → **faithful straight port** to `@field_validator` (Phase-2 carryover for the `model_validator` correctness fix). Q#3 → **`[project.optional-dependencies]` dev group** (01-01 Task 1).
+
+1. **RESOLVED (fix now): Base-model `Optional[...]` defaults — fix now or defer to Phase 2?**
    - What we know: Base models (`Frame`, `Asset`, `User`, `Activity`, `Person`) have many `Optional[...]` fields with no `= None`. Under v2 these are required-nullable. Class *definition* succeeds (import-clean ✔), but *instantiation* from API responses will fail — a Phase 2 event.
    - What's unclear: Whether ENV-03 ("preserving the model layer behaviour") obligates restoring implicit-None now, vs. D-05's "defer runtime-only."
    - Recommendation: **Add `= None` to base-model Optional fields in this phase** — it is the model-layer's job (ENV-03), it is a tiny mechanical diff confined to `models/*`, and it prevents a guaranteed Phase 2 regression. If the planner prefers strict D-05 adherence, defer — but then the smoke test must NOT attempt to instantiate base models, and Phase 2 must own it explicitly.
 
-2. **`AssetPartialId` validator: faithful port vs. correctness fix?**
+2. **RESOLVED (faithful port): `AssetPartialId` validator: faithful port vs. correctness fix?**
    - What we know: The cross-field check is a no-op when `id` is the empty/missing one, in both v1 and v2 (field-ordering). A straight port preserves behavior.
    - Recommendation: Straight port now (Pattern 3); note the `model_validator(mode="after")` correctness fix as a Phase 2 candidate. (A2)
 
-3. **`dev` deps: `[project.optional-dependencies]` vs. PEP 735 `[dependency-groups]`?**
+3. **RESOLVED (optional-dependencies dev group): `dev` deps: `[project.optional-dependencies]` vs. PEP 735 `[dependency-groups]`?**
    - Both satisfy D-09. Recommendation: planner's discretion; `optional-dependencies dev` is the more conservative/portable choice and matches the `uv sync --extra dev` workflow documented above.
 
 ## Environment Availability
