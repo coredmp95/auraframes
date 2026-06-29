@@ -52,12 +52,13 @@ class Aura:
     def main(self):
         pass
 
-    def get_all_assets(self, frame_id: str):
-        paginated_assets, cursor = self.frame_api.get_assets(frame_id)
+    def get_all_assets(self, frame_id: str, limit: int = 1000, page_delay: float = 0.0):
+        paginated_assets, cursor = self.frame_api.get_assets(frame_id, limit=limit)
         assets = paginated_assets
         while cursor:
-            paginated_assets, cursor = self.frame_api.get_assets(frame_id, cursor=cursor)
-            time.sleep(1)  # TODO: Make better (tm)
+            paginated_assets, cursor = self.frame_api.get_assets(frame_id, limit=limit, cursor=cursor)
+            if page_delay:
+                time.sleep(page_delay)
             assets.extend(paginated_assets)
 
         return assets

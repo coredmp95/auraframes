@@ -31,7 +31,7 @@ def build_gps_ifd(location_dms: tuple[any, any]):
 
 
 class ExifWriter:
-    geolocator = Nominatim(user_agent="Upload Scripting Test")
+    geolocator = Nominatim(user_agent="auraframes-python-client/1.0")
     cache = {}
 
     # TODO: LRU Cache would be nice but probably over-engineered
@@ -42,7 +42,9 @@ class ExifWriter:
 
         try:
             location = self.geolocator.geocode(location_name)
-        except:
+        except Exception:
+            # GPS is conditional (D-09): a geocode failure is tolerable — log
+            # and skip GPS rather than failing the whole download.
             logger.info(f'Failed to read GPS data for {location_name}')
             return None
 
@@ -88,8 +90,11 @@ class ExifWriter:
 
         try:
             piexif.insert(exif_bytes, image, new_imag)
-        except:
-            logger.info(f'Failed to write to image.')
+        except Exception:
+            # A corrupt/non-JPEG body must fail loudly (D-11): re-raise instead
+            # of returning an empty BytesIO that would be saved as a 0-byte file.
+            logger.error('Failed to write EXIF to image.')
+            raise
         return new_imag
 
 

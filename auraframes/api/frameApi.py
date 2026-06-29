@@ -40,8 +40,12 @@ class FrameApi(BaseApi):
         json_response = self._client.get(f'/frames/{frame_id}/assets.json',
                                          query_params={'limit': limit, 'cursor': cursor})
         if json_response.get('error'):
-            # json_response.get('message')
-            pass
+            # Surface API drift instead of silently swallowing it (D-06):
+            # a drifted/failed asset page must not be processed as success.
+            raise RuntimeError(
+                f"get_assets failed for frame {frame_id}: "
+                f"{json_response.get('message') or json_response.get('error')}"
+            )
         assets = [Asset(**asset_data) for asset_data in json_response.get('assets')]
         return assets, json_response.get('next_page_cursor')
 
