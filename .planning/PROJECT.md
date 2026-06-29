@@ -28,14 +28,14 @@ Python toolchain, so we know exactly what survives before building anything new.
 - ✓ AWS Cognito anonymous auth for S3/SQS access — existing
 - ✓ Pydantic DTO model layer hydrating API responses — existing
 - ✓ Environment-variable based configuration — existing
+- ✓ Project installs and imports on Python 3.14 managed by `uv` — Validated in Phase 1: Toolchain Revival
+- ✓ Dependencies resolve and build on Python 3.14 (pydantic v1→v2 migration; pillow 12, httpx 0.28, boto3 1.43) — Validated in Phase 1: Toolchain Revival
+- ✓ Dependency manifest migrated from the UTF-16 `requirements.txt` to `pyproject.toml` + `uv.lock` — Validated in Phase 1: Toolchain Revival
 
 ### Active
 
 <!-- This milestone: revive the toolchain and verify the read path. -->
 
-- [ ] Project installs and runs on Python 3.14 managed by `uv`
-- [ ] Dependencies resolve and build on Python 3.14 (pydantic v1→v2 migration, newer pillow/httpx/boto3 as needed)
-- [ ] Dependency manifest migrated from the UTF-16 `requirements.txt` to `pyproject.toml`
 - [ ] Login verified against the live API with real account credentials
 - [ ] Listing frames verified against the live API
 - [ ] Fetching a frame's assets verified against the live API
@@ -100,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after initialization*
+*Last updated: 2026-06-29 after Phase 1 (Toolchain Revival) completion*
