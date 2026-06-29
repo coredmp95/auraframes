@@ -1,6 +1,13 @@
 import os
 
 import pytest
+from dotenv import load_dotenv
+
+# Load AURA_EMAIL / AURA_PASSWORD from a local .env so the live read-path tests
+# can run without exporting shell vars. Shell-exported vars still win (override
+# defaults to False), and a missing .env is a no-op — so a credential-less
+# checkout still skips the live suite cleanly (D-02).
+load_dotenv()
 
 
 @pytest.fixture(scope="session")
