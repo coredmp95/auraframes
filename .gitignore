@@ -79,7 +79,8 @@ target/
 .ipynb_checkpoints
 
 # pyenv
-.python-version
+# .python-version is committed for uv interpreter pinning (reproducibility, D-02)
+!.python-version
 
 # celery beat schedule file
 celerybeat-schedule
