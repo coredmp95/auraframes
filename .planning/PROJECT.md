@@ -31,16 +31,16 @@ Python toolchain, so we know exactly what survives before building anything new.
 - ✓ Project installs and imports on Python 3.14 managed by `uv` — Validated in Phase 1: Toolchain Revival
 - ✓ Dependencies resolve and build on Python 3.14 (pydantic v1→v2 migration; pillow 12, httpx 0.28, boto3 1.43) — Validated in Phase 1: Toolchain Revival
 - ✓ Dependency manifest migrated from the UTF-16 `requirements.txt` to `pyproject.toml` + `uv.lock` — Validated in Phase 1: Toolchain Revival
+- ✓ Login verified against the live API with real account credentials (READ-01) — Validated in Phase 2: Live Read-Path Verification
+- ✓ Listing frames verified against the live API (READ-02) — Validated in Phase 2: Live Read-Path Verification
+- ✓ Fetching a frame's assets with cursor pagination verified live — 77 assets across multiple pages (READ-03) — Validated in Phase 2: Live Read-Path Verification
+- ✓ Downloading one image with EXIF (datetime + GPS) read back from disk verified live (READ-04) — Validated in Phase 2: Live Read-Path Verification
 
 ### Active
 
 <!-- This milestone: revive the toolchain and verify the read path. -->
 
-- [ ] Login verified against the live API with real account credentials
-- [ ] Listing frames verified against the live API
-- [ ] Fetching a frame's assets verified against the live API
-- [ ] Downloading one image with EXIF intact verified end-to-end
-- [ ] Documented status of what still works vs. where the API has drifted
+- [ ] Documented status of what still works vs. where the API has drifted (Phase 3)
 
 ### Out of Scope
 
@@ -100,4 +100,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after Phase 1 (Toolchain Revival) completion*
+*Last updated: 2026-06-29 after Phase 2 (Live Read-Path Verification) completion — full read path proven live against api.pushd.com/v5; four model drifts repaired*
