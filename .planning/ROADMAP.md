@@ -88,8 +88,9 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
+**Wave 1**
 
-- [ ] 03-01: Write developer setup/run docs (ENV-04) and the read-path verification report (DOC-01)
+- [ ] 03-01-PLAN.md — Flesh `main.py` into a facade-only read-path demo, reconcile `README.md` to verified reality (uv commands + env vars + VERIFIED/UNVERIFIED), and write the repo-root `VERIFICATION-REPORT.md` from a fresh live run (ENV-04, DOC-01)
 
 ## Progress
 
