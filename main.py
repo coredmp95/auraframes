@@ -26,30 +26,40 @@ def main():
     aura = Aura()
     aura.login()                                    # READ-01
 
-    frame = aura.frame_api.get_frames()[0]          # READ-02 (first frame)
+    frames = aura.frame_api.get_frames()            # READ-02 (first frame)
+    if not frames:
+        print('No frames on this account — nothing to read.')
+        sys.exit(0)
+    frame = frames[0]
+
     assets = aura.get_all_assets(frame.id)          # READ-03 (cursor loop)
+    if not assets:
+        print(f'Frame {frame.name} ({frame.id}) has no assets — nothing to download.')
+        sys.exit(0)
 
     # Asset selection fallback chain (test_read_path.py:79-94): first downloadable
     # image asset with a location (exercises GPS) → else first image asset → else
-    # first asset.
+    # first asset. `assets` is non-empty here, so the final `[0]` is safe.
     image_assets = [a for a in assets if _is_image_asset(a)]
     geo_image_assets = [a for a in image_assets if a.location_name]
     asset = (geo_image_assets or image_assets or assets)[0]
 
     out_dir = 'asset_images/'
     os.makedirs(out_dir, exist_ok=True)             # gitignored output dir
-    export.get_image_from_asset(asset, out_dir, aura.exif_writer)  # READ-04
 
-    # get_image_from_asset does not return the saved path; glob it out of the
-    # output dir (test_read_path.py:99-104).
-    saved = sorted(os.path.join(out_dir, f) for f in os.listdir(out_dir))
+    # get_image_from_asset does not return the saved path. Snapshot the dir
+    # before/after so we report the file THIS download actually produced, not
+    # whatever sorts last in a directory that may hold images from prior runs.
+    before = set(os.listdir(out_dir))
+    export.get_image_from_asset(asset, out_dir, aura.exif_writer)  # READ-04
+    saved = sorted(os.path.join(out_dir, f) for f in set(os.listdir(out_dir)) - before)
 
     # Concise summary — non-secret values only (never the password or auth token).
     print('Read-path demo complete:')
     print(f'  Frame:          {frame.name} ({frame.id})')
     print(f'  Total assets:   {len(assets)}')
     print(f'  Selected asset: {asset.id}')
-    print(f'  Saved image(s): {saved[-1] if saved else "(none)"}')
+    print(f'  Saved image(s): {", ".join(saved) if saved else f"(none new in {out_dir})"}')
 
 
 if __name__ == '__main__':
