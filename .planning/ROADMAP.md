@@ -37,8 +37,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Migrate dependency management to `uv` + `pyproject.toml` and resolve all deps on Python 3.14
-- [ ] 01-02: Migrate the model layer to pydantic v2, preserving `AllOptional` partial-model behaviour
+- [ ] 01-01-PLAN.md — Migrate dependency management to `uv` + `pyproject.toml`, resolve all deps on Python 3.14, commit `uv.lock` (ENV-01, ENV-02)
+- [ ] 01-02-PLAN.md — Migrate the model layer to pydantic v2 (factory, field_validator, io serialization), import-clean package + smoke test (ENV-03)
 
 ### Phase 2: Live Read-Path Verification
 **Goal**: The revived client performs the full read path against the live Aura API using real credentials.
