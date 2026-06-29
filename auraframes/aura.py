@@ -129,6 +129,9 @@ class Aura:
         return queueUrl
 
     def _init_logger(self):
+        # Ensure the loguru file sink's target dir exists before the first
+        # instantiation so it does not raise FileNotFoundError (D-08).
+        os.makedirs('logs/', exist_ok=True)
         # logger.remove()  # remove / set this to debug if needed
         logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
                                                     "<level>{level: <8}</level> | "

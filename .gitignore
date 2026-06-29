@@ -88,6 +88,11 @@ celerybeat-schedule
 # dotenv
 .env
 
+# Aura runtime output (logs, JSON cache, downloaded images) — D-08
+logs/
+cache/
+asset_images/
+
 # virtualenv
 venv/
 ENV/
