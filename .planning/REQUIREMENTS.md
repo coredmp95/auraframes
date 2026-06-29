@@ -1,0 +1,86 @@
+# Requirements: Aura Frames Python Client — Revive & Verify
+
+**Defined:** 2026-06-29
+**Core Value:** Prove the existing client still works end-to-end (login → list → download) on a current Python toolchain, so we know exactly what survives before building anything new.
+
+## v1 Requirements
+
+Requirements for this milestone. Each maps to roadmap phases.
+
+### Toolchain
+
+- [ ] **ENV-01**: Dependency management migrated to `uv` with a `pyproject.toml`, replacing the UTF-16 `requirements.txt`
+- [ ] **ENV-02**: All dependencies resolve and install/build on Python 3.14 via `uv`
+- [ ] **ENV-03**: The pydantic model layer is migrated to pydantic v2, preserving the `AllOptional` partial-model behaviour
+- [ ] **ENV-04**: A developer can set up the environment and run the client using documented `uv` commands
+
+### Read Path Verification
+
+- [ ] **READ-01**: The client authenticates (login) against the live Aura API using real account credentials
+- [ ] **READ-02**: The client lists the account's frames from the live API
+- [ ] **READ-03**: The client fetches a frame's assets from the live API, handling cursor-based pagination
+- [ ] **READ-04**: The client downloads one asset image from the image proxy with EXIF (datetime + GPS) intact
+
+### Status
+
+- [ ] **DOC-01**: A verification report records what still works and where the live API has drifted from the code
+
+## v2 Requirements
+
+Deferred to future milestones. Tracked but not in the current roadmap.
+
+### Upload
+
+- **UP-01**: Verify the image upload round-trip (select_asset → S3 → SQS → batch_update) end-to-end
+- **UP-02**: Confirm an uploaded image appears on the frame
+
+### Reverse Engineering
+
+- **RE-01**: Capture the frame's real cloud traffic via MITM proxy on the LAN to validate endpoints against ground truth
+- **RE-02**: Map the actual SQS push/poll flow
+- **RE-03**: Determine multi-frame asset association behaviour (dedupe / shared S3 filename)
+- **RE-04**: Reverse the frame's own rendering process
+
+### Modernization
+
+- **MOD-01**: Migrate the synchronous HTTP client to async
+- **MOD-02**: Move hardcoded AWS pool IDs / bucket name to configuration
+- **MOD-03**: Replace silent error handling with a typed exception hierarchy
+
+## Out of Scope
+
+Explicitly excluded for this milestone. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Device-on-LAN / MITM traffic capture | Cloud-API revive is the goal; device recon is a later milestone (see RE-01) |
+| Frame rendering / firmware reverse-engineering | Advanced track, depends on a working baseline first (see RE-04) |
+| Upload round-trip verification | Done bar is the read path; upload verification deferred (see UP-01) |
+| SQS push-flow deep-dive | Not needed to verify the read path (see RE-02) |
+| Async HTTP migration | Existing sync client is sufficient to revive (see MOD-01) |
+| Broad refactor of code smells | Pragmatic modernization only — fix what blocks running, not everything (see MOD-02/03) |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| ENV-01 | TBD | Pending |
+| ENV-02 | TBD | Pending |
+| ENV-03 | TBD | Pending |
+| ENV-04 | TBD | Pending |
+| READ-01 | TBD | Pending |
+| READ-02 | TBD | Pending |
+| READ-03 | TBD | Pending |
+| READ-04 | TBD | Pending |
+| DOC-01 | TBD | Pending |
+
+**Coverage:**
+- v1 requirements: 9 total
+- Mapped to phases: 0 (set during roadmap)
+- Unmapped: 9 ⚠️ (resolved by roadmapper)
+
+---
+*Requirements defined: 2026-06-29*
+*Last updated: 2026-06-29 after initial definition*
