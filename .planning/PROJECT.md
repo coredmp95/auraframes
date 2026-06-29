@@ -35,12 +35,13 @@ Python toolchain, so we know exactly what survives before building anything new.
 - ✓ Listing frames verified against the live API (READ-02) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Fetching a frame's assets with cursor pagination verified live — 77 assets across multiple pages (READ-03) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Downloading one image with EXIF (datetime + GPS) read back from disk verified live (READ-04) — Validated in Phase 2: Live Read-Path Verification
+- ✓ Documented `uv` setup/run commands + env vars and a repo-root VERIFICATION-REPORT.md recording read-path status and API drift (ENV-04, DOC-01) — Validated in Phase 3: Run Docs & Verification Report
 
 ### Active
 
 <!-- This milestone: revive the toolchain and verify the read path. -->
 
-- [ ] Documented status of what still works vs. where the API has drifted (Phase 3)
+- _All milestone requirements validated — see Validated above._
 
 ### Out of Scope
 
@@ -100,4 +101,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after Phase 2 (Live Read-Path Verification) completion — full read path proven live against api.pushd.com/v5; four model drifts repaired*
+*Last updated: 2026-06-29 after Phase 3 (Run Docs & Verification Report) completion — milestone complete: read path proven live, `uv` setup/run documented, and a repo-root VERIFICATION-REPORT.md records read-path status, four repaired model drifts, the deferred GPS swap, and the silent-error-masking fixes*
