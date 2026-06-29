@@ -336,21 +336,24 @@ def test_read_02_list_frames(aura):  # @pytest.mark.live
 | A4 | The live `/login.json`, `/frames.json`, `/frames/{id}/assets.json` response shapes still match the pydantic models | All | This is the *entire point* of the phase — drift surfaces as `ValidationError`/`HTTPStatusError` once D-06 is in. Expected and desirable. |
 | A5 | `x-token-auth`/`x-user-id` are still the correct auth headers | READ-01 | If the API changed auth, READ-02+ return 401 → `raise_for_status` fails loudly (D-06). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the first frame have enough assets to force multi-page pagination?**
    - What we know: `get_frame()` returns `total_asset_count`; `get_all_assets` drains all pages.
    - What's unclear: account-specific data; can't know until login.
    - Recommendation: compute `limit = max(1, total // 2)`; `assert total >= 2` else `pytest.skip("first frame <2 assets")` with a note for Phase 3. (A2)
+   - **RESOLVED:** Implemented in plan 02-02 Task 2 — `limit = max(1, total // 2)` with a `pytest.skip` guard when `total < 2`.
 
 2. **Will Nominatim consistently geocode the chosen asset's `location_name`?**
    - What we know: GPS write depends on geocode success; conditional per D-09.
    - What's unclear: Nominatim availability/rate limits during the run.
    - Recommendation: assert GPS only when `readable["GPS"]` is populated; otherwise log/skip the GPS assertion and record the gap. Do not add retry (deferred). (A3)
+   - **RESOLVED:** Implemented in plan 02-02 Task 2 — GPS assertion is conditional on `readable.get("GPS")`; a miss is documented, no retry added.
 
 3. **Should the lat/long swap bug (Pitfall 6) be fixed now?**
    - What we know: it produces incorrect (but readable) GPS; READ-04 can pass regardless.
    - Recommendation: leave the fix out of MVP scope; record it in the Phase 3 drift report. Planner to confirm.
+   - **RESOLVED:** Excluded from MVP scope in plan 02-02 Task 1 — recorded as Phase 3 drift, not fixed.
 
 ## Environment Availability
 
