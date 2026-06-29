@@ -66,7 +66,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Trust + security foundation (raise_for_status, secret redaction, logs/ makedirs, live marker, login fixture) and verify login (READ-01) + frame listing (READ-02) live
+- [x] 02-01-PLAN.md — Trust + security foundation (raise_for_status, secret redaction, logs/ makedirs, live marker, login fixture) and verify login (READ-01) + frame listing (READ-02) live
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -99,5 +99,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Toolchain Revival | 2/2 | Complete    | 2026-06-29 |
-| 2. Live Read-Path Verification | 0/2 | Not started | - |
+| 2. Live Read-Path Verification | 1/2 | In Progress|  |
 | 3. Run Docs & Verification Report | 0/1 | Not started | - |
