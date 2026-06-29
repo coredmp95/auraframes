@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-06-29T12:45:06.303Z"
+status: verifying
+last_updated: "2026-06-29T12:59:15.719Z"
 last_activity: 2026-06-29
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 33
+  completed_plans: 4
+  percent: 67
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-29)
 
 Phase: 02 (live-read-path-verification) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-29
 
-Progress: [████████░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [████████░░] 75%
 | Phase 01 P01 | 6 | 2 tasks | 4 files |
 | Phase 01 P02 | 34 | 3 tasks | 5 files |
 | Phase 02 P01 | 12 | 3 tasks | 7 files |
+| Phase 02 P02 | 8 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 2 P1]: Centralized recursive _redact() masks password/auth_token/x-token-auth in all request/response logs (D-07)
 - [Phase ?]: [Phase 2 P1]: raise_for_status in all 4 Client methods so failed HTTP raises instead of returning green (D-06)
 - [Phase ?]: [Phase 2 P1]: Live tests credential-gated via @pytest.mark.live + session aura fixture that skips when creds unset (D-01/D-02/D-03)
+- [Phase ?]: [Phase 2 P2]: get_all_assets parametrized with limit + conditional page_delay; removed always-on 1s/page sleep (D-05)
+- [Phase ?]: [Phase 2 P2]: frameApi.get_assets raises on the error key (no silent pass) so a drifted asset page can't return green (D-06)
+- [Phase ?]: [Phase 2 P2]: EXIF-write except re-raises (no 0-byte saves); geocode except tolerated; Nominatim UA made ToS-compliant (D-11)
 
 ### Pending Todos
 
@@ -95,6 +99,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-29T12:44:10.608Z
+Last session: 2026-06-29T12:58:11.501Z
 Stopped at: Phase 2 context gathered
 Resume file: None

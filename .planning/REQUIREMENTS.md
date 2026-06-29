@@ -18,8 +18,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **READ-01**: The client authenticates (login) against the live Aura API using real account credentials
 - [x] **READ-02**: The client lists the account's frames from the live API
-- [ ] **READ-03**: The client fetches a frame's assets from the live API, handling cursor-based pagination
-- [ ] **READ-04**: The client downloads one asset image from the image proxy with EXIF (datetime + GPS) intact
+- [x] **READ-03**: The client fetches a frame's assets from the live API, handling cursor-based pagination
+- [x] **READ-04**: The client downloads one asset image from the image proxy with EXIF (datetime + GPS) intact
 
 ### Status
 
@@ -72,8 +72,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ENV-04 | Phase 3 | Pending |
 | READ-01 | Phase 2 | Complete |
 | READ-02 | Phase 2 | Complete |
-| READ-03 | Phase 2 | Pending |
-| READ-04 | Phase 2 | Pending |
+| READ-03 | Phase 2 | Complete |
+| READ-04 | Phase 2 | Complete |
 | DOC-01 | Phase 3 | Pending |
 
 **Coverage:**

@@ -20,7 +20,7 @@ undocumented API has drifted. Each phase must complete before the next can be ve
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Toolchain Revival** - Project installs and imports on Python 3.14 via `uv` with the model layer migrated to pydantic v2 (completed 2026-06-29)
-- [ ] **Phase 2: Live Read-Path Verification** - Login, list frames, fetch assets, and download one image with EXIF verified against the live API
+- [x] **Phase 2: Live Read-Path Verification** - Login, list frames, fetch assets, and download one image with EXIF verified against the live API (completed 2026-06-29)
 - [ ] **Phase 3: Run Docs & Verification Report** - Documented `uv` setup/run commands plus a report of what works and where the API has drifted
 
 ## Phase Details
@@ -70,7 +70,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 02-02-PLAN.md — Parametrize pagination + harden EXIF/geocoder, verify paginated asset fetch (READ-03) + image download with EXIF read-back (READ-04) live
+- [x] 02-02-PLAN.md — Parametrize pagination + harden EXIF/geocoder, verify paginated asset fetch (READ-03) + image download with EXIF read-back (READ-04) live
 
 ### Phase 3: Run Docs & Verification Report
 
@@ -99,5 +99,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Toolchain Revival | 2/2 | Complete    | 2026-06-29 |
-| 2. Live Read-Path Verification | 1/2 | In Progress|  |
+| 2. Live Read-Path Verification | 2/2 | Complete   | 2026-06-29 |
 | 3. Run Docs & Verification Report | 0/1 | Not started | - |
