@@ -3,7 +3,6 @@ import os
 from typing import Union
 
 from pydantic import BaseModel
-from pydantic.json import pydantic_encoder
 
 
 def build_path(*args, make_dir: bool = True):
@@ -13,6 +12,12 @@ def build_path(*args, make_dir: bool = True):
     return path
 
 
-def write_model(model: Union[BaseModel, list[BaseModel]], path: str):
+def _pydantic_default(obj):
+    if isinstance(obj, BaseModel):
+        return obj.model_dump(mode="json")
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def write_model(model: Union[BaseModel, list[BaseModel]], path: str) -> None:
     with open(path, 'w') as out:
-        json.dump(model, out, default=pydantic_encoder)
+        json.dump(model, out, default=_pydantic_default)
