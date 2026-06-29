@@ -4,17 +4,73 @@ Implements most of the AuraFrames APIs in Python.
 
 Any advice or issues are welcome.
 
-## Environment Variables Setup
-- `AURA_USERNAME`: The username/email of the account to authenticate with.
-  - `Aura.login` may optionally be called with a username and password instead of setting env vars.
+> **Read path: VERIFIED end-to-end** against `api.pushd.com/v5` (login → list → fetch →
+> download). See [`VERIFICATION-REPORT.md`](VERIFICATION-REPORT.md) for the per-step status,
+> the live API drift repaired, and what is **not** verified. The upload / device flow below
+> is **documented from code, NOT verified in this revive milestone.**
+
+## Requirements
+
+- Python 3.14 (pinned via `.python-version`) and [`uv`](https://docs.astral.sh/uv/) for
+  environment, dependency, and interpreter management.
+- A live Aura account (email + password) for any command that actually hits the API.
+
+## Setup & Run (uv)
+
+This project uses `uv` exclusively (no `pip` / `venv` / `poetry`). From a clean checkout:
+
+```bash
+# 1. Install runtime dependencies (creates .venv, respects uv.lock + .python-version).
+#    uv auto-installs the pinned Python 3.14 interpreter on first sync if needed.
+uv sync
+
+# 2. Run the read-path demo (login -> list frames -> fetch assets -> download one image).
+#    With AURA_EMAIL / AURA_PASSWORD unset it prints a helpful message and exits cleanly.
+uv run python main.py
+```
+
+To run the asserted live read-path proof, you need the **`dev` extra** (pytest +
+python-dotenv live there and are **not** installed by `uv sync` alone):
+
+```bash
+# Install the dev extra, then run the 4 live read-path tests (needs real credentials):
+uv sync --extra dev
+uv run pytest -m live
+# — or, in one shot without a separate sync step:
+uv run --extra dev pytest -m live
+
+# The credential-less default suite stays green (live tests deselected):
+uv run pytest -m "not live"
+```
+
+> Documenting a bare `uv run pytest -m live` **without** `--extra dev` (or a prior
+> `uv sync --extra dev`) will fail on a clean checkout — `pytest` is an opt-in extra.
+
+## Environment Variables
+
+Credentials are read from environment variables (see `auraframes/utils/settings.py`). Copy
+`.env.sample` to `.env` and fill in your credentials for the live test path (`.env` is
+gitignored — never commit real secrets); shell-exported variables also work and take
+precedence.
+
+**Required:**
+- `AURA_EMAIL`: The email of the account to authenticate with.
+  - `Aura.login` may optionally be called with an email and password instead of setting env vars.
 - `AURA_PASSWORD`: The password of the account to authenticate with.
-- `AURA_DEVICE_IDENTIFIER`: The unique identifier of the device to mimic. (Default: `0000000000000000`)
-  - Ideally this should be set to your unique identifier, though it accepts others.
+
+**Optional (with defaults):**
 - `AURA_LOCALE`: The locale of the device to mimic. (Default: `en-US`)
 - `AURA_APP_IDENTIFIER`: The identifier of the aura app. (Default: `com.pushd.client`)
-  -  This may change between iOS and Android app implementations, untested.
+  - This may change between iOS and Android app implementations, untested.
+- `AURA_DEVICE_IDENTIFIER`: The unique identifier of the device to mimic. (Default: `0000000000000000`)
+  - Ideally this should be set to your unique identifier, though it accepts others.
 
 ## iOS/Android Device's Upload Image Flow
+
+> **Documented from code, NOT verified in this revive milestone.** The flow below is
+> transcribed from the 2023-era implementation and has not been exercised against the live
+> API during the read-path revive. Treat it as a reference, not a proven path.
+
 [Aura.upload_image](auraframes/aura.py#L101) attempts to implement this flow as closely as possible.
 1. A frame is selected and the frame's data is retrieved from the API (`/frames/<frame_id>.json`).
 2. An image on the device is selected for upload.
@@ -52,6 +108,10 @@ sequenceDiagram
 ```
 
 ## iOS/Android Device's Download/View Image Flow
+
+> **VERIFIED end-to-end this milestone** (READ-01..READ-04) — see
+> [`VERIFICATION-REPORT.md`](VERIFICATION-REPORT.md). `main.py` drives exactly this path.
+
 1. A frame is selected and the frame's data is retrieved from the API (`/frames/<frame_id>.json`).
 2. A paginated list of assets is retrieved with the `frame_id` (`/frames/{frame_id}/assets.json`).
 3. A URL is built that contains the image proxy URL, the asset's uploaded user id, and the asset's S3 filename.
@@ -60,6 +120,10 @@ sequenceDiagram
 5. TODO: Describe rendering
 
 ### TODOs
+
+> These are open reverse-engineering notes — **documented from code, NOT verified in this
+> revive milestone.**
+
 - Map out the actual SQS flow.
   - SQS may be polling constantly and used for push notification / update requests.
 - Determine if it's possible to have 2 active logins for the same account
