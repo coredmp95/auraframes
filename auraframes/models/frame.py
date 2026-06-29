@@ -12,6 +12,14 @@ class Feature(Enum):
     SKIP_VIDEO_PRELOAD = 'skip_video_preload'
     UDP_COMMANDS = 'udp_commands'
     MQTT_ENABLED = 'mqtt_enabled'
+    # The Aura API is undocumented and adds feature flags over time; map any
+    # value we don't recognise to UNKNOWN instead of raising on hydration, so a
+    # newly-added flag can't break the whole read path (live drift, Phase 2).
+    UNKNOWN = 'unknown'
+
+    @classmethod
+    def _missing_(cls, value):
+        return cls.UNKNOWN
 
 
 class Frame(BaseModel):

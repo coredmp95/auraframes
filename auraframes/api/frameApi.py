@@ -25,7 +25,15 @@ class FrameApi(BaseApi):
         :return: The hydrated frame and the frame's total asset count.
         """
         json_response = self._client.get(f'/frames/{frame_id}.json')
-        return Frame(**json_response.get('frame')), json_response.get('total_asset_count')
+        frame_data = json_response.get('frame')
+        # The live API moved the asset count: it used to be the top-level
+        # `total_asset_count` and is now `frame.num_assets` (Phase 2 live drift).
+        # Prefer the legacy key, fall back to the new location so either API
+        # shape yields a count.
+        total_asset_count = json_response.get('total_asset_count')
+        if total_asset_count is None and frame_data:
+            total_asset_count = frame_data.get('num_assets')
+        return Frame(**frame_data), total_asset_count
 
     def get_assets(self, frame_id: str, limit: int = 1000, cursor: str = None) -> tuple[list[Asset], str]:
         """

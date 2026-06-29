@@ -84,7 +84,7 @@ class Asset(BaseModel):
     taken_at_granularity: Any
     taken_at_user_override_at: Optional[str] = None
     thumbnail_url: Optional[str] = None
-    unglacierable: bool
+    unglacierable: Optional[bool] = None
     upload_priority: int
     uploaded_at: str
     user: User
