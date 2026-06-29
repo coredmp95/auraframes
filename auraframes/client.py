@@ -1,3 +1,4 @@
+import copy
 from collections import deque
 from typing import Optional, Deque
 
@@ -8,6 +9,27 @@ from loguru import logger
 AURA_API_BASE_URL = 'https://api.pushd.com'
 AURA_API_VERSION = 'v5'
 USER_AGENT = 'Aura/4.7.790 (Android 30; Client)'
+
+# Keys whose values are secrets and must never reach the on-disk logs (D-07).
+_REDACT_KEYS = {'password', 'auth_token', 'x-token-auth'}
+_REDACTED = '***REDACTED***'
+
+
+def _redact(value):
+    """Return a deep copy of a dict/list with secret-bearing keys masked.
+
+    Recurses into nested dicts (e.g. the ``user`` sub-dict of the login payload)
+    and lists so a secret can never leak from a deeper level. Non-container
+    values are returned unchanged. Stdlib only.
+    """
+    if isinstance(value, dict):
+        return {
+            k: (_REDACTED if k in _REDACT_KEYS else _redact(v))
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    return copy.copy(value)
 
 
 # Use something similar to:
@@ -36,18 +58,20 @@ class Client:
         response = self.http2_client.get(url=url, params=query_params, headers=headers)
 
         self.history.append(response)
-        logger.debug(f'Response ({response.status_code}), body: {response.json()}')
+        response.raise_for_status()
+        logger.debug(f'Response ({response.status_code}), body: {_redact(response.json())}')
 
         self._set_cookies(response)
 
         return response.json()
 
     def post(self, url, data: dict = None, query_params: Optional[dict] = None, headers: Optional[dict] = None):
-        logger.info(f'POST request to {url}', data=data, query_params=query_params, headers=headers)
+        logger.info(f'POST request to {url}', data=_redact(data), query_params=query_params, headers=headers)
         response = self.http2_client.post(url=url, json=data, headers=headers, params=query_params)
 
         self.history.append(response)
-        logger.debug(f'Response ({response.status_code}), body: {response.json()}')
+        response.raise_for_status()
+        logger.debug(f'Response ({response.status_code}), body: {_redact(response.json())}')
 
         self._set_cookies(response)
 
@@ -58,18 +82,20 @@ class Client:
         response = self.http2_client.delete(url=url, headers=headers, params=query_params)
 
         self.history.append(response)
-        logger.debug(f'Response ({response.status_code}), body: {response.json()}')
+        response.raise_for_status()
+        logger.debug(f'Response ({response.status_code}), body: {_redact(response.json())}')
 
         self._set_cookies(response)
 
         return response.json()
 
     def put(self, url, data: dict = None, query_params: Optional[dict] = None, headers: Optional[dict] = None):
-        logger.info(f'PUT request to {url}', data=data, query_params=query_params, headers=headers)
+        logger.info(f'PUT request to {url}', data=_redact(data), query_params=query_params, headers=headers)
         response = self.http2_client.put(url=url, json=data, headers=headers, params=query_params)
 
         self.history.append(response)
-        logger.debug(f'Response ({response.status_code}), body: {response.json()}')
+        response.raise_for_status()
+        logger.debug(f'Response ({response.status_code}), body: {_redact(response.json())}')
 
         self._set_cookies(response)
 

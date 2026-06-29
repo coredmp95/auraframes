@@ -26,8 +26,11 @@ class AccountApi(BaseApi):
 
         json_response = self._client.post('/login.json', login_payload)
         if json_response.get('error') or not json_response.get('result'):
-            # TODO: Error handling
-            pass
+            # A drifted/failed login must surface loudly rather than silently
+            # hydrating a model from an empty/error response (D-06).
+            raise RuntimeError(
+                f"Aura login failed: {json_response.get('message') or json_response.get('error') or 'no result returned'}"
+            )
 
         return User(**json_response.get('result').get('current_user'))
 
