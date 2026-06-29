@@ -64,9 +64,13 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 02-01: Verify login (READ-01) and frame listing (READ-02) against the live API
-- [ ] 02-02: Verify paginated asset fetch (READ-03) and image download with EXIF (READ-04)
+- [ ] 02-01-PLAN.md — Trust + security foundation (raise_for_status, secret redaction, logs/ makedirs, live marker, login fixture) and verify login (READ-01) + frame listing (READ-02) live
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Parametrize pagination + harden EXIF/geocoder, verify paginated asset fetch (READ-03) + image download with EXIF read-back (READ-04) live
 
 ### Phase 3: Run Docs & Verification Report
 
