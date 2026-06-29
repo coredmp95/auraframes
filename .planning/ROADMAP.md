@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Toolchain Revival** - Project installs and imports on Python 3.14 via `uv` with the model layer migrated to pydantic v2 (completed 2026-06-29)
 - [x] **Phase 2: Live Read-Path Verification** - Login, list frames, fetch assets, and download one image with EXIF verified against the live API (completed 2026-06-29)
-- [ ] **Phase 3: Run Docs & Verification Report** - Documented `uv` setup/run commands plus a report of what works and where the API has drifted
+- [x] **Phase 3: Run Docs & Verification Report** - Documented `uv` setup/run commands plus a report of what works and where the API has drifted (completed 2026-06-29)
 
 ## Phase Details
 
@@ -90,7 +90,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — Flesh `main.py` into a facade-only read-path demo, reconcile `README.md` to verified reality (uv commands + env vars + VERIFIED/UNVERIFIED), and write the repo-root `VERIFICATION-REPORT.md` from a fresh live run (ENV-04, DOC-01)
+- [x] 03-01-PLAN.md — Flesh `main.py` into a facade-only read-path demo, reconcile `README.md` to verified reality (uv commands + env vars + VERIFIED/UNVERIFIED), and write the repo-root `VERIFICATION-REPORT.md` from a fresh live run (ENV-04, DOC-01)
 
 ## Progress
 
@@ -101,4 +101,4 @@ Phases execute in numeric order: 1 → 2 → 3
 |-------|----------------|--------|-----------|
 | 1. Toolchain Revival | 2/2 | Complete    | 2026-06-29 |
 | 2. Live Read-Path Verification | 2/2 | Complete    | 2026-06-29 |
-| 3. Run Docs & Verification Report | 0/1 | Not started | - |
+| 3. Run Docs & Verification Report | 1/1 | Complete   | 2026-06-29 |
