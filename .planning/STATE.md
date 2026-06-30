@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-29)
 Phase: 03
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-06-29
+Last activity: 2026-06-30 - Completed quick task 260630-qs8: main.py loads local .env at startup
 
 Progress: [██████████] 100%
 
@@ -94,6 +94,12 @@ None yet.
 - API is undocumented and may have drifted since April 2023; verification is against a moving target
 - Silent error handling (`pass` on API `error` fields) can mask API drift during Phase 2 verification — watch for it
 - 2022-era pins (pydantic 1.10.4, pillow 9.5.0, httpx 0.23.1, boto3 1.26.38) will not build on 3.14; expect upgrades in Phase 1
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260630-qs8 | main.py loads a local .env at startup so the read-path demo picks up AURA_EMAIL/AURA_PASSWORD without exporting them (shell vars still win; missing .env is a no-op). python-dotenv promoted to a runtime dependency. | 2026-06-30 | cd9ab6b | [260630-qs8-make-main-py-load-a-local-env-file-at-st](./quick/260630-qs8-make-main-py-load-a-local-env-file-at-st/) |
 
 ## Deferred Items
 
