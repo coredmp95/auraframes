@@ -1,6 +1,8 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
 from auraframes.aura import Aura
 from auraframes import export
 
@@ -12,6 +14,12 @@ def _is_image_asset(asset) -> bool:
 
 
 def main():
+    # Load AURA_EMAIL / AURA_PASSWORD from a local .env so the read-path demo can
+    # run without exporting shell vars. Shell-exported vars still win (override
+    # defaults to False), and a missing .env is a no-op — so a credential-less
+    # checkout still prints the guard and exits cleanly below.
+    load_dotenv()
+
     # Credential guard (D-07): mirror the Phase 2 test skip philosophy, but exit
     # cleanly instead of skipping. Aura.login() already defaults its args to these
     # same env vars (aura.py:36), so we only need to detect-and-message here.
