@@ -1,104 +1,34 @@
 # Roadmap: Aura Frames Python Client — Revive & Verify
 
-## Overview
+## Milestones
 
-This milestone revives a ~3-year-old reverse-engineered Aura Frames cloud client and proves
-its core read path still works. The journey runs in three sequential steps: first get the
-project installing and importing on a current Python 3.14 / `uv` toolchain (which forces a
-pydantic v1→v2 migration), then verify the live read path end-to-end against a real account
-(login → list frames → fetch assets → download one image with EXIF), and finally document the
-run flow and record a verification report capturing what still works versus where the
-undocumented API has drifted. Each phase must complete before the next can be verified.
+- ✅ **v1.0 Revive & Verify** — Phases 1-3 (shipped 2026-06-30)
+- 📋 **v2.0 (next)** — write/upload path verification + deferred hardening (not yet scoped — run `/gsd-new-milestone`)
 
 ## Phases
 
-**Phase Numbering:**
+<details>
+<summary>✅ v1.0 Revive & Verify (Phases 1-3) — SHIPPED 2026-06-30</summary>
 
-- Integer phases (1, 2, 3): Planned milestone work
-- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+Full detail archived in [`milestones/v1.0-ROADMAP.md`](./milestones/v1.0-ROADMAP.md).
 
-Decimal phases appear between their surrounding integers in numeric order.
+- [x] Phase 1: Toolchain Revival (2/2 plans) — completed 2026-06-29 — installs/imports on Python 3.14 via `uv`, model layer on pydantic v2
+- [x] Phase 2: Live Read-Path Verification (2/2 plans) — completed 2026-06-29 — login, list frames, paginated asset fetch, image download with EXIF verified live
+- [x] Phase 3: Run Docs & Verification Report (1/1 plan) — completed 2026-06-29 — documented `uv` setup/run + repo-root VERIFICATION-REPORT.md
 
-- [x] **Phase 1: Toolchain Revival** - Project installs and imports on Python 3.14 via `uv` with the model layer migrated to pydantic v2 (completed 2026-06-29)
-- [x] **Phase 2: Live Read-Path Verification** - Login, list frames, fetch assets, and download one image with EXIF verified against the live API (completed 2026-06-29)
-- [x] **Phase 3: Run Docs & Verification Report** - Documented `uv` setup/run commands plus a report of what works and where the API has drifted (completed 2026-06-29)
+</details>
 
-## Phase Details
+### 📋 v2.0 (next milestone — not yet scoped)
 
-### Phase 1: Toolchain Revival
+Candidates carried forward (commit via `/gsd-new-milestone`):
 
-**Goal**: The project installs, builds, and imports cleanly on Python 3.14 managed by `uv`, with the pydantic model layer running on v2.
-**Mode:** mvp
-**Depends on**: Nothing (first phase)
-**Requirements**: ENV-01, ENV-02, ENV-03
-**Success Criteria** (what must be TRUE):
-
-  1. `uv sync` resolves and installs every dependency on Python 3.14 with no build failures
-  2. A `pyproject.toml` defines the project and dependencies, and the UTF-16 `requirements.txt` is gone
-  3. `import auraframes` and all `auraframes/models/*` modules import without error under pydantic v2
-  4. Partial models (e.g. `FramePartial` via the `AllOptional` metaclass) still expose all fields as optional
-
-**Plans**: 2 plans
-Plans:
-**Wave 1**
-
-- [x] 01-01-PLAN.md — Migrate dependency management to `uv` + `pyproject.toml`, resolve all deps on Python 3.14, commit `uv.lock` (ENV-01, ENV-02)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 01-02-PLAN.md — Migrate the model layer to pydantic v2 (factory, field_validator, io serialization), import-clean package + smoke test (ENV-03)
-
-### Phase 2: Live Read-Path Verification
-
-**Goal**: The revived client performs the full read path against the live Aura API using real credentials.
-**Mode:** mvp
-**Depends on**: Phase 1
-**Requirements**: READ-01, READ-02, READ-03, READ-04
-**Success Criteria** (what must be TRUE):
-
-  1. The client logs in against the live API with real credentials and obtains a valid auth token / user id
-  2. The client lists the account's frames and prints their names and ids
-  3. The client fetches a chosen frame's assets, iterating all pages via the cursor-based pagination
-  4. The client downloads one asset image to disk with EXIF datetime + GPS readable in the saved file
-
-**Plans**: 2 plans
-
-Plans:
-**Wave 1**
-
-- [x] 02-01-PLAN.md — Trust + security foundation (raise_for_status, secret redaction, logs/ makedirs, live marker, login fixture) and verify login (READ-01) + frame listing (READ-02) live
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 02-02-PLAN.md — Parametrize pagination + harden EXIF/geocoder, verify paginated asset fetch (READ-03) + image download with EXIF read-back (READ-04) live
-
-### Phase 3: Run Docs & Verification Report
-
-**Goal**: A developer can set up and run the client from documented `uv` commands, and a report records the verified read-path status and any API drift.
-**Mode:** mvp
-**Depends on**: Phase 2
-**Requirements**: ENV-04, DOC-01
-**Success Criteria** (what must be TRUE):
-
-  1. A developer following only the documented `uv` commands can set up the environment and run the client from a clean checkout
-  2. Docs list the required env vars (`AURA_EMAIL`/`AURA_PASSWORD`, optional locale/device) and the exact `uv` run commands
-  3. A verification report records each read-path step (login, list, fetch, download) as working or drifted, with evidence
-  4. Any API drift or silent-error masking discovered during verification is documented with specifics
-
-**Plans**: 1 plan
-
-Plans:
-**Wave 1**
-
-- [x] 03-01-PLAN.md — Flesh `main.py` into a facade-only read-path demo, reconcile `README.md` to verified reality (uv commands + env vars + VERIFIED/UNVERIFIED), and write the repo-root `VERIFICATION-REPORT.md` from a fresh live run (ENV-04, DOC-01)
+- [ ] Verify the write/upload round-trip live (select_asset → S3 → SQS → batch_update)
+- [ ] Deferred hardening: MOD-01 async HTTP, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exception hierarchy
 
 ## Progress
 
-**Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Toolchain Revival | 2/2 | Complete    | 2026-06-29 |
-| 2. Live Read-Path Verification | 2/2 | Complete    | 2026-06-29 |
-| 3. Run Docs & Verification Report | 1/1 | Complete    | 2026-06-29 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Toolchain Revival | v1.0 | 2/2 | Complete | 2026-06-29 |
+| 2. Live Read-Path Verification | v1.0 | 2/2 | Complete | 2026-06-29 |
+| 3. Run Docs & Verification Report | v1.0 | 1/1 | Complete | 2026-06-29 |

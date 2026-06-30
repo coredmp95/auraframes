@@ -5,14 +5,19 @@
 An unofficial, reverse-engineered Python client for the Aura Frames (Pushd) digital
 photo-frame cloud API. It authenticates with an Aura *account* and pulls/pushes photos
 through the cloud API (`api.pushd.com/v5`) plus AWS S3/SQS — it does not talk to the
-frame over the local network. This milestone revives the ~3-year-old codebase so it runs
-again on a current toolchain and verifies the core read flow still works against the live
-service.
+frame over the local network. **v1.0 (shipped 2026-06-30)** revived the ~3-year-old
+codebase so it runs again on a current toolchain (Python 3.14 + `uv`, pydantic v2) and
+verified the core read flow (login → list → download) still works end-to-end against the
+live service.
 
 ## Core Value
 
 Prove the existing client still works end-to-end (login → list → download) on a current
 Python toolchain, so we know exactly what survives before building anything new.
+
+> ✓ **Achieved in v1.0.** The read path is proven live (login → list → 77-asset cursor
+> drain → image download with EXIF intact). The natural next core value is proving the
+> **write/upload path** (select_asset → S3 → SQS → batch_update) the same way.
 
 ## Requirements
 
@@ -39,9 +44,12 @@ Python toolchain, so we know exactly what survives before building anything new.
 
 ### Active
 
-<!-- This milestone: revive the toolchain and verify the read path. -->
+<!-- v1.0 fully validated. The next milestone starts fresh via /gsd-new-milestone;
+     the items below are candidates carried forward, not yet committed scope. -->
 
-- _All milestone requirements validated — see Validated above._
+- _All v1.0 requirements validated — see Validated above._
+- ⏭ (next-milestone candidate) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
+- ⏭ (next-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions)
 
 ### Out of Scope
 
@@ -52,6 +60,24 @@ Python toolchain, so we know exactly what survives before building anything new.
 - Async migration of the HTTP client — not required to revive; existing sync client is fine
 
 ## Context
+
+### Current state (after v1.0, 2026-06-30)
+
+- **Shipped v1.0** — read path proven live against `api.pushd.com/v5`. ~1,760 LOC Python.
+- **Tech stack:** Python 3.14 + `uv` (`pyproject.toml` + committed `uv.lock`), pydantic v2,
+  httpx 0.28, boto3 1.43, Pillow 12. Dependency manifest migrated off the broken UTF-16
+  `requirements.txt`.
+- **Verification:** credential-gated pytest live suite (READ-01–04) that skips cleanly
+  without creds; repo-root `VERIFICATION-REPORT.md` from a live run; `main.py` facade-only
+  read-path demo that loads `.env`.
+- **Post-verification hardening (this session):** `main.py` loads a local `.env`
+  (`python-dotenv` promoted to a runtime dep), and `Aura.login` now resolves credentials at
+  call time rather than import time — fixing an HTTP 475 caused by Python's early-bound
+  default arguments evaluating `os.getenv` before `load_dotenv()` ran.
+- **Known still-open tech debt (deferred, not blocking):** hardcoded AWS pool IDs / bucket
+  name, unguarded post-login state, silent `pass` on some API `error` fields, sync-only HTTP.
+
+### Original baseline
 
 - Codebase last touched April 2023; project mapped 2026-06-29 (see `.planning/codebase/`).
 - Development machine runs Python 3.14.4; no virtualenv exists yet.
@@ -77,11 +103,12 @@ Python toolchain, so we know exactly what survives before building anything new.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Adopt `uv` as package manager | Fast, manages venv + deps + interpreter via `pyproject.toml`; replaces broken UTF-16 `requirements.txt` | — Pending |
-| Target Python 3.14 (not pin an older interpreter) | Stay on the installed runtime; accept the dep upgrades it forces | — Pending |
-| Accept pydantic v1→v2 migration as a consequence of 3.14 | pydantic 1.10.4 won't build on 3.14; v2 is the supported path | — Pending |
-| Done bar = read path only (login → list → download) | Smallest proof the client is alive; upload deferred | — Pending |
-| Pragmatic modernization, not full cleanup | Goal is "verify where we are," not a rewrite | — Pending |
+| Adopt `uv` as package manager | Fast, manages venv + deps + interpreter via `pyproject.toml`; replaces broken UTF-16 `requirements.txt` | ✓ Good — 37 packages resolved on 3.14, `uv.lock` committed for reproducible installs |
+| Target Python 3.14 (not pin an older interpreter) | Stay on the installed runtime; accept the dep upgrades it forces | ✓ Good — all deps resolved to cp314 wheels, no sdist builds |
+| Accept pydantic v1→v2 migration as a consequence of 3.14 | pydantic 1.10.4 won't build on 3.14; v2 is the supported path | ✓ Good — `AllOptional` → `make_partial` factory, `@validator` → `@field_validator`, guarded by an import smoke test |
+| Done bar = read path only (login → list → download) | Smallest proof the client is alive; upload deferred | ✓ Good — read path proven live end-to-end; upload cleanly deferred to next milestone |
+| Pragmatic modernization, not full cleanup | Goal is "verify where we are," not a rewrite | ✓ Good — fixed only what blocked running + masked drift (fail-loud transport, secret redaction); broad refactors left as tracked debt |
+| Resolve login creds at call time, not import time | Early-bound default args evaluated `os.getenv` before `load_dotenv()`, sending null creds (HTTP 475) | ✓ Good — None-sentinel pattern + offline regression guard (debug `login-475-null-creds`) |
 
 ## Evolution
 
@@ -101,4 +128,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-29 after Phase 3 (Run Docs & Verification Report) completion — milestone complete: read path proven live, `uv` setup/run documented, and a repo-root VERIFICATION-REPORT.md records read-path status, four repaired model drifts, the deferred GPS swap, and the silent-error-masking fixes*
+*Last updated: 2026-06-30 after v1.0 (Revive & Verify) milestone completion — read path proven live end-to-end (login → list → 77-asset cursor drain → image download with EXIF), toolchain modernized to Python 3.14 + `uv` + pydantic v2, and post-verification hardening (.env loading + call-time credential resolution) landed. Next: `/gsd-new-milestone` to scope the write/upload path.*
