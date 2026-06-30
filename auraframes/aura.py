@@ -33,13 +33,18 @@ class Aura:
         self.asset_api = AssetApi(self._client)
         self.exif_writer = ExifWriter()
 
-    def login(self, email: str = os.getenv('AURA_EMAIL'), password: str = os.getenv('AURA_PASSWORD')):
+    def login(self, email: str = None, password: str = None):
         """
 
         :param email: The email of the account to authenticate with, defaults to ENVIRON['AURA_EMAIL']
         :param password: The password of the account to authenticate with, defaults to ENVIRON['AURA_PASSWORD']
         :return: Authenticated Aura object
         """
+        if email is None:
+            email = os.getenv('AURA_EMAIL')
+        if password is None:
+            password = os.getenv('AURA_PASSWORD')
+
         user = self.account_api.login(email, password)
 
         self._client.add_default_headers({
