@@ -37,6 +37,7 @@ dependencies = [
     { name = "piexif" },
     { name = "pillow" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
     { name = "requests" },
     { name = "tqdm" },
 ]
@@ -44,7 +45,6 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "pytest" },
-    { name = "python-dotenv" },
 ]
 
 [package.metadata]
@@ -59,7 +59,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.4" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "requests", specifier = ">=2.31" },
     { name = "tqdm", specifier = ">=4.66" },
 ]

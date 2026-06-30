@@ -14,10 +14,11 @@ dependencies = [
     "geopy>=2.4",
     "loguru>=0.7",
     "tqdm>=4.66",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "python-dotenv>=1.0"]
+dev = ["pytest>=8"]
 
 [build-system]
 requires = ["hatchling"]
