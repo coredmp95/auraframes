@@ -55,7 +55,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | Watch mode / background daemon sync | Too risky to run unattended against a write path that has never been exercised live before this milestone |
 | Bidirectional sync (frame → local pull) | Not requested; this milestone is local-directory-is-source-of-truth only |
 | Storage/quota reporting in `status`/`inspect` | Confirmed absent from the API's data model (no such field on `Frame` or `User`) — reporting `Frame.num_assets`/`contributors` instead |
-| Local manifest/state file for sync tracking | Only added if the Phase 2 live spike shows `md5_hash` isn't populated on read for pre-existing assets; not committed scope upfront |
+| Local manifest/state file for sync tracking | Only added if the Phase 6 live spike shows `md5_hash` isn't populated on read for pre-existing assets; not committed scope upfront |
 | Device-on-LAN / MITM traffic capture | Cloud-API is the goal; device recon is a later reverse-engineering milestone (carried forward from v1.0) |
 | Frame rendering / firmware reverse-engineering | Advanced track, depends on a working baseline first (carried forward from v1.0) |
 
@@ -65,25 +65,25 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | TBD | Pending |
-| CLI-02 | TBD | Pending |
-| CLI-03 | TBD | Pending |
-| CLI-04 | TBD | Pending |
-| WRITE-01 | TBD | Pending |
-| WRITE-02 | TBD | Pending |
-| WRITE-03 | TBD | Pending |
-| WRITE-04 | TBD | Pending |
-| WRITE-05 | TBD | Pending |
-| SYNC-01 | TBD | Pending |
-| SYNC-02 | TBD | Pending |
-| SYNC-03 | TBD | Pending |
-| SYNC-04 | TBD | Pending |
+| CLI-01 | Phase 5 | Pending |
+| CLI-02 | Phase 5 | Pending |
+| CLI-03 | Phase 6 | Pending |
+| CLI-04 | Phase 6 | Pending |
+| SYNC-01 | Phase 7 | Pending |
+| SYNC-02 | Phase 7 | Pending |
+| SYNC-03 | Phase 8 | Pending |
+| SYNC-04 | Phase 8 | Pending |
+| WRITE-01 | Phase 8 | Pending |
+| WRITE-02 | Phase 8 | Pending |
+| WRITE-03 | Phase 8 | Pending |
+| WRITE-04 | Phase 8 | Pending |
+| WRITE-05 | Phase 8 | Pending |
 
 **Coverage:**
 - v1 requirements: 13 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 13 ⚠️ (expected — roadmapper populates this next)
+- Mapped to phases: 13 ✓
+- Unmapped: 0 ✓ (100% coverage — every v1 requirement maps to exactly one phase)
 
 ---
 *Requirements defined: 2026-07-05*
-*Last updated: 2026-07-05 after milestone v2.0 kickoff (research-informed)*
+*Last updated: 2026-07-05 after roadmap creation — all 13 v1 requirements mapped to Phases 5-8*
