@@ -22,10 +22,9 @@ from auraframes.utils.io import build_path, write_model
 
 class Aura:
 
-    def __init__(self):
+    def __init__(self, client: Client | None = None):
         self._init_logger()
-        self._client = Client()
-        # TODO: Can probably use DI for passing around the client?
+        self._client = client or Client()
         self.account_api = AccountApi(self._client)
         self.frame_api = FrameApi(self._client)
         self.people_api = PeopleApi(self._client)

@@ -8,7 +8,10 @@ through the cloud API (`api.pushd.com/v5`) plus AWS S3/SQS — it does not talk 
 frame over the local network. **v1.0 (shipped 2026-06-30)** revived the ~3-year-old
 codebase so it runs again on a current toolchain (Python 3.14 + `uv`, pydantic v2) and
 verified the core read flow (login → list → download) still works end-to-end against the
-live service.
+live service. **v1.1 (shipped 2026-07-05)** added a `Client`/`Aura` dependency-injection
+transport seam and a reusable offline `httpx.MockTransport` test harness, lifting most of
+the read-path test suite off the live network while a byte-identical `@live` suite
+remains the drift oracle.
 
 ## Core Value
 
@@ -16,8 +19,10 @@ Prove the existing client still works end-to-end (login → list → download) o
 Python toolchain, so we know exactly what survives before building anything new.
 
 > ✓ **Achieved in v1.0.** The read path is proven live (login → list → 77-asset cursor
-> drain → image download with EXIF intact). The natural next core value is proving the
-> **write/upload path** (select_asset → S3 → SQS → batch_update) the same way.
+> drain → image download with EXIF intact). **v1.1** made that proof cheap to re-run
+> (offline, no credentials) without weakening it — the `@live` suite still exists as the
+> ground truth. The natural next core value is proving the **write/upload path**
+> (select_asset → S3 → SQS → batch_update) the same way.
 
 ## Requirements
 
@@ -41,15 +46,17 @@ Python toolchain, so we know exactly what survives before building anything new.
 - ✓ Fetching a frame's assets with cursor pagination verified live — 77 assets across multiple pages (READ-03) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Downloading one image with EXIF (datetime + GPS) read back from disk verified live (READ-04) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Documented `uv` setup/run commands + env vars and a repo-root VERIFICATION-REPORT.md recording read-path status and API drift (ENV-04, DOC-01) — Validated in Phase 3: Run Docs & Verification Report
+- ✓ `Client`/`Aura` dependency-injection transport seam (`Client(transport=...)`, `Aura(client=...)`) plus a reusable offline `httpx.MockTransport` test harness and sanitized fixtures, lifting most of `test_read_path.py`'s assertions off the live network while leaving the `@live` suite untouched as the drift oracle (R4-SEAM-CLIENT, R4-SEAM-AURA, R4-FIXTURES, R4-FIXTURE-VALIDITY, R4-HARNESS, R4-OFFLINE-TESTS, R4-LIVE-UNCHANGED) — Validated in Phase 4: Client Transport Seam for Offline Testability
 
 ### Active
 
-<!-- v1.0 fully validated. The next milestone starts fresh via /gsd-new-milestone;
+<!-- v1.0 and v1.1 fully validated. The next milestone starts fresh via /gsd-new-milestone;
      the items below are candidates carried forward, not yet committed scope. -->
 
-- _All v1.0 requirements validated — see Validated above._
+- _All v1.0 and v1.1 requirements validated — see Validated above._
 - ⏭ (next-milestone candidate) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- ⏭ (next-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions)
+- ⏭ (next-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
+- ⏭ (next-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 
 ### Out of Scope
 
@@ -61,19 +68,31 @@ Python toolchain, so we know exactly what survives before building anything new.
 
 ## Context
 
-### Current state (after v1.0, 2026-06-30)
+### Current state (after v1.1, 2026-07-05)
 
 - **Shipped v1.0** — read path proven live against `api.pushd.com/v5`. ~1,760 LOC Python.
+- **Shipped v1.1** — `Client`/`Aura` DI transport seam + offline `httpx.MockTransport`
+  harness; ~1,942 LOC Python (`auraframes` + `tests` + `main.py`).
 - **Tech stack:** Python 3.14 + `uv` (`pyproject.toml` + committed `uv.lock`), pydantic v2,
   httpx 0.28, boto3 1.43, Pillow 12. Dependency manifest migrated off the broken UTF-16
   `requirements.txt`.
 - **Verification:** credential-gated pytest live suite (READ-01–04) that skips cleanly
   without creds; repo-root `VERIFICATION-REPORT.md` from a live run; `main.py` facade-only
   read-path demo that loads `.env`.
-- **Post-verification hardening (this session):** `main.py` loads a local `.env`
+- **Post-verification hardening:** `main.py` loads a local `.env`
   (`python-dotenv` promoted to a runtime dep), and `Aura.login` now resolves credentials at
   call time rather than import time — fixing an HTTP 475 caused by Python's early-bound
   default arguments evaluating `os.getenv` before `load_dotenv()` ran.
+- **Phase 4 (2026-07-04):** Landed architecture-review candidate #1 — an additive DI seam
+  (`Client(transport=...)`, `Aura(client=...)`, closing the old `# TODO: Can probably use DI`)
+  plus a reusable offline test harness (`tests/offline.py`, `httpx.MockTransport`-backed) and
+  5 sanitized JSON fixtures. Most of `test_read_path.py`'s assertions (login headers, frame
+  hydration, pagination drain, both error-raise mechanisms) now run offline with zero
+  credentials/network; the live `@live` suite is byte-identical and remains the drift oracle.
+  Code review flagged one pre-existing bug as a warning (not fixed here): `Aura._init_logger()`
+  leaks loguru sinks/log files on repeated `Aura()` construction, amplified by the new
+  per-test `offline_aura()` pattern. Candidates #2 (authenticated value) and #4 (injected
+  config) remain open for a future phase to complete the "lift tests off the live network" slice.
 - **Known still-open tech debt (deferred, not blocking):** hardcoded AWS pool IDs / bucket
   name, unguarded post-login state, silent `pass` on some API `error` fields, sync-only HTTP.
 
@@ -109,6 +128,8 @@ Python toolchain, so we know exactly what survives before building anything new.
 | Done bar = read path only (login → list → download) | Smallest proof the client is alive; upload deferred | ✓ Good — read path proven live end-to-end; upload cleanly deferred to next milestone |
 | Pragmatic modernization, not full cleanup | Goal is "verify where we are," not a rewrite | ✓ Good — fixed only what blocked running + masked drift (fail-loud transport, secret redaction); broad refactors left as tracked debt |
 | Resolve login creds at call time, not import time | Early-bound default args evaluated `os.getenv` before `load_dotenv()`, sending null creds (HTTP 475) | ✓ Good — None-sentinel pattern + offline regression guard (debug `login-475-null-creds`) |
+| Additive `Client(transport=...)` / `Aura(client=...)` DI seam, zero-arg-compatible | Closes the old DI TODO without breaking any existing caller (`main.py`, live tests) | ✓ Good — both constructors stay zero-arg; live suite byte-identical after the change |
+| Fixture JSON authored entirely synthetic, not recorded from the live API | Safer sanitization posture — no real secret ever exists in a fixture to leak | ✓ Good — 5 fixtures pass model-hydration + fixture-validity tests |
 
 ## Evolution
 
@@ -128,4 +149,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-30 after v1.0 (Revive & Verify) milestone completion — read path proven live end-to-end (login → list → 77-asset cursor drain → image download with EXIF), toolchain modernized to Python 3.14 + `uv` + pydantic v2, and post-verification hardening (.env loading + call-time credential resolution) landed. Next: `/gsd-new-milestone` to scope the write/upload path.*
+*Last updated: 2026-07-05 after v1.1 milestone (Client Transport Seam for Offline Testability) shipped — added the `Client`/`Aura` DI seam and an offline `httpx.MockTransport` test harness, lifting most of `test_read_path.py` off the live network while keeping the `@live` suite as the drift oracle. Next: `/gsd-new-milestone` to scope the write/upload path, or continue the "lift tests off the live network" slice with candidates #2/#4.*

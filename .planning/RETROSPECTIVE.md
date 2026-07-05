@@ -40,6 +40,41 @@
 
 ---
 
+## Milestone: v1.1 — Client Transport Seam
+
+**Shipped:** 2026-07-05
+**Phases:** 1 | **Plans:** 3
+
+### What Was Built
+- Additive `Client(transport=...)` / `Aura(client=...)` dependency-injection seam — zero-arg callers (`main.py`, existing live tests) unaffected — closing the long-standing `# TODO: Can probably use DI` in `aura.py`.
+- 5 sanitized, entirely synthetic fixture JSON files (login, frames, 2-page assets, error envelope) plus a fixture-validity pytest hydrating each against `User`/`Frame`/`Asset`.
+- Reusable offline test harness (`tests/offline.py`): an `httpx.MockTransport` router keyed by resolved path, with a per-test overrides dict checked before the default routing branches.
+- A 5-test offline mirror of `test_read_path.py` (`tests/test_offline_read_path.py`) covering login headers, frame hydration, pagination drain, and both error-raise mechanisms — all part of the default (unmarked) `pytest` run, zero network/credentials required.
+
+### What Worked
+- **Architecture review before planning.** A `/grilling` session settled the DI seam's exact shape (`transport=None`, `client=None`, both additive) before any code was written, so all 3 plans executed without a design change mid-flight.
+- **Synthetic fixtures over recorded ones.** Hand-authoring fixture JSON instead of recording and scrubbing real API responses removed the sanitization risk entirely — there was never a real secret in the file to miss.
+- **Keeping the `@live` suite as drift oracle.** Verification explicitly diffed `tests/conftest.py` and `tests/test_read_path.py` byte-for-byte against the pre-phase commit, proving the offline work was purely additive.
+
+### What Was Inefficient
+- **`Aura._init_logger()` sink leak surfaced but not fixed.** Code review flagged that repeated `Aura()` construction leaks loguru sinks/log files, amplified by the new per-test `offline_aura()` pattern — correctly deferred rather than scope-crept into this phase, but it's now a known cost every future offline test pays.
+- **Milestone boundary ambiguity.** Phase 4 was executed and verified under `STATE.md`'s `milestone: v1.0`, but v1.0 had already been archived (phases 1-3) before Phase 4 started — closing this milestone required manually reconciling which version Phase 4 belonged to instead of it being unambiguous from state.
+
+### Patterns Established
+- **Path + query-param MockTransport router**, matching on the fully-resolved `/v5`-prefixed path and branching pagination fixtures on `next_page_cursor` truthiness — the template for any future offline test harness in this codebase.
+- **Assign a milestone version to a phase at insertion time**, not at close time — avoids the ambiguity this milestone hit when a promoted backlog phase (`999.1` → `04`) wasn't tagged with a target version up front.
+
+### Key Lessons
+1. Settling architecture via a dedicated review session (`/grilling`) before planning pays off directly in plan stability — zero design churn across 3 plans.
+2. Synthetic-not-recorded fixtures are a strictly safer default for any offline test harness touching auth-adjacent payloads.
+3. When a phase is promoted from backlog outside the normal roadmap flow, tag its target milestone version immediately — don't leave it to be inferred at `/gsd-complete-milestone` time.
+
+### Cost Observations
+- Sessions: phase spanned 2026-07-01 (research/planning) → 2026-07-05 (execution/verification/close), with most execution concentrated in a single 2026-07-04 session (~6 min total across 3 plans per STATE.md timing).
+- Notable: all 3 plans combined took under 10 minutes of recorded execution time — the architecture review upfront (not tracked here) was the actual bulk of the effort, not the coding.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -47,9 +82,11 @@
 | Milestone | Phases | Plans | Key Change |
 |-----------|--------|-------|------------|
 | v1.0 | 3 | 5 | Established read-path-only done bar, credential-gated live tests, and GSD debug/quick workflows |
+| v1.1 | 1 | 3 | Architecture review (`/grilling`) before planning; additive DI seam pattern; offline `MockTransport` test harness pattern |
 
 ### Cumulative Quality
 
 | Milestone | Live tests | Toolchain | Notes |
 |-----------|-----------|-----------|-------|
 | v1.0 | READ-01–04 (skip without creds) | Python 3.14 + uv + pydantic v2 | Read path proven live; upload path deferred to v2.0 |
+| v1.1 | READ-01–04 unchanged (drift oracle) + 5 offline tests + 4 fixture-validity tests | unchanged | Read-path assertions now dual-covered: offline (fast, no creds) + live (drift oracle) |

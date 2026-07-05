@@ -1,42 +1,43 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-current_phase: 0
-status: Awaiting next milestone
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-30T18:35:54.676Z"
-last_activity: 2026-06-30
-last_activity_desc: Milestone v1.0 completed and archived
+milestone: v1.1
+milestone_name: client-transport-seam
+current_phase: 04
+status: shipped
+stopped_at: Milestone v1.1 archived
+last_updated: "2026-07-05T00:00:00.000Z"
+last_activity: 2026-07-05
+last_activity_desc: Milestone v1.1 shipped
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 8
+  completed_plans: 8
   percent: 100
+current_phase_name: client-transport-seam-for-offline-testability
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-29)
+See: .planning/PROJECT.md (updated 2026-07-05)
 
 **Core value:** Prove the existing client still works end-to-end (login → list → download) on a current Python toolchain, so we know exactly what survives before building anything new.
-**Current focus:** Milestone complete
+**Current focus:** v1.1 complete (Phase 4 shipped) — v2.0 not yet scoped, run `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
-Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-30 — Milestone v1.0 completed and archived
+Phase: 04 (shipped as v1.1)
+Plan: None — awaiting next milestone
+Status: Milestone v1.1 shipped
+Last activity: 2026-07-05 — Milestone v1.1 archived
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
+- Total plans completed: 8
 - Average duration: — min
 - Total execution time: 0.0 hours
 
@@ -47,6 +48,7 @@ Last activity: 2026-06-30 — Milestone v1.0 completed and archived
 | 01 | 2 | - | - |
 | 02 | 2 | - | - |
 | 03 | 1 | - | - |
+| 04 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -59,6 +61,9 @@ Last activity: 2026-06-30 — Milestone v1.0 completed and archived
 | Phase 02 P01 | 12 | 3 tasks | 7 files |
 | Phase 02 P02 | 8 | 2 tasks | 4 files |
 | Phase 03 P01 | 18 | 3 tasks | 3 files |
+| Phase 04 P01 | 1min | 2 tasks | 2 files |
+| Phase 04 P02 | 2min | 2 tasks | 6 files |
+| Phase 04 P03 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -84,6 +89,12 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 2 P2]: EXIF-write except re-raises (no 0-byte saves); geocode except tolerated; Nominatim UA made ToS-compliant (D-11)
 - [Phase ?]: [Phase 3 P1]: main.py is a facade-only read-path demo with a credential guard (D-06/D-07)
 - [Phase ?]: [Phase 3 P1]: VERIFICATION-REPORT.md at repo root cites 02-LIVE-EVIDENCE.md (D-04); fresh 2026-06-29 run 4 passed/9 deselected
+- [Phase ?]: Used native httpx.BaseTransport | None union syntax for Client transport param (RESEARCH Pattern 1)
+- [Phase ?]: Removed the DI TODO comment in aura.py outright rather than rephrasing it
+- [Phase ?]: [Phase 4 P2]: Fixture JSON authored entirely synthetic (no real recorded API response) — safer sanitization posture, no real secret ever exists to leak
+- [Phase ?]: [Phase 4 P2]: assets_page1/page2 fixtures distinguished by next_page_cursor truthiness + distinct asset ids for Plan 03's query-param router
+- [Phase ?]: [Phase 4 P3]: offline_aura()'s overrides mechanism is a plain dict keyed by the fully-resolved path, checked before the router's default branches
+- [Phase ?]: [Phase 4 P3]: test_offline_http_status_error_raises builds its own one-off Client(transport=MockTransport(...)) rather than going through offline_aura(), since it only needs Client's raise_for_status behavior
 
 ### Pending Todos
 
@@ -111,8 +122,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-29T14:18:10.694Z
-Stopped at: Phase 3 context gathered
+Last session: 2026-07-05T00:00:00.000Z
+Stopped at: Milestone v1.1 (Phase 4: Client Transport Seam for Offline Testability) archived — UAT 8/8 passed, verification 7/7 passed, security verified
 Resume file: None
 
 ## Operator Next Steps

@@ -42,13 +42,13 @@ def _redact(value):
 
 class Client:
 
-    def __init__(self, history_len: int = 30):
+    def __init__(self, history_len: int = 30, transport: httpx.BaseTransport | None = None):
         self.http2_client = httpx.Client(http2=True, base_url=f'{AURA_API_BASE_URL}/{AURA_API_VERSION}', headers={
             'accept-language': 'en-US',
             'cache-control': 'no-cache',
             'user-agent': USER_AGENT,
             'content-type': 'application/json; charset=utf-8',
-        }, timeout=Timeout(timeout=20.0))
+        }, timeout=Timeout(timeout=20.0), transport=transport)
 
         self.history: Deque[Response] = deque(maxlen=history_len)
 
