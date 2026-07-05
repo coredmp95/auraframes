@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: client-transport-seam
-current_phase: 04
-status: shipped
-stopped_at: Milestone v1.1 archived
-last_updated: "2026-07-05T00:00:00.000Z"
+milestone: v2.0
+milestone_name: Directory-to-Frame Sync
+status: planning
+last_updated: "2026-07-05T16:16:03.100Z"
 last_activity: 2026-07-05
-last_activity_desc: Milestone v1.1 shipped
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
-current_phase_name: client-transport-seam-for-offline-testability
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -24,14 +20,14 @@ current_phase_name: client-transport-seam-for-offline-testability
 See: .planning/PROJECT.md (updated 2026-07-05)
 
 **Core value:** Prove the existing client still works end-to-end (login → list → download) on a current Python toolchain, so we know exactly what survives before building anything new.
-**Current focus:** v1.1 complete (Phase 4 shipped) — v2.0 not yet scoped, run `/gsd-new-milestone`
+**Current focus:** v2.0 Directory-to-Frame Sync — defining requirements and roadmap
 
 ## Current Position
 
-Phase: 04 (shipped as v1.1)
-Plan: None — awaiting next milestone
-Status: Milestone v1.1 shipped
-Last activity: 2026-07-05 — Milestone v1.1 archived
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-07-05 — Milestone v2.0 started
 
 ## Performance Metrics
 
@@ -122,10 +118,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05T00:00:00.000Z
-Stopped at: Milestone v1.1 (Phase 4: Client Transport Seam for Offline Testability) archived — UAT 8/8 passed, verification 7/7 passed, security verified
+Last session: 2026-07-05T16:16:03.100Z
+Stopped at: Milestone v2.0 (Directory-to-Frame Sync) started — defining requirements and roadmap
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Continue /gsd-new-milestone through requirements and roadmap creation

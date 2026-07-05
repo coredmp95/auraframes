@@ -21,8 +21,31 @@ Python toolchain, so we know exactly what survives before building anything new.
 > ✓ **Achieved in v1.0.** The read path is proven live (login → list → 77-asset cursor
 > drain → image download with EXIF intact). **v1.1** made that proof cheap to re-run
 > (offline, no credentials) without weakening it — the `@live` suite still exists as the
-> ground truth. The natural next core value is proving the **write/upload path**
-> (select_asset → S3 → SQS → batch_update) the same way.
+> ground truth. **v2.0** shifts the core value: prove the **write path** the same way,
+> and turn that proof into a real usable capability — syncing a local photo directory to
+> a frame — rather than another internal-only verification pass.
+
+## Current Milestone: v2.0 Directory-to-Frame Sync
+
+**Goal:** Ship a real, usable CLI — mirror a local photo directory to an Aura frame,
+plus diagnostics — verifying the write path live for the first time.
+
+**Target features:**
+- `sync <dir> --frame <name/id>` — full mirror (upload new, delete removed), content-hash
+  diffing, dry-run by default, `--apply`/`--yes` to execute
+- `inspect --frame <name/id>` — list photos currently on the frame + frame metadata
+  (name, owner, member count, stats)
+- `status` — config/auth health check (creds set? login succeeds? which account?) +
+  account info (frames on the account); storage/quota added only if research finds an
+  actual API field for it
+- Live verification: `select_asset → S3 → SQS → batch_update` upload path, plus the
+  delete/remove path, proven against a real account/frame
+- Frame targeting by name or ID (explicit `--frame` arg)
+
+**Key context:** No CLI exists today (`main.py` is a demo only) — this is the first
+user-facing entry point. Full-mirror deletion is destructive, so dry-run-first is a hard
+safety default. Done = a real round-trip on the user's live frame with a test directory,
+verified visually + via `inspect`.
 
 ## Requirements
 
@@ -50,13 +73,15 @@ Python toolchain, so we know exactly what survives before building anything new.
 
 ### Active
 
-<!-- v1.0 and v1.1 fully validated. The next milestone starts fresh via /gsd-new-milestone;
-     the items below are candidates carried forward, not yet committed scope. -->
+<!-- v1.0 and v1.1 fully validated. v2.0 (Directory-to-Frame Sync) is in progress —
+     see Current Milestone above; full requirement list will be scoped into
+     REQUIREMENTS.md via /gsd-new-milestone. -->
 
 - _All v1.0 and v1.1 requirements validated — see Validated above._
-- ⏭ (next-milestone candidate) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- ⏭ (next-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
-- ⏭ (next-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
+- 🚧 (v2.0, in progress) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
+- 🚧 (v2.0, in progress) `sync`/`inspect`/`status` CLI commands (see Current Milestone above)
+- ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
+- ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 
 ### Out of Scope
 
@@ -149,4 +174,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 after v1.1 milestone (Client Transport Seam for Offline Testability) shipped — added the `Client`/`Aura` DI seam and an offline `httpx.MockTransport` test harness, lifting most of `test_read_path.py` off the live network while keeping the `@live` suite as the drift oracle. Next: `/gsd-new-milestone` to scope the write/upload path, or continue the "lift tests off the live network" slice with candidates #2/#4.*
+*Last updated: 2026-07-05 — started milestone v2.0 (Directory-to-Frame Sync): a CLI (`sync`/`inspect`/`status`) that mirrors a local photo directory to a live Aura frame, verifying the write/delete path live for the first time. Next: `/gsd-new-milestone`'s requirements/roadmap steps, then `/gsd-discuss-phase`.*
