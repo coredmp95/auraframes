@@ -50,10 +50,11 @@ formats for `inspect` (see Deferred), promoting `--debug` beyond what's folded i
 - **D-07:** Photos are listed in the **API's natural order** — no client-side re-sorting
   by `taken_at` or otherwise. Simplest, and avoids assuming a stable/meaningful field
   ordering from an undocumented API.
-- **D-08:** A `--format json`/`--format csv` full-export flag is **deferred**, not built
-  in this phase — see Deferred Ideas. It duplicates the already-deferred `SYNC-06`
-  ("--json machine-readable output for scripting") and should be designed once, for both
-  `inspect` and `sync`, not half-built here.
+- **D-08 [informational]:** A `--format json`/`--format csv` full-export flag is
+  **deferred**, not built in this phase — see Deferred Ideas. It duplicates the
+  already-deferred `SYNC-06` ("--json machine-readable output for scripting") and should
+  be designed once, for both `inspect` and `sync`, not half-built here. Scope-exclusion
+  decision only — no plan action required; both Phase 6 plans correctly omit it.
 
 ### Frame Metadata Display
 - **D-09:** Owner is shown as **both name and email** (`Frame.user.name` +

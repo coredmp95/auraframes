@@ -69,8 +69,12 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   4. It is confirmed live whether `md5_hash` is populated on read for pre-existing (non-client-uploaded) assets, documented as the input to Phase 7's design
 
 **Plans**: 2 plans
+**Wave 1**
 
 - [ ] 06-01-PLAN.md — `inspect` subcommand: frame resolution (name substring + id fallback), photo + metadata display, root-level `--debug` promotion, full offline test coverage
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 06-02-PLAN.md — Live `md5_hash` spike via `inspect --debug`; document the Phase 7 design input in STATE.md/PROJECT.md; close the folded `--debug` todo
 
 ### Phase 7: Sync-Diffing Engine (Dry-Run Only)
