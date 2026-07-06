@@ -5,8 +5,8 @@ milestone_name: Directory-to-Frame Sync
 current_phase: 6
 current_phase_name: Inspect + Frame Resolution
 status: ready_to_plan
-stopped_at: Phase 05 complete, ready to plan Phase 06
-last_updated: "2026-07-06T14:15:00.000Z"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-07-06T14:41:24.299Z"
 last_activity: 2026-07-06
 last_activity_desc: Phase 05 complete, transitioned to Phase 6
 progress:
@@ -98,9 +98,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-06T14:15:00.000Z
-Stopped at: Phase 05 complete, ready to plan Phase 06
-Resume file: None
+Last session: 2026-07-06T14:41:24.293Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-inspect-frame-resolution/06-CONTEXT.md
 
 ## Operator Next Steps
 
