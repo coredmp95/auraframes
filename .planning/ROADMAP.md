@@ -51,9 +51,10 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   3. Running `status` attempts login and reports success/failure plus which account authenticated
   4. `status` lists the frames on the authenticated account
 
-**Plans**: 1/1 plans complete
+**Plans**: 1/2 plans complete (gap closure pending)
 
 - [x] 05-01-PLAN.md — Packaged `aura-cli` entrypoint + argparse skeleton + `status` command (config health, login, frame listing) with offline tests
+- [ ] 05-02-PLAN.md — Gap closure: suppress verbose loguru stderr in `status` by default, add opt-in `--debug` flag, add stderr assertions to tests
 
 ### Phase 6: Inspect + Frame Resolution
 
