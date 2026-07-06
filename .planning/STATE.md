@@ -5,10 +5,10 @@ milestone_name: Directory-to-Frame Sync
 current_phase: 05
 current_phase_name: cli-skeleton-status
 status: verifying
-stopped_at: Phase 5 context gathered
-last_updated: "2026-07-06T08:01:04.451Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-07-06T12:38:40.463Z"
 last_activity: 2026-07-06
-last_activity_desc: Phase 05 execution started
+last_activity_desc: Plan 05-01 executed (aura-cli status command)
 progress:
   total_phases: 4
   completed_phases: 1
@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-07-05)
 Phase: 05 (cli-skeleton-status) — EXECUTING
 Plan: 1 of 1
 Status: Phase complete — ready for verification
-Last activity: 2026-07-06 — Phase 05 execution started
+Last activity: 2026-07-06 — Plan 05-01 executed (aura-cli status command)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100% (plan 1/1 of Phase 5)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 | 5-8 | v2.0 | TBD | Not started |
 
 *Updated after each plan completion*
+| Phase 05 P01 | 3min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Safety-first roadmap ordering: Phases 5-7 touch only already-live-verified read endpoints; all new write-path risk is sequenced into Phase 8
 - Dry-run is a structural default (separate `compute_plan()`/`execute_plan()`), not an `if apply:` flag — decided at research time, to be enforced in Phase 7
 - Additive `Client(transport=...)` / `Aura(client=...)` DI seam (from v1.1) is available to drive the CLI/sync stack offline in tests
+- [Phase 05-01]: run_status() never calls sys.exit — returns an int exit code; main() is the only sys.exit boundary, keeping the handler synchronously testable via capsys — Mirrors the Aura(client=...) DI seam pattern established in v1.1 so CLI handlers are testable offline without invoking load_dotenv() or process exit
 
 ### Pending Todos
 
@@ -93,10 +95,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-06T05:48:48.471Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-cli-skeleton-status/05-CONTEXT.md
+Last session: 2026-07-06T12:37:27.546Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
-- Run `/gsd-discuss-phase 5` (or `/gsd-plan-phase 5`) to begin Phase 5: CLI Skeleton + Status
+- Phase 5 (CLI Skeleton + Status) plan 05-01 executed — `aura-cli status` is packaged, tested offline, and installed. Run `/gsd-verify-work 5` (or the phase verification step) to confirm success criteria, then `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution.

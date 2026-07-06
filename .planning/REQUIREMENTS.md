@@ -17,8 +17,8 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
 
 ### CLI Foundation
 
-- [ ] **CLI-01**: CLI entrypoint packaged as a runnable command, distinct from the existing `main.py` facade-demo script
-- [ ] **CLI-02**: `status` command reports config/auth health (are `AURA_EMAIL`/`AURA_PASSWORD` set? does login succeed? which account?) plus account info (frames on the account)
+- [x] **CLI-01**: CLI entrypoint packaged as a runnable command, distinct from the existing `main.py` facade-demo script
+- [x] **CLI-02**: `status` command reports config/auth health (are `AURA_EMAIL`/`AURA_PASSWORD` set? does login succeed? which account?) plus account info (frames on the account)
 - [ ] **CLI-03**: `inspect --frame <name|id>` command lists photos currently on the frame (id/filename/date) plus frame metadata (name, owner, contributor count, asset count)
 - [ ] **CLI-04**: Frame targeting works by human-readable name or opaque ID, with a clear error if a name match is ambiguous
 
@@ -65,8 +65,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLI-01 | Phase 5 | Pending |
-| CLI-02 | Phase 5 | Pending |
+| CLI-01 | Phase 5 | Complete |
+| CLI-02 | Phase 5 | Complete |
 | CLI-03 | Phase 6 | Pending |
 | CLI-04 | Phase 6 | Pending |
 | SYNC-01 | Phase 7 | Pending |
@@ -80,6 +80,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WRITE-05 | Phase 8 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 13 total
 - Mapped to phases: 13 ✓
 - Unmapped: 0 ✓ (100% coverage — every v1 requirement maps to exactly one phase)
