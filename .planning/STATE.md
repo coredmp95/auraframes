@@ -70,7 +70,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Pending Todos
 
-None yet.
+- Promote `--debug` flag to a global CLI convention (area: cli) — apply the Phase 05-02 quiet-by-default logging pattern to future subcommands (`inspect`, `sync`, `upload`) instead of duplicating it per-subcommand. See `.planning/todos/pending/2026-07-06-promote-debug-flag-to-a-global-cli-convention.md`.
 
 ### Blockers/Concerns
 
