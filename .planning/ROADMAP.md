@@ -51,10 +51,10 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   3. Running `status` attempts login and reports success/failure plus which account authenticated
   4. `status` lists the frames on the authenticated account
 
-**Plans**: 1/2 plans complete (gap closure pending)
+**Plans**: 2/2 plans complete
 
 - [x] 05-01-PLAN.md — Packaged `aura-cli` entrypoint + argparse skeleton + `status` command (config health, login, frame listing) with offline tests
-- [ ] 05-02-PLAN.md — Gap closure: suppress verbose loguru stderr in `status` by default, add opt-in `--debug` flag, add stderr assertions to tests
+- [x] 05-02-PLAN.md — Gap closure: suppress verbose loguru stderr in `status` by default, add opt-in `--debug` flag, add stderr assertions to tests
 
 ### Phase 6: Inspect + Frame Resolution
 
@@ -106,7 +106,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 2. Live Read-Path Verification | v1.0 | 2/2 | Complete | 2026-06-29 |
 | 3. Run Docs & Verification Report | v1.0 | 1/1 | Complete | 2026-06-29 |
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
-| 5. CLI Skeleton + Status | v2.0 | 1/1 | Complete   | 2026-07-06 |
+| 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete   | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 0/? | Not started | - |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 0/? | Not started | - |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |

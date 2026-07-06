@@ -5,15 +5,15 @@ milestone_name: Directory-to-Frame Sync
 current_phase: 05
 current_phase_name: cli-skeleton-status
 status: verifying
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-07-06T12:38:40.463Z"
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-07-06T13:48:33.386Z"
 last_activity: 2026-07-06
-last_activity_desc: Plan 05-01 executed (aura-cli status command)
+last_activity_desc: Plan 05-02 executed (quiet-by-default CLI logging + --debug flag)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 2
+  completed_plans: 2
   percent: 25
 ---
 
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-07-05)
 
 ## Current Position
 
-Phase: 05 (cli-skeleton-status) — EXECUTING
-Plan: 1 of 1
+Phase: 05 (cli-skeleton-status) — VERIFYING
+Plan: 2 of 2
 Status: Phase complete — ready for verification
-Last activity: 2026-07-06 — Plan 05-01 executed (aura-cli status command)
+Last activity: 2026-07-06 — Plan 05-02 executed (quiet-by-default CLI logging + --debug flag)
 
-Progress: [██████████] 100% (plan 1/1 of Phase 5)
+Progress: [██████████] 100% (plan 2/2 of Phase 5)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [██████████] 100% (plan 1/1 of Phase 5)
 
 *Updated after each plan completion*
 | Phase 05 P01 | 3min | 3 tasks | 3 files |
+| Phase 05 P02 | 21min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Dry-run is a structural default (separate `compute_plan()`/`execute_plan()`), not an `if apply:` flag — decided at research time, to be enforced in Phase 7
 - Additive `Client(transport=...)` / `Aura(client=...)` DI seam (from v1.1) is available to drive the CLI/sync stack offline in tests
 - [Phase 05-01]: run_status() never calls sys.exit — returns an int exit code; main() is the only sys.exit boundary, keeping the handler synchronously testable via capsys — Mirrors the Aura(client=...) DI seam pattern established in v1.1 so CLI handlers are testable offline without invoking load_dotenv() or process exit
+- [Phase 05-02]: Because `aura.py`'s `_init_logger()` is frozen (D-04), the verbose-stderr UAT gap is fixed from the CLI boundary — `_configure_cli_logging()` calls `logger.remove()` then re-adds the file sink + a WARNING-level stderr sink after `Aura()` construction, rather than editing the frozen file
 
 ### Pending Todos
 
@@ -95,10 +97,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-06T12:37:27.546Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-07-06T13:48:33.386Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 5 (CLI Skeleton + Status) plan 05-01 executed — `aura-cli status` is packaged, tested offline, and installed. Run `/gsd-verify-work 5` (or the phase verification step) to confirm success criteria, then `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution.
+- Phase 5 (CLI Skeleton + Status) is now fully executed (2/2 plans) — `aura-cli status` is packaged, tested offline, quiet by default with an opt-in `--debug` flag, and the diagnosed UAT gap is closed. Run `/gsd-verify-work 5` (or the phase verification step) to confirm success criteria, then `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution.
