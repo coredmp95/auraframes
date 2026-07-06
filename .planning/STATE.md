@@ -4,9 +4,9 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 5
 current_phase_name: CLI Skeleton + Status
-status: planning
+status: executing
 stopped_at: Phase 5 context gathered
-last_updated: "2026-07-06T05:48:48.477Z"
+last_updated: "2026-07-06T06:07:58.031Z"
 last_activity: 2026-07-05
 last_activity_desc: Roadmap created; 13 v1 requirements mapped to Phases 5-8
 progress:
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-05)
 
 Phase: 5 of 8 (CLI Skeleton + Status) — first phase of the v2.0 milestone
 Plan: — (not yet planned)
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-05 — Roadmap created; 13 v1 requirements mapped to Phases 5-8
 
 Progress: [░░░░░░░░░░] 0%
