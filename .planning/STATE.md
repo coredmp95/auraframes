@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
+current_phase: 5
+current_phase_name: CLI Skeleton + Status
 status: planning
-last_updated: "2026-07-05T19:15:00.000Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-07-06T05:48:48.477Z"
 last_activity: 2026-07-05
+last_activity_desc: Roadmap created; 13 v1 requirements mapped to Phases 5-8
 progress:
   total_phases: 4
   completed_phases: 0
@@ -89,9 +93,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-05 19:15
-Stopped at: ROADMAP.md created for v2.0 — Phases 5-8, 13/13 requirements mapped
-Resume file: None
+Last session: 2026-07-06T05:48:48.471Z
+Stopped at: Phase 5 context gathered
+Resume file: .planning/phases/05-cli-skeleton-status/05-CONTEXT.md
 
 ## Operator Next Steps
 
