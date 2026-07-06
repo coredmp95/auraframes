@@ -48,7 +48,8 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   2. Running `status` reports whether `AURA_EMAIL`/`AURA_PASSWORD` are set
   3. Running `status` attempts login and reports success/failure plus which account authenticated
   4. `status` lists the frames on the authenticated account
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 05-01-PLAN.md — Packaged `aura-cli` entrypoint + argparse skeleton + `status` command (config health, login, frame listing) with offline tests
 
 ### Phase 6: Inspect + Frame Resolution
 **Goal**: Users can inspect a specific frame's contents and metadata by name or ID, and the diff engine's core `md5_hash` assumption is confirmed against the live API before Phase 7 is designed.
