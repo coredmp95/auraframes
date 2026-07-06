@@ -3,6 +3,7 @@ import os
 import sys
 
 from dotenv import load_dotenv
+from loguru import logger
 
 from auraframes.aura import Aura
 
@@ -12,11 +13,46 @@ def build_parser() -> argparse.ArgumentParser:
     `inspect`/`sync` siblings can be added in later phases (D-02)."""
     parser = argparse.ArgumentParser(prog='aura-cli')
     subparsers = parser.add_subparsers(dest='command', required=True)
-    subparsers.add_parser('status', help='Check config/auth health and list account frames')
+    status_parser = subparsers.add_parser('status', help='Check config/auth health and list account frames')
+    status_parser.add_argument(
+        '--debug',
+        action='store_true',
+        default=False,
+        help='Show verbose loguru request/response logging on stderr',
+    )
     return parser
 
 
-def run_status(aura=None) -> int:
+def _configure_cli_logging(debug: bool) -> None:
+    """Neutralize (or leave alone) loguru's stderr handlers for the CLI.
+
+    `Aura.__init__` -> `Aura._init_logger()` (frozen per D-04) adds a
+    level=INFO stderr sink on every construction but never removes loguru's
+    auto-registered default stderr handler (its `logger.remove()` is
+    commented out), so two stderr handlers fire on every HTTP call. Because
+    `aura.py` cannot be edited, this CLI-side helper re-initializes loguru's
+    sinks *after* `Aura()` construction to compensate for the frozen file's
+    missing cleanup.
+
+    - debug=True: no-op — every sink `_init_logger()` registered stays
+      active, reproducing today's full verbose output (opt-in per the
+      user's UAT suggestion).
+    - debug=False (default): drop every accumulated handler, then restore
+      on-disk logging (the same `logs/file_{time}.log` sink target
+      `_init_logger()` uses) plus a stricter `sys.stderr` sink at level
+      WARNING so genuine warnings/errors still surface without the
+      INFO/DEBUG request/response spam.
+    """
+    if debug:
+        return
+
+    logger.remove()
+    os.makedirs('logs/', exist_ok=True)
+    logger.add('logs/file_{time}.log')
+    logger.add(sys.stderr, level='WARNING')
+
+
+def run_status(aura=None, debug: bool = False) -> int:
     """Status command handler. Returns a process exit code (0 success, 1
     failure) — never calls sys.exit directly. Accepts an optional injected
     `Aura` (dependency-injection seam) so this is testable offline."""
@@ -33,6 +69,9 @@ def run_status(aura=None) -> int:
         return 1
 
     aura = aura or Aura()
+    # Must run after Aura() construction (which registers the noisy sinks)
+    # and before login/get_frames (the HTTP calls that trigger them).
+    _configure_cli_logging(debug)
 
     try:
         aura.login()
@@ -56,7 +95,7 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == 'status':
-        return run_status()
+        return run_status(debug=args.debug)
 
 
 if __name__ == '__main__':
