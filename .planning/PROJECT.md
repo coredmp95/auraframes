@@ -70,6 +70,7 @@ verified visually + via `inspect`.
 - ✓ Downloading one image with EXIF (datetime + GPS) read back from disk verified live (READ-04) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Documented `uv` setup/run commands + env vars and a repo-root VERIFICATION-REPORT.md recording read-path status and API drift (ENV-04, DOC-01) — Validated in Phase 3: Run Docs & Verification Report
 - ✓ `Client`/`Aura` dependency-injection transport seam (`Client(transport=...)`, `Aura(client=...)`) plus a reusable offline `httpx.MockTransport` test harness and sanitized fixtures, lifting most of `test_read_path.py`'s assertions off the live network while leaving the `@live` suite untouched as the drift oracle (R4-SEAM-CLIENT, R4-SEAM-AURA, R4-FIXTURES, R4-FIXTURE-VALIDITY, R4-HARNESS, R4-OFFLINE-TESTS, R4-LIVE-UNCHANGED) — Validated in Phase 4: Client Transport Seam for Offline Testability
+- ✓ Packaged `aura-cli` entrypoint distinct from `main.py`, with a `status` subcommand reporting config/auth health, login result, and the account's frames — quiet by default with an opt-in `--debug` flag for verbose loguru output (CLI-01, CLI-02) — Validated in Phase 5: CLI Skeleton + Status
 
 ### Active
 
@@ -79,7 +80,8 @@ verified visually + via `inspect`.
 
 - _All v1.0 and v1.1 requirements validated — see Validated above._
 - 🚧 (v2.0, in progress) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- 🚧 (v2.0, in progress) `sync`/`inspect`/`status` CLI commands (see Current Milestone above)
+- 🚧 (v2.0, in progress) `sync`/`inspect` CLI commands (`status` shipped in Phase 5 — see Validated above)
+- 🆕 (emerged in Phase 5) Promote `--debug` to a global `aura-cli` flag when Phase 6's CLI surface is designed, so future subcommands (`inspect`, `sync`, `upload`) reuse the quiet-by-default logging convention instead of duplicating it per-subcommand — tracked as a todo
 - ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
 - ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 
@@ -120,6 +122,13 @@ verified visually + via `inspect`.
   config) remain open for a future phase to complete the "lift tests off the live network" slice.
 - **Known still-open tech debt (deferred, not blocking):** hardcoded AWS pool IDs / bucket
   name, unguarded post-login state, silent `pass` on some API `error` fields, sync-only HTTP.
+- **Phase 5 (2026-07-06):** Shipped the packaged `aura-cli` entrypoint with a `status`
+  subcommand (config health, login, frame listing), offline-tested via the v1.1 DI seam.
+  A live UAT pass flagged verbose loguru request/response noise leaking to stderr; closed
+  in the same phase (05-02, gap closure) with a quiet-by-default `_configure_cli_logging()`
+  helper and an opt-in `--debug` flag, re-confirmed live. Threat register (6 threats,
+  T-05-01–05 + T-05-SC) fully mitigated/accepted — see `05-SECURITY.md`. A todo carries
+  forward the idea of promoting `--debug` to a global flag once Phase 6 designs `inspect`.
 
 ### Original baseline
 
@@ -155,6 +164,8 @@ verified visually + via `inspect`.
 | Resolve login creds at call time, not import time | Early-bound default args evaluated `os.getenv` before `load_dotenv()`, sending null creds (HTTP 475) | ✓ Good — None-sentinel pattern + offline regression guard (debug `login-475-null-creds`) |
 | Additive `Client(transport=...)` / `Aura(client=...)` DI seam, zero-arg-compatible | Closes the old DI TODO without breaking any existing caller (`main.py`, live tests) | ✓ Good — both constructors stay zero-arg; live suite byte-identical after the change |
 | Fixture JSON authored entirely synthetic, not recorded from the live API | Safer sanitization posture — no real secret ever exists in a fixture to leak | ✓ Good — 5 fixtures pass model-hydration + fixture-validity tests |
+| `run_status()` returns an int exit code, never calls `sys.exit`; `main()` is the sole `sys.exit` boundary | Mirrors the v1.1 `Aura(client=...)` DI seam so CLI handlers stay synchronously testable via `capsys` without invoking `load_dotenv()` or process exit | ✓ Good — Phase 5's offline test suite drives all three exit paths (missing creds / success / login failure) without subprocess spawning |
+| Fix the verbose-loguru-stderr UAT gap from the CLI boundary, not `aura.py` | `Aura._init_logger()`'s `logger.remove()` is commented out and frozen (D-04); the CLI reconfigures loguru's sinks after `Aura()` construction instead of editing the frozen file | ✓ Good — quiet by default, `--debug` opt-in restores verbosity, file sink preserved in both modes; re-verified via real subprocess in 05-VERIFICATION.md |
 
 ## Evolution
 
@@ -174,4 +185,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 — started milestone v2.0 (Directory-to-Frame Sync): a CLI (`sync`/`inspect`/`status`) that mirrors a local photo directory to a live Aura frame, verifying the write/delete path live for the first time. Next: `/gsd-new-milestone`'s requirements/roadmap steps, then `/gsd-discuss-phase`.*
+*Last updated: 2026-07-06 after Phase 5 (CLI Skeleton + Status): `aura-cli status` shipped, tested offline, quiet by default with `--debug` opt-in; CLI-01/CLI-02 validated. Next: Phase 6 (Inspect + Frame Resolution).*

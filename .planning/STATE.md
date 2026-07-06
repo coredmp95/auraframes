@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 05
-current_phase_name: cli-skeleton-status
-status: verifying
-stopped_at: Completed 05-02-PLAN.md
-last_updated: "2026-07-06T13:48:33.386Z"
+current_phase: 6
+current_phase_name: Inspect + Frame Resolution
+status: ready_to_plan
+stopped_at: Phase 05 complete, ready to plan Phase 06
+last_updated: "2026-07-06T14:15:00.000Z"
 last_activity: 2026-07-06
-last_activity_desc: Plan 05-02 executed (quiet-by-default CLI logging + --debug flag)
+last_activity_desc: Phase 05 complete, transitioned to Phase 6
 progress:
   total_phases: 4
   completed_phases: 1
@@ -21,19 +21,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-05)
+See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 05 — cli-skeleton-status
+**Current focus:** Phase 6 — Inspect + Frame Resolution
 
 ## Current Position
 
-Phase: 05 (cli-skeleton-status) — VERIFYING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-06 — Plan 05-02 executed (quiet-by-default CLI logging + --debug flag)
+Phase: 6 — Inspect + Frame Resolution
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-06 — Phase 05 complete, transitioned to Phase 6
 
-Progress: [██████████] 100% (plan 2/2 of Phase 5)
+Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 
 ## Performance Metrics
 
@@ -49,7 +49,8 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5)
 |-------|-----------|-------|--------|
 | 1-3 | v1.0 | 5 | Complete |
 | 4 | v1.1 | 3 | Complete |
-| 5-8 | v2.0 | TBD | Not started |
+| 5 | v2.0 | 2/2 | Complete |
+| 6-8 | v2.0 | TBD | Not started |
 
 *Updated after each plan completion*
 | Phase 05 P01 | 3min | 3 tasks | 3 files |
@@ -97,10 +98,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-06T13:48:33.386Z
-Stopped at: Completed 05-02-PLAN.md
+Last session: 2026-07-06T14:15:00.000Z
+Stopped at: Phase 05 complete, ready to plan Phase 06
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 5 (CLI Skeleton + Status) is now fully executed (2/2 plans) — `aura-cli status` is packaged, tested offline, quiet by default with an opt-in `--debug` flag, and the diagnosed UAT gap is closed. Run `/gsd-verify-work 5` (or the phase verification step) to confirm success criteria, then `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution.
+- Phase 5 (CLI Skeleton + Status) is complete — `aura-cli status` is packaged, tested offline, quiet by default with an opt-in `--debug` flag, the UAT gap is closed and live-reconfirmed, and `05-SECURITY.md` shows 0 open threats. Run `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution (or `/gsd-plan-phase 6` to skip discussion).
