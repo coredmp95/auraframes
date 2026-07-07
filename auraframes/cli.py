@@ -1,25 +1,41 @@
 import argparse
 import os
 import sys
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 from loguru import logger
 
 from auraframes.aura import Aura
+from auraframes.models.frame import Frame
+
+# First-N photos printed by default before truncating with a "+K more"
+# summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
+# can hold 77+ assets (Phase 2 finding) so dumping everything by default
+# isn't useful in a terminal.
+INSPECT_PHOTO_LIMIT = 10
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Construct the root `aura-cli` parser. Subparsers are structured so
-    `inspect`/`sync` siblings can be added in later phases (D-02)."""
+    `inspect`/`sync` siblings can be added in later phases (D-02).
+
+    `--debug` lives on the root parser (folded todo, promoted from the
+    `status`-only subparser) so it is parsed once regardless of which
+    subcommand runs, and every future subcommand inherits the same
+    quiet-by-default logging convention for free.
+    """
     parser = argparse.ArgumentParser(prog='aura-cli')
-    subparsers = parser.add_subparsers(dest='command', required=True)
-    status_parser = subparsers.add_parser('status', help='Check config/auth health and list account frames')
-    status_parser.add_argument(
+    parser.add_argument(
         '--debug',
         action='store_true',
         default=False,
         help='Show verbose loguru request/response logging on stderr',
     )
+    subparsers = parser.add_subparsers(dest='command', required=True)
+    subparsers.add_parser('status', help='Check config/auth health and list account frames')
+    inspect_parser = subparsers.add_parser('inspect', help="Inspect a frame's photos and metadata")
+    inspect_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
     return parser
 
 
@@ -90,12 +106,120 @@ def run_status(aura=None, debug: bool = False) -> int:
     return 0
 
 
+@dataclass
+class FrameResolution:
+    """Result of resolving a `--frame` CLI argument against the account's
+    frame list (CLI-04). `status` is a discriminator — 'resolved',
+    'ambiguous', or 'not_found' — deliberately not a raised exception
+    (MOD-03 typed exceptions stays deferred; see 06-CONTEXT.md)."""
+    frame: Frame | None
+    status: str
+    candidates: list[Frame] = field(default_factory=list)
+
+
+def resolve_frame(target: str, frames: list[Frame]) -> FrameResolution:
+    """Resolve a `--frame` value to a single Frame (CLI-04, D-01..D-04).
+
+    Pure function — no I/O, no side effects. Resolution order:
+    1. Case-insensitive substring match on `Frame.name` (D-01).
+       - Exactly one match -> resolved (D-02).
+       - More than one match -> ambiguous; the id fallback is NOT
+         attempted (D-03).
+    2. Zero name matches -> fall back to an exact (case-sensitive)
+       match on `Frame.id`.
+       - Exactly one match -> resolved (D-02).
+       - Otherwise -> not_found, candidates is every frame on the
+         account so the caller can list available names (D-04).
+    """
+    target_lower = target.lower()
+    name_matches = [f for f in frames if target_lower in f.name.lower()]
+
+    if len(name_matches) == 1:
+        return FrameResolution(frame=name_matches[0], status='resolved', candidates=[])
+    if len(name_matches) > 1:
+        return FrameResolution(frame=None, status='ambiguous', candidates=name_matches)
+
+    id_matches = [f for f in frames if f.id == target]
+    if len(id_matches) == 1:
+        return FrameResolution(frame=id_matches[0], status='resolved', candidates=[])
+
+    return FrameResolution(frame=None, status='not_found', candidates=frames)
+
+
+def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
+    """Inspect command handler. Returns a process exit code (0 success, 1
+    failure) — never calls sys.exit directly. Accepts an optional injected
+    `Aura` (dependency-injection seam) so this is testable offline.
+
+    `frame_arg` is argparse-required, not an env var, so (unlike
+    `run_status`) there's no config-precheck step before constructing
+    `Aura()`.
+    """
+    aura = aura or Aura()
+    # Must run after Aura() construction (which registers the noisy sinks)
+    # and before login/get_frames (the HTTP calls that trigger them).
+    _configure_cli_logging(debug)
+
+    try:
+        aura.login()
+    except Exception as e:
+        # D-05: bad credentials, network error, or API drift all surface
+        # here — a broad catch at the CLI boundary is correct.
+        print(f'Login failed: {e}')
+        return 1
+
+    try:
+        frames = aura.frame_api.get_frames()
+        resolved = resolve_frame(frame_arg, frames)
+
+        if resolved.status == 'ambiguous':
+            print(f"'{frame_arg}' matches more than one frame name — re-run with --frame <id>:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        if resolved.status == 'not_found':
+            print(f"No frame matches name or id '{frame_arg}'. Available frames:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        frame, total_asset_count = aura.frame_api.get_frame(resolved.frame.id)
+        contributors = frame.contributors or []
+
+        print(f'Frame: {frame.name} (id: {frame.id})')
+        print(f'Owner: {frame.user.name} <{frame.user.email}>')
+        print(f'Contributors ({len(contributors)}):')
+        for contributor in contributors:
+            print(f'  - {contributor.name} <{contributor.email}>')
+        print(f'Assets: {total_asset_count}')
+
+        assets = aura.get_all_assets(resolved.frame.id)
+        shown = assets[:INSPECT_PHOTO_LIMIT]
+        print(f'Photos (showing {len(shown)} of {len(assets)}, API order):')
+        for asset in shown:
+            print(f'  - {asset.id} | {asset.file_name} | {asset.taken_at_dt}')
+        remaining = len(assets) - len(shown)
+        if remaining > 0:
+            print(f'  ... +{remaining} more')
+    except Exception as e:
+        # WR-01 fail-loud (D-05): surface post-login API drift instead of a
+        # raw traceback.
+        print(f'Failed to inspect frame: {e}')
+        return 1
+
+    return 0
+
+
 def main(argv=None) -> int:
     load_dotenv()
     args = build_parser().parse_args(argv)
 
     if args.command == 'status':
         return run_status(debug=args.debug)
+    if args.command == 'inspect':
+        return run_inspect(args.frame, debug=args.debug)
+    raise ValueError(f'Unhandled command: {args.command}')
 
 
 if __name__ == '__main__':
