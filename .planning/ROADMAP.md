@@ -88,7 +88,19 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   2. The plan correctly classifies files by comparing local content-hashes to frame asset `md5_hash` values
   3. Local hashing uses the same base64-MD5 convention as `S3Client.get_md5`, validated equal against a real downloaded asset before diffing is trusted
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 07-01-PLAN.md — Pure sync engine (`auraframes/sync.py`): recursive image scanner + local base64-MD5 hashing + `compute_plan` diff (upload/delete/unchanged, local-dedup vs frame-multiset, video-safety) with offline unit tests
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 07-02-PLAN.md — CLI `sync <dir> --frame <name|id>` subcommand + `run_sync` handler + full untruncated dry-run plan output (D-07/D-08) with offline CLI tests
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 07-03-PLAN.md — One-time LIVE hash-convention validation (SYNC-02, D-09): confirm local `get_md5` equals frame `md5_hash`, documented in STATE.md/PROJECT.md
 
 ### Phase 8: Destructive Execution (Upload + Delete Verification)
 
@@ -115,7 +127,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
-| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 0/? | Not started | - |
+| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 0/3 | Not started | - |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
 
 ## Backlog
