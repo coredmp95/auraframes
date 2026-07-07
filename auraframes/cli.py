@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from auraframes.aura import Aura
+from auraframes.aws.s3client import S3Client
+from auraframes.aws.sqsclient import SQSClient
 from auraframes.models.frame import Frame
-from auraframes.sync import scan_directory, compute_plan
+from auraframes.sync import scan_directory, compute_plan, execute_plan
 
 # First-N photos printed by default before truncating with a "+K more"
 # summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
@@ -41,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser = subparsers.add_parser('sync', help='Dry-run diff a local directory against a frame')
     sync_parser.add_argument('dir', help='Local directory to scan for photos')
     sync_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
+    sync_parser.add_argument('--apply', action='store_true', default=False, help='Execute the plan (upload + delete) instead of only printing it')
+    sync_parser.add_argument('--yes', action='store_true', default=False, help='Skip the confirmation prompt (required for --apply when running non-interactively)')
     return parser
 
 
@@ -216,12 +220,22 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
     return 0
 
 
-def run_sync(dir_arg: str, frame_arg: str, aura=None, debug: bool = False) -> int:
-    """Sync command handler (SYNC-01). Dry-run only — resolves the target
+def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = False, aura=None, debug: bool = False) -> int:
+    """Sync command handler (SYNC-01/SYNC-03/SYNC-04). Resolves the target
     frame, scans `dir_arg` locally, computes the upload/delete/unchanged plan
-    via `auraframes.sync`, and prints a full (untruncated) report. Executes
-    nothing: there is no `--apply`/`--yes` flag in this phase (T-07-04), and
-    this function never calls a mutating API/S3/SQS primitive.
+    via `auraframes.sync`, and prints a full (untruncated) report.
+
+    Dry-run remains the default (`apply=False`): nothing is executed and this
+    function returns after printing the plan, exactly as before Phase 8.
+
+    When `apply=True`, after the plan is printed a confirmation gate runs
+    (D-01/D-02/D-03/D-04) before `execute_plan()` (Phase 8 Plan 02) is called
+    with real `S3Client()`/`SQSClient()` instances — the only place in this
+    module that constructs them. A non-interactive invocation without `--yes`
+    fails closed (D-03) rather than hanging on `input()`. On confirmation,
+    `execute_plan()`'s result is printed as a separated upload/delete
+    success/failure summary (D-10) and the exit code reflects any failure
+    (SYNC-04).
 
     Returns a process exit code (0 success, 1 failure) — never calls
     sys.exit directly. Accepts an optional injected `Aura` (dependency-
@@ -292,6 +306,42 @@ def run_sync(dir_arg: str, frame_arg: str, aura=None, debug: bool = False) -> in
 
         if plan.frame_no_hash > 0:
             print(f'{plan.frame_no_hash} frame assets without a content hash (e.g. videos) left untouched')
+
+        if not apply:
+            return 0
+
+        # D-03: fail closed on a non-interactive invocation missing --yes --
+        # never block on input() forever, never silently proceed.
+        if not yes and not sys.stdin.isatty():
+            print('--apply requires --yes when running non-interactively')
+            return 1
+
+        # D-01/D-02/D-04: a single confirmation gate covers the whole plan
+        # (uploads + deletes together), echoing the resolved frame's name and
+        # id so a substring --frame match can't silently apply to the wrong
+        # frame.
+        if not yes:
+            answer = input(f'About to apply this plan to "{frame.name}" (id: {frame.id}). Proceed? [y/N] ')
+            if answer.strip().lower() not in ('y', 'yes'):
+                print('Aborted.')
+                return 0
+
+        # Real AWS clients are constructed here only, on confirmed apply --
+        # execute_plan() itself never constructs them (offline-testable seam
+        # from Phase 8 Plan 02).
+        s3_client = S3Client()
+        sqs_client = SQSClient()
+        result = execute_plan(plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client)
+
+        # D-10: separated success/failure summary, each failed item named.
+        print(f'Uploads: {result.upload_succeeded} succeeded, {len(result.upload_failures)} failed')
+        for path, err in result.upload_failures:
+            print(f'  ! {path}: {err}')
+        print(f'Deletes: {result.delete_succeeded} succeeded, {len(result.delete_failures)} failed')
+        for asset_id, err in result.delete_failures:
+            print(f'  ! {asset_id}: {err}')
+
+        return 1 if (result.upload_failures or result.delete_failures) else 0
     except Exception as e:
         # WR-01 fail-loud (D-05): surface post-login API drift instead of a
         # raw traceback.
@@ -310,7 +360,7 @@ def main(argv=None) -> int:
     if args.command == 'inspect':
         return run_inspect(args.frame, debug=args.debug)
     if args.command == 'sync':
-        return run_sync(args.dir, args.frame, debug=args.debug)
+        return run_sync(args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug)
     raise ValueError(f'Unhandled command: {args.command}')
 
 
