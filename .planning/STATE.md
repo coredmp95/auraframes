@@ -6,15 +6,15 @@ current_phase: 08
 current_phase_name: Destructive Execution (Upload + Delete Verification
 status: executing
 stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-07-07T14:19:23.620Z"
+last_updated: "2026-07-07T16:47:01.684Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
-  completed_plans: 8
-  percent: 73
+  completed_plans: 9
+  percent: 75
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 ## Current Position
 
 Phase: 08 (Destructive Execution (Upload + Delete Verification)) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-07 — Phase 08 execution started
 
@@ -86,6 +86,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 08]: AssetPartial added via make_partial(Asset, "AssetPartial") mirroring FramePartial, no change to Asset.id's type
 - [Phase 08]: select_asset/remove_asset raise on nonzero number_failed (not just error envelope) since each call carries exactly one AssetPartialId, making attribution unambiguous (WRITE-05)
 - [Phase 08]: batch_update's type hint widened to Asset | AssetPartial rather than a new method, since .dict(include={...}) works unchanged on both
+- [Phase 08-02]: execute_plan preserves the double select_asset call + first discarded SQS poll unchanged (RESEARCH.md Pitfall 4) for the first live attempt, rather than collapsing it
+- [Phase 08-02]: Partial-failure tests monkeypatch aura.asset_api.batch_update/aura.frame_api.remove_asset directly rather than relying on httpx.MockTransport per-payload discrimination, since MockTransport routes only by path
 
 ### Pending Todos
 
@@ -116,7 +118,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T14:19:23.614Z
+Last session: 2026-07-07T16:45:16.762Z
 Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
