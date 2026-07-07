@@ -1,0 +1,201 @@
+"""Offline tests for `aura-cli sync --apply` (auraframes.cli.run_sync's
+apply/confirm/execute branch, Phase 8 Plan 03). Calls run_sync() directly
+(never main()) so load_dotenv() is not invoked and a filesystem .env cannot
+interfere.
+
+`execute_plan`/`S3Client`/`SQSClient` are all monkeypatched on the
+`auraframes.cli` namespace -- these tests never touch the network or AWS,
+matching tests/test_cli_sync.py's offline-only convention.
+"""
+import httpx
+import pytest
+from loguru import logger
+
+import auraframes.cli as cli
+from auraframes.sync import ExecutionResult
+from tests.offline import offline_aura
+
+FRAME_ID = 'frame-fake-0001'
+FRAME_NAME = 'Fake Frame'
+ASSETS_PATH = f'/v5/frames/{FRAME_ID}/assets.json'
+
+
+@pytest.fixture(autouse=True)
+def _reset_loguru(tmp_path_factory, monkeypatch):
+    # Mirrors tests/test_cli_sync.py's fixture: chdir into a dedicated
+    # scratch dir (not the test's own tmp_path, which several tests pass
+    # directly as dir_arg) so _configure_cli_logging's logs/ side effect
+    # can't pollute scan_directory's traversal or the real working tree.
+    monkeypatch.chdir(tmp_path_factory.mktemp('cli-apply-logging-cwd'))
+    logger.remove()
+    yield
+    logger.remove()
+
+
+def _env(monkeypatch):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+
+def _assets_response(*assets):
+    return httpx.Response(200, json={'assets': list(assets), 'next_page_cursor': None})
+
+
+class _FakeS3Client:
+    """Trivial stand-in for auraframes.aws.s3client.S3Client -- constructed
+    but never used since execute_plan itself is monkeypatched below; its
+    only job is to prove no real Cognito auth fires."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class _FakeSQSClient:
+    """Trivial stand-in for auraframes.aws.sqsclient.SQSClient (see
+    _FakeS3Client)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def _patch_aws_clients(monkeypatch):
+    monkeypatch.setattr(cli, 'S3Client', _FakeS3Client)
+    monkeypatch.setattr(cli, 'SQSClient', _FakeSQSClient)
+
+
+def _patch_execute_plan(monkeypatch, result=None):
+    """Monkeypatch auraframes.cli.execute_plan with a fake that records each
+    call's arguments and returns a controllable ExecutionResult (clean by
+    default). Returns the list of recorded calls for assertions."""
+    calls = []
+
+    def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client):
+        calls.append({
+            'plan': plan,
+            'aura': aura,
+            'frame_id': frame_id,
+            's3_client': s3_client,
+            'sqs_client': sqs_client,
+        })
+        return result if result is not None else ExecutionResult()
+
+    monkeypatch.setattr(cli, 'execute_plan', fake_execute_plan)
+    return calls
+
+
+def test_apply_false_no_prompt_no_execution(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+
+    (tmp_path / 'new.jpg').write_bytes(b'new-photo-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', aura=aura)
+
+    assert rc == 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert 'To upload: 1' in out
+    assert 'Proceed?' not in out
+    assert 'Uploads:' not in out
+
+
+def test_apply_yes_executes_without_prompt(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch, result=ExecutionResult(upload_succeeded=1, delete_succeeded=0))
+
+    (tmp_path / 'new.jpg').write_bytes(b'new-photo-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura)
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert calls[0]['frame_id'] == FRAME_ID
+    out = capsys.readouterr().out
+    assert 'Proceed?' not in out
+    assert 'Uploads: 1 succeeded, 0 failed' in out
+    assert 'Deletes: 0 succeeded, 0 failed' in out
+
+
+def test_apply_non_tty_without_yes_fails_closed(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: False)
+
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=False, aura=aura)
+
+    assert rc == 1
+    assert calls == []
+    out = capsys.readouterr().out
+    assert '--apply requires --yes when running non-interactively' in out
+
+
+def test_apply_interactive_abort_on_non_y_answer(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda prompt='': 'n')
+
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=False, aura=aura)
+
+    assert rc == 0
+    assert calls == []
+    out = capsys.readouterr().out
+    assert 'Aborted.' in out
+
+
+def test_apply_interactive_confirm_echoes_frame_name_and_id(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch, result=ExecutionResult(upload_succeeded=1))
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    seen_prompt = {}
+
+    def fake_input(prompt=''):
+        seen_prompt['prompt'] = prompt
+        return 'y'
+
+    monkeypatch.setattr('builtins.input', fake_input)
+
+    (tmp_path / 'new.jpg').write_bytes(b'new-photo-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=False, aura=aura)
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert FRAME_NAME in seen_prompt['prompt']
+    assert FRAME_ID in seen_prompt['prompt']
+
+
+def test_apply_execution_failures_return_1_and_name_failed_items(tmp_path, monkeypatch, capsys):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    failing_result = ExecutionResult(
+        upload_succeeded=0,
+        delete_succeeded=1,
+        upload_failures=[(tmp_path / 'bad.jpg', 'boom')],
+        delete_failures=[],
+    )
+    calls = _patch_execute_plan(monkeypatch, result=failing_result)
+
+    (tmp_path / 'bad.jpg').write_bytes(b'bad-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura)
+
+    assert rc == 1
+    assert len(calls) == 1
+    out = capsys.readouterr().out
+    assert 'Uploads: 0 succeeded, 1 failed' in out
+    assert 'bad.jpg' in out
+    assert 'boom' in out
