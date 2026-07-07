@@ -4,6 +4,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator, ValidationInfo
 
+from auraframes.models.meta import make_partial
 from auraframes.models.user import User
 from auraframes.utils.dt import parse_aura_dt
 
@@ -128,3 +129,6 @@ class AssetPartialId(BaseModel):
             return {'asset_id': self.id}
         else:
             return {'asset_local_identifier': self.local_identifier}
+
+
+AssetPartial = make_partial(Asset, "AssetPartial")
