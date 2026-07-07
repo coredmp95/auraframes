@@ -12,8 +12,8 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
 - [ ] **WRITE-01**: Verify the image upload round-trip live (`select_asset` → S3 → SQS confirm → `batch_update`) against a real account/frame
 - [ ] **WRITE-02**: Verify `remove_asset`'s real behavior live against a disposable test asset (confirm it disassociates from the frame without deleting from S3/Glacier, per its docstring's claim)
 - [ ] **WRITE-03**: Verify `delete_asset`'s real behavior live, to confirm or refute its broader/unknown deletion scope
-- [ ] **WRITE-04**: Fix the hardcoded frame ID in the SQS upload-confirmation lookup (`Aura.get_sqs`) so uploads work correctly for any frame, not just the original test frame
-- [ ] **WRITE-05**: Extend fail-loud error handling (raise on API `error` field) to the write/delete endpoints, matching the existing read-path pattern (`get_assets` already does this; write endpoints currently only report a bare `number_failed` count)
+- [x] **WRITE-04**: Fix the hardcoded frame ID in the SQS upload-confirmation lookup (`Aura.get_sqs`) so uploads work correctly for any frame, not just the original test frame
+- [x] **WRITE-05**: Extend fail-loud error handling (raise on API `error` field) to the write/delete endpoints, matching the existing read-path pattern (`get_assets` already does this; write endpoints currently only report a bare `number_failed` count)
 
 ### CLI Foundation
 
@@ -76,8 +76,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WRITE-01 | Phase 8 | Pending |
 | WRITE-02 | Phase 8 | Pending |
 | WRITE-03 | Phase 8 | Pending |
-| WRITE-04 | Phase 8 | Pending |
-| WRITE-05 | Phase 8 | Pending |
+| WRITE-04 | Phase 8 | Complete |
+| WRITE-05 | Phase 8 | Complete |
 
 **Coverage:**
 

@@ -115,11 +115,11 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   4. Write/delete API errors raise loudly and are attributable to a specific file, and the CLI exits non-zero on any execution failure
   5. Plan output lists upload / delete / unchanged counts before applying
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — Foundations: AssetPartial model + fail-loud write/delete endpoints (WRITE-05) + get_sqs(frame_id) parameterization (WRITE-04)
+- [x] 08-01-PLAN.md — Foundations: AssetPartial model + fail-loud write/delete endpoints (WRITE-05) + get_sqs(frame_id) parameterization (WRITE-04)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -144,7 +144,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 3/3 | Complete    | 2026-07-07 |
-| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
+| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 1/4 | In Progress|  |
 
 ## Backlog
 

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 8
-current_phase_name: Upload + Delete Verification
+current_phase: 08
+current_phase_name: Destructive Execution (Upload + Delete Verification
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-07-07T13:31:55.539Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-07-07T14:19:23.620Z"
 last_activity: 2026-07-07
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 75
+  total_plans: 11
+  completed_plans: 8
+  percent: 73
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 07 — sync-diffing-engine-dry-run-only
+**Current focus:** Phase 08 — Destructive Execution (Upload + Delete Verification)
 
 ## Current Position
 
-Phase: 8 — Destructive Execution (Upload + Delete Verification)
-Plan: Not started
+Phase: 08 (Destructive Execution (Upload + Delete Verification)) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-07 — Phase 07 complete, transitioned to Phase 8
+Last activity: 2026-07-07 — Phase 08 execution started
 
 Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 
@@ -61,6 +61,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
 | Phase 07 P03 | 3min | 1 tasks | 2 files |
+| Phase 08 P01 | 11min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 07-02]: run_sync has structurally no path to a mutating primitive -- no --apply/--yes flag exists, and the function body only calls scan_directory/compute_plan/print (T-07-04)
 - [Phase 07-02]: Plan output prints full upload/delete lists with no truncation (D-07), unlike inspect's first-N convention, since a sync review needs every item visible before Phase 8's --apply lands
 - [Phase 07-03]: Live validation performed via METHOD A (piggyback on the shipped sync feature itself) rather than a throwaway comparison script, per D-09's precedent of proving via real usage instead of adding a permanent automated fixture
+- [Phase 08]: AssetPartial added via make_partial(Asset, "AssetPartial") mirroring FramePartial, no change to Asset.id's type
+- [Phase 08]: select_asset/remove_asset raise on nonzero number_failed (not just error envelope) since each call carries exactly one AssetPartialId, making attribution unambiguous (WRITE-05)
+- [Phase 08]: batch_update's type hint widened to Asset | AssetPartial rather than a new method, since .dict(include={...}) works unchanged on both
 
 ### Pending Todos
 
@@ -112,9 +116,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T12:36:58.492Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-destructive-execution-upload-delete-verification/08-CONTEXT.md
+Last session: 2026-07-07T14:19:23.614Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
