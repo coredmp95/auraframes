@@ -68,10 +68,10 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   3. Targeting a frame by an ambiguous name produces a clear error directing the user to use the ID instead
   4. It is confirmed live whether `md5_hash` is populated on read for pre-existing (non-client-uploaded) assets, documented as the input to Phase 7's design
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — `inspect` subcommand: frame resolution (name substring + id fallback), photo + metadata display, root-level `--debug` promotion, full offline test coverage
+- [x] 06-01-PLAN.md — `inspect` subcommand: frame resolution (name substring + id fallback), photo + metadata display, root-level `--debug` promotion, full offline test coverage
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -114,7 +114,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 3. Run Docs & Verification Report | v1.0 | 1/1 | Complete | 2026-06-29 |
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
-| 6. Inspect + Frame Resolution | v2.0 | 0/? | Not started | - |
+| 6. Inspect + Frame Resolution | v2.0 | 1/2 | In Progress|  |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 0/? | Not started | - |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
 

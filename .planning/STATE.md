@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 6
-current_phase_name: Inspect + Frame Resolution
+current_phase: 06
+current_phase_name: inspect-frame-resolution
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-07-06T23:58:30.619Z"
-last_activity: 2026-07-06
-last_activity_desc: Phase 05 complete, transitioned to Phase 6
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-07-07T00:08:53.176Z"
+last_activity: 2026-07-07
+last_activity_desc: Phase 06 execution started
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 4
+  completed_plans: 3
   percent: 25
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 6 — Inspect + Frame Resolution
+**Current focus:** Phase 06 — inspect-frame-resolution
 
 ## Current Position
 
-Phase: 6 — Inspect + Frame Resolution
-Plan: Not started
+Phase: 06 (inspect-frame-resolution) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-07-06 — Phase 05 complete, transitioned to Phase 6
+Last activity: 2026-07-07 — Phase 06 execution started
 
 Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 
@@ -55,6 +55,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 *Updated after each plan completion*
 | Phase 05 P01 | 3min | 3 tasks | 3 files |
 | Phase 05 P02 | 21min | 2 tasks | 2 files |
+| Phase 06 P01 | 4min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -68,10 +69,12 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - Additive `Client(transport=...)` / `Aura(client=...)` DI seam (from v1.1) is available to drive the CLI/sync stack offline in tests
 - [Phase 05-01]: run_status() never calls sys.exit — returns an int exit code; main() is the only sys.exit boundary, keeping the handler synchronously testable via capsys — Mirrors the Aura(client=...) DI seam pattern established in v1.1 so CLI handlers are testable offline without invoking load_dotenv() or process exit
 - [Phase 05-02]: Because `aura.py`'s `_init_logger()` is frozen (D-04), the verbose-stderr UAT gap is fixed from the CLI boundary — `_configure_cli_logging()` calls `logger.remove()` then re-adds the file sink + a WARNING-level stderr sink after `Aura()` construction, rather than editing the frozen file
+- [Phase 06-01]: N=10 for the inspect default first-N photo truncation; a trailing +K more line prints when a frame has more assets
+- [Phase 06-01]: resolve_frame() returns a status discriminator (resolved/ambiguous/not_found), not a raised exception, per deferred MOD-03
 
 ### Pending Todos
 
-- Promote `--debug` flag to a global CLI convention (area: cli) — apply the Phase 05-02 quiet-by-default logging pattern to future subcommands (`inspect`, `sync`, `upload`) instead of duplicating it per-subcommand. See `.planning/todos/pending/2026-07-06-promote-debug-flag-to-a-global-cli-convention.md`.
+- None currently pending. "Promote `--debug` flag to a global CLI convention" was folded into and resolved by Phase 06-01 (`--debug` is now a root-level `aura-cli` flag) — see `.planning/todos/completed/2026-07-06-promote-debug-flag-to-a-global-cli-convention.md`.
 
 ### Blockers/Concerns
 
@@ -98,9 +101,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-06T14:41:24.293Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-inspect-frame-resolution/06-CONTEXT.md
+Last session: 2026-07-07T00:08:42.558Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

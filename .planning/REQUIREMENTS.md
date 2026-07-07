@@ -19,8 +19,8 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
 
 - [x] **CLI-01**: CLI entrypoint packaged as a runnable command, distinct from the existing `main.py` facade-demo script
 - [x] **CLI-02**: `status` command reports config/auth health (are `AURA_EMAIL`/`AURA_PASSWORD` set? does login succeed? which account?) plus account info (frames on the account)
-- [ ] **CLI-03**: `inspect --frame <name|id>` command lists photos currently on the frame (id/filename/date) plus frame metadata (name, owner, contributor count, asset count)
-- [ ] **CLI-04**: Frame targeting works by human-readable name or opaque ID, with a clear error if a name match is ambiguous
+- [x] **CLI-03**: `inspect --frame <name|id>` command lists photos currently on the frame (id/filename/date) plus frame metadata (name, owner, contributor count, asset count)
+- [x] **CLI-04**: Frame targeting works by human-readable name or opaque ID, with a clear error if a name match is ambiguous
 
 ### Sync Engine
 
@@ -67,8 +67,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CLI-01 | Phase 5 | Complete |
 | CLI-02 | Phase 5 | Complete |
-| CLI-03 | Phase 6 | Pending |
-| CLI-04 | Phase 6 | Pending |
+| CLI-03 | Phase 6 | Complete |
+| CLI-04 | Phase 6 | Complete |
 | SYNC-01 | Phase 7 | Pending |
 | SYNC-02 | Phase 7 | Pending |
 | SYNC-03 | Phase 8 | Pending |
