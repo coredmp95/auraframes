@@ -47,6 +47,12 @@ def make_router(overrides: dict | None = None):
             cursor = request.url.params.get("cursor")
             fixture = "assets_page2.json" if cursor else "assets_page1.json"
             return httpx.Response(200, json=_load(fixture))
+        if path.startswith("/v5/frames/") and path.endswith(".json") \
+                and "/assets" not in path and "/activities" not in path:
+            # get_frame(frame_id) detail route (Phase 6) — must come after the
+            # exact "/v5/frames.json" and "/assets.json" branches above so it
+            # doesn't shadow either (Pitfall 1).
+            return httpx.Response(200, json=_load("frame_detail.json"))
 
         return httpx.Response(404, json=_load("error_envelope.json"))
 
