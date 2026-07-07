@@ -1,7 +1,7 @@
 ---
 phase: 05-cli-skeleton-status
 verified: 2026-07-06T14:05:00Z
-status: human_needed
+status: passed
 score: 9/9 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,10 +9,12 @@ re_verification:
   previous_status: human_needed
   previous_score: 9/9
   gaps_closed:
+
     - "CLI-02: `aura-cli status` no longer leaks verbose loguru INFO/DEBUG request/response bodies to stderr by default (root cause: Aura._init_logger()'s commented-out logger.remove() left loguru's default stderr handler active alongside the INFO sink; fixed from the CLI boundary via _configure_cli_logging())"
   gaps_remaining: []
   regressions: []
 human_verification:
+
   - test: "Run `uv run aura-cli status` (or the installed `aura-cli status`) against a real Aura account with valid AURA_EMAIL/AURA_PASSWORD in the environment or a local .env"
     expected: "Prints only the concise lines: `AURA_EMAIL: set`, `AURA_PASSWORD: set`, `Logged in as <email>`, `N frames:`, one `  - <name> (id: <id>)` line per real frame; exits 0; no loguru INFO/DEBUG request/response dump on stderr"
     why_human: "Live login/list against api.pushd.com cannot be exercised by an automated verifier without real credentials touching the live, undocumented API (T-05-03 'accept' disposition scopes this to a single deliberate, human-run call). The original UAT session already proved the live login+listing mechanics work correctly against the real account (05-UAT.md test 1) — the only open question is whether the now-quiet stderr behavior holds on that same live path, since the fix was verified via the offline harness and a real subprocess (not literally against api.pushd.com)."
