@@ -1,12 +1,12 @@
 from auraframes.api.baseApi import BaseApi
 
 # TODO: Untested
-from auraframes.models.asset import Asset, AssetPartialId
+from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
 
 
 class AssetApi(BaseApi):
 
-    def batch_update(self, asset: Asset) -> tuple[list[str], list[AssetPartialId]]:
+    def batch_update(self, asset: Asset | AssetPartial) -> tuple[list[str], list[AssetPartialId]]:
         """
         Posts new metadata to the API. This does not appear to affect the frame; however subsequent calls to retrieve
         this asset will have the modified metadata.
@@ -36,6 +36,8 @@ class AssetApi(BaseApi):
                     })
             ]
         })
+        if json_response.get('error'):
+            raise RuntimeError(f"batch_update failed: {json_response.get('error')}")
 
         return json_response.get('ids'), [AssetPartialId(**partial_asset_id) for partial_asset_id in
                                           json_response.get('successes')]
@@ -84,6 +86,9 @@ class AssetApi(BaseApi):
                                               data={'local_identifier': asset.local_identifier})
         else:
             json_response = self._client.delete(f'/assets/{asset.id}.json')
+
+        if json_response.get('error'):
+            raise RuntimeError(f"delete_asset failed: {json_response.get('error')}")
 
         return json_response
 

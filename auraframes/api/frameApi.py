@@ -114,8 +114,14 @@ class FrameApi(BaseApi):
         # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/select_asset.json',
                                           data={'assets': [asset_partial_id.to_request_format()]})
+        if json_response.get('error'):
+            raise RuntimeError(f"select_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"select_asset reported {number_failed} failure(s) for frame {frame_id}")
+
+        return number_failed
 
     def exclude_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
         """
@@ -144,8 +150,14 @@ class FrameApi(BaseApi):
         # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/remove_asset.json',
                                           data={'assets': [asset_partial_id.to_request_format()]})
+        if json_response.get('error'):
+            raise RuntimeError(f"remove_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"remove_asset reported {number_failed} failure(s) for frame {frame_id}")
+
+        return number_failed
 
     def reconfigure(self, frame_id: str):
         """
