@@ -71,6 +71,7 @@ verified visually + via `inspect`.
 - ✓ Documented `uv` setup/run commands + env vars and a repo-root VERIFICATION-REPORT.md recording read-path status and API drift (ENV-04, DOC-01) — Validated in Phase 3: Run Docs & Verification Report
 - ✓ `Client`/`Aura` dependency-injection transport seam (`Client(transport=...)`, `Aura(client=...)`) plus a reusable offline `httpx.MockTransport` test harness and sanitized fixtures, lifting most of `test_read_path.py`'s assertions off the live network while leaving the `@live` suite untouched as the drift oracle (R4-SEAM-CLIENT, R4-SEAM-AURA, R4-FIXTURES, R4-FIXTURE-VALIDITY, R4-HARNESS, R4-OFFLINE-TESTS, R4-LIVE-UNCHANGED) — Validated in Phase 4: Client Transport Seam for Offline Testability
 - ✓ Packaged `aura-cli` entrypoint distinct from `main.py`, with a `status` subcommand reporting config/auth health, login result, and the account's frames — quiet by default with an opt-in `--debug` flag for verbose loguru output (CLI-01, CLI-02) — Validated in Phase 5: CLI Skeleton + Status
+- ✓ `inspect --frame <name|id>` resolves a frame by case-insensitive name substring or exact ID, displays its photos and metadata (name, owner, contributor count, asset count), and gives a clear disambiguation error on ambiguous name matches; `--debug` promoted to a root-level flag (CLI-03, CLI-04) — Validated in Phase 6: Inspect + Frame Resolution
 
 ### Active
 
@@ -80,8 +81,7 @@ verified visually + via `inspect`.
 
 - _All v1.0 and v1.1 requirements validated — see Validated above._
 - 🚧 (v2.0, in progress) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- 🚧 (v2.0, in progress) `sync`/`inspect` CLI commands (`status` shipped in Phase 5 — see Validated above)
-- 🆕 (emerged in Phase 5) Promote `--debug` to a global `aura-cli` flag when Phase 6's CLI surface is designed, so future subcommands (`inspect`, `sync`, `upload`) reuse the quiet-by-default logging convention instead of duplicating it per-subcommand — tracked as a todo
+- 🚧 (v2.0, in progress) `sync` CLI command (`status`, `inspect` shipped in Phases 5–6 — see Validated above)
 - ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
 - ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 
@@ -194,4 +194,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-06 after Phase 5 (CLI Skeleton + Status): `aura-cli status` shipped, tested offline, quiet by default with `--debug` opt-in; CLI-01/CLI-02 validated. Next: Phase 6 (Inspect + Frame Resolution).*
+*Last updated: 2026-07-07 after Phase 6 (Inspect + Frame Resolution): `aura-cli inspect --frame <name|id>` shipped, tested offline, root-level `--debug`; CLI-03/CLI-04 validated. Live `md5_hash` spike resolved (populated for photos, not for videos) — unblocks Phase 7 design. Next: Phase 7 (Sync-Diffing Engine, Dry-Run Only).*
