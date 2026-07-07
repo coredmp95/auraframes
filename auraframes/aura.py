@@ -111,7 +111,7 @@ class Aura:
             return
         local_identifier = asset.local_identifier
         self.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
-        queue_url = self.get_sqs()
+        queue_url = self.get_sqs(frame_id)
         self.sqsClient.receive_message(queue_url, wait_time_seconds=5)
         self.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
         client = S3Client()
@@ -127,11 +127,9 @@ class Aura:
         message = self.sqsClient.receive_message(queue_url, wait_time_seconds=5)
         print(message)
 
-    def get_sqs(self):
+    def get_sqs(self, frame_id: str):
         self.sqsClient = SQSClient()
-        # TODO: Is this a hardcoded queue URL?
-        queueUrl = self.sqsClient.get_queue_url('4ab446b4-33a7-4a76-881d-d545d153ab5a')
-        return queueUrl
+        return self.sqsClient.get_queue_url(frame_id)
 
     def _init_logger(self):
         # Ensure the loguru file sink's target dir exists before the first
