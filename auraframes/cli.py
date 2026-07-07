@@ -259,7 +259,17 @@ def run_sync(dir_arg: str, frame_arg: str, aura=None, debug: bool = False) -> in
         frame = resolved.frame
         assets = aura.get_all_assets(frame.id)
 
-        scan = scan_directory(Path(dir_arg))
+        # WR-02: scanned separately from the surrounding API calls so a
+        # local filesystem error (missing/invalid `dir_arg`, permission
+        # error reading a file) is reported distinctly from a remote
+        # API/auth failure instead of being collapsed into the same
+        # generic "Failed to sync frame" message below.
+        try:
+            scan = scan_directory(Path(dir_arg))
+        except OSError as e:
+            print(f'Failed to scan {dir_arg}: {e}')
+            return 1
+
         plan = compute_plan(scan.local_hashes, assets, scan.skipped_non_image)
 
         print(f'Sync plan for {frame.name} (id: {frame.id}) — DRY RUN, nothing will be changed')
