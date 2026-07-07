@@ -37,7 +37,16 @@ def scan_directory(root: Path) -> ScanResult:
     follow directory symlinks, and only regular files (`is_file()`) are
     considered -- bounding traversal to real files under the user's own
     directory (T-07-01).
+
+    Raises `NotADirectoryError` if `root` does not exist or is not a
+    directory (CR-01): `Path.rglob` silently yields nothing for a missing
+    or non-directory path, which would otherwise be indistinguishable from
+    a genuinely empty directory and produce a misleading "delete everything"
+    plan downstream.
     """
+    if not root.is_dir():
+        raise NotADirectoryError(f'{root} is not an existing directory')
+
     local_hashes: dict[str, list[Path]] = {}
     skipped_non_image = 0
 
