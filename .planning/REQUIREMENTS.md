@@ -26,8 +26,8 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
 
 - [x] **SYNC-01**: `sync <dir> --frame <name|id>` computes a full-mirror plan (upload new / delete gone-locally / unchanged) by comparing local file content-hashes to frame asset `md5_hash` values, without executing anything — dry-run by default
 - [x] **SYNC-02**: Content-hash comparison uses the same base64-MD5 convention as the existing S3 upload path (`S3Client.get_md5`), validated against a real downloaded asset before being trusted for diffing
-- [ ] **SYNC-03**: `sync ... --apply` (or `--yes`) executes the computed plan for real: uploads new local files, removes frame photos no longer present locally (via `remove_asset`, the safer of the two delete primitives)
-- [ ] **SYNC-04**: Sync plan output clearly lists planned upload/delete/unchanged counts and the CLI exits non-zero on any execution failure
+- [x] **SYNC-03**: `sync ... --apply` (or `--yes`) executes the computed plan for real: uploads new local files, removes frame photos no longer present locally (via `remove_asset`, the safer of the two delete primitives)
+- [x] **SYNC-04**: Sync plan output clearly lists planned upload/delete/unchanged counts and the CLI exits non-zero on any execution failure
 
 ## v2 Requirements
 
@@ -71,8 +71,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLI-04 | Phase 6 | Complete |
 | SYNC-01 | Phase 7 | Complete |
 | SYNC-02 | Phase 7 | Complete |
-| SYNC-03 | Phase 8 | Pending |
-| SYNC-04 | Phase 8 | Pending |
+| SYNC-03 | Phase 8 | Complete |
+| SYNC-04 | Phase 8 | Complete |
 | WRITE-01 | Phase 8 | Pending |
 | WRITE-02 | Phase 8 | Pending |
 | WRITE-03 | Phase 8 | Pending |

@@ -5,16 +5,16 @@ milestone_name: Directory-to-Frame Sync
 current_phase: 08
 current_phase_name: Destructive Execution (Upload + Delete Verification
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-07-07T16:47:01.684Z"
+stopped_at: Completed 08-03-PLAN.md
+last_updated: "2026-07-07T17:03:00.937Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
-  percent: 75
+  completed_plans: 10
+  percent: 91
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 ## Current Position
 
 Phase: 08 (Destructive Execution (Upload + Delete Verification)) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
-Last activity: 2026-07-07 — Phase 08 execution started
+Last activity: 2026-07-07 — Completed 08-03-PLAN.md
 
-Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
+Progress: [█████████░] 91% (10/11 plans complete)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
 | Phase 07 P03 | 3min | 1 tasks | 2 files |
 | Phase 08 P01 | 11min | 3 tasks | 6 files |
+| Phase 08 P03 | 10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 08]: batch_update's type hint widened to Asset | AssetPartial rather than a new method, since .dict(include={...}) works unchanged on both
 - [Phase 08-02]: execute_plan preserves the double select_asset call + first discarded SQS poll unchanged (RESEARCH.md Pitfall 4) for the first live attempt, rather than collapsing it
 - [Phase 08-02]: Partial-failure tests monkeypatch aura.asset_api.batch_update/aura.frame_api.remove_asset directly rather than relying on httpx.MockTransport per-payload discrimination, since MockTransport routes only by path
+- [Phase 08-03]: Real S3Client()/SQSClient() are constructed at the CLI boundary only, on confirmed --apply; execute_plan() itself never constructs AWS clients, extending Plan 02's offline-testability seam to the CLI
+- [Phase 08-03]: A single confirmation gate covers the whole plan (uploads + deletes together, D-02); apply/confirm/execute logic lives inside run_sync's existing try/except so an execute_plan failure surfaces through the same fail-loud catch as the dry-run path
 
 ### Pending Todos
 
@@ -118,8 +121,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T16:45:16.762Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-07-07T17:02:44.810Z
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

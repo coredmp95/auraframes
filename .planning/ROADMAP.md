@@ -115,7 +115,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   4. Write/delete API errors raise loudly and are attributable to a specific file, and the CLI exits non-zero on any execution failure
   5. Plan output lists upload / delete / unchanged counts before applying
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 **Wave 1**
 
@@ -127,7 +127,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 08-03-PLAN.md — CLI `sync --apply`/`--yes` confirmation gate (D-01–D-04) + execute wiring + separated summary + non-zero exit (SYNC-03/04)
+- [x] 08-03-PLAN.md — CLI `sync --apply`/`--yes` confirmation gate (D-01–D-04) + execute wiring + separated summary + non-zero exit (SYNC-03/04)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -144,7 +144,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 3/3 | Complete    | 2026-07-07 |
-| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 2/4 | In Progress|  |
+| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 3/4 | In Progress|  |
 
 ## Backlog
 
