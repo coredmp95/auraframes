@@ -21,10 +21,20 @@ ASSETS_PATH = f'/v5/frames/{FRAME_ID}/assets.json'
 
 
 @pytest.fixture(autouse=True)
-def _reset_loguru():
+def _reset_loguru(tmp_path_factory, monkeypatch):
     # loguru's `logger` is a process-global singleton and Aura._init_logger()
     # accumulates sinks across constructions; reset around each test so a
     # sink bound to a torn-down capsys buffer from a prior test can't fire.
+    #
+    # WR-04: `_configure_cli_logging` (debug=False, the default every test
+    # here uses) calls `os.makedirs('logs/', exist_ok=True)` and writes to
+    # `logs/file_{time}.log` relative to the process cwd -- not `tmp_path`.
+    # chdir into a dedicated scratch dir (NOT the test's own `tmp_path`,
+    # which several tests pass directly as `dir_arg` to `run_sync` -- a
+    # `logs/` dir created inside it would be picked up by `scan_directory`
+    # and inflate `skipped_non_image`) so this side effect lands in an
+    # isolated sandbox instead of the real project working tree.
+    monkeypatch.chdir(tmp_path_factory.mktemp('cli-logging-cwd'))
     logger.remove()
     yield
     logger.remove()
