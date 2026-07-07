@@ -6,7 +6,7 @@ current_phase: 07
 current_phase_name: sync-diffing-engine-dry-run-only
 status: verifying
 stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-07-07T07:20:27.295Z"
+last_updated: "2026-07-07T07:24:30.379Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 07 execution started
 progress:
@@ -59,6 +59,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 06 P02 | 8min | 2 tasks | 2 files |
 | Phase 07 P01 | 2min | 2 tasks | 2 files |
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
+| Phase 07 P02 | 6min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 06-02]: md5_hash content-hash diffing is scoped to photos only for Phase 7 - populated for 101/101 photo assets but null for 5/5 video assets on a real frame; a local-manifest fallback is only required scope if video sync enters Phase 7/8 scope
 - [Phase 07-01]: scan_directory hashes only jpg/jpeg/png/heic (case-insensitive), reusing S3Client.get_md5 verbatim; non-eligible files counted in skipped_non_image, never erroring
 - [Phase 07-01]: compute_plan matches local hashes (demand=1 each, post-dedupe) against frame assets count-for-count (multiset): surplus frame-side duplicate assets beyond local demand become delete candidates; hashless frame assets (videos) excluded from unchanged/delete via frame_no_hash
+- [Phase 07-02]: run_sync has structurally no path to a mutating primitive -- no --apply/--yes flag exists, and the function body only calls scan_directory/compute_plan/print (T-07-04)
+- [Phase 07-02]: Plan output prints full upload/delete lists with no truncation (D-07), unlike inspect's first-N convention, since a sync review needs every item visible before Phase 8's --apply lands
 
 ### Pending Todos
 
