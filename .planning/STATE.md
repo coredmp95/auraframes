@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 7
-current_phase_name: Dry-Run Only
+current_phase: 07
+current_phase_name: sync-diffing-engine-dry-run-only
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-07-07T01:57:01.045Z"
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-07-07T05:49:06.142Z"
 last_activity: 2026-07-07
-last_activity_desc: Phase 06 complete, transitioned to Phase 7
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 7
+  completed_plans: 5
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 06 — inspect-frame-resolution
+**Current focus:** Phase 07 — sync-diffing-engine-dry-run-only
 
 ## Current Position
 
-Phase: 7 — Sync-Diffing Engine (Dry-Run Only)
-Plan: Not started
+Phase: 07 (sync-diffing-engine-dry-run-only) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-07 — Phase 06 complete, transitioned to Phase 7
+Last activity: 2026-07-07 — Phase 07 execution started
 
 Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 
@@ -57,6 +57,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 05 P02 | 21min | 2 tasks | 2 files |
 | Phase 06 P01 | 4min | 3 tasks | 4 files |
 | Phase 06 P02 | 8min | 2 tasks | 2 files |
+| Phase 07 P01 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 06-01]: N=10 for the inspect default first-N photo truncation; a trailing +K more line prints when a frame has more assets
 - [Phase 06-01]: resolve_frame() returns a status discriminator (resolved/ambiguous/not_found), not a raised exception, per deferred MOD-03
 - [Phase 06-02]: md5_hash content-hash diffing is scoped to photos only for Phase 7 - populated for 101/101 photo assets but null for 5/5 video assets on a real frame; a local-manifest fallback is only required scope if video sync enters Phase 7/8 scope
+- [Phase 07-01]: scan_directory hashes only jpg/jpeg/png/heic (case-insensitive), reusing S3Client.get_md5 verbatim; non-eligible files counted in skipped_non_image, never erroring
+- [Phase 07-01]: compute_plan matches local hashes (demand=1 each, post-dedupe) against frame assets count-for-count (multiset): surplus frame-side duplicate assets beyond local demand become delete candidates; hashless frame assets (videos) excluded from unchanged/delete via frame_no_hash
 
 ### Pending Todos
 
@@ -103,9 +106,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T01:39:30.942Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-sync-diffing-engine-dry-run-only/07-CONTEXT.md
+Last session: 2026-07-07T05:49:06.135Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
