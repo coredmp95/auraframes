@@ -72,6 +72,7 @@ verified visually + via `inspect`.
 - ✓ `Client`/`Aura` dependency-injection transport seam (`Client(transport=...)`, `Aura(client=...)`) plus a reusable offline `httpx.MockTransport` test harness and sanitized fixtures, lifting most of `test_read_path.py`'s assertions off the live network while leaving the `@live` suite untouched as the drift oracle (R4-SEAM-CLIENT, R4-SEAM-AURA, R4-FIXTURES, R4-FIXTURE-VALIDITY, R4-HARNESS, R4-OFFLINE-TESTS, R4-LIVE-UNCHANGED) — Validated in Phase 4: Client Transport Seam for Offline Testability
 - ✓ Packaged `aura-cli` entrypoint distinct from `main.py`, with a `status` subcommand reporting config/auth health, login result, and the account's frames — quiet by default with an opt-in `--debug` flag for verbose loguru output (CLI-01, CLI-02) — Validated in Phase 5: CLI Skeleton + Status
 - ✓ `inspect --frame <name|id>` resolves a frame by case-insensitive name substring or exact ID, displays its photos and metadata (name, owner, contributor count, asset count), and gives a clear disambiguation error on ambiguous name matches; `--debug` promoted to a root-level flag (CLI-03, CLI-04) — Validated in Phase 6: Inspect + Frame Resolution
+- ✓ `sync <dir> --frame <name|id>` computes and prints a full upload/delete/unchanged dry-run plan by content-hash diffing (never filename), with zero mutating call reachable from the command — structurally dry-run only, no `--apply`/`--yes` path exists yet (SYNC-01, SYNC-02) — Validated in Phase 7: Sync-Diffing Engine (Dry-Run Only)
 
 ### Active
 
@@ -81,7 +82,7 @@ verified visually + via `inspect`.
 
 - _All v1.0 and v1.1 requirements validated — see Validated above._
 - 🚧 (v2.0, in progress) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- 🚧 (v2.0, in progress) `sync` CLI command (`status`, `inspect` shipped in Phases 5–6 — see Validated above)
+- 🚧 (v2.0, in progress) `sync --apply`/`--yes` execute path (destructive upload + delete) — dry-run half shipped in Phase 7, see Validated above
 - ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
 - ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 
