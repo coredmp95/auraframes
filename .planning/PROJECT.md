@@ -138,6 +138,17 @@ verified visually + via `inspect`.
   (`.mp4`) assets. Consequence for Phase 7: content-hash diffing via `md5_hash` is viable for
   photos with no fallback needed; a local-manifest/alternate-hash fallback is only required
   scope if video sync ever enters scope.
+- **Phase 7 (2026-07-07):** Shipped the dry-run sync-diffing engine (`auraframes/sync.py`
+  + `aura-cli sync <dir> --frame <name|id>`), structurally incapable of mutating (no
+  `--apply`/`--yes` flag exists yet). Live validation (SYNC-02 success criterion 3, D-09
+  precedent from Phase 6's `md5_hash` spike): ran `aura-cli sync ./data/ --frame "Cadre de
+  Fabrice"` against a real frame — one local file with a matching original already on the
+  frame was correctly classified "Unchanged" while a second, non-matching local file was
+  correctly classified "To upload". This confirms the base64-MD5 convention is **byte-identical**
+  between local `S3Client.get_md5(original_bytes)` hashing and the frame's reported
+  `md5_hash`, making the dry-run diff engine's core content-hash matching assumption sound.
+  Unblocks Phase 8 (the write/upload/delete path) to trust the diff without re-deriving
+  the hash convention.
 
 ### Original baseline
 
@@ -194,4 +205,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 after Phase 6 (Inspect + Frame Resolution): `aura-cli inspect --frame <name|id>` shipped, tested offline, root-level `--debug`; CLI-03/CLI-04 validated. Live `md5_hash` spike resolved (populated for photos, not for videos) — unblocks Phase 7 design. Next: Phase 7 (Sync-Diffing Engine, Dry-Run Only).*
+*Last updated: 2026-07-07 after Phase 7 (Sync-Diffing Engine, Dry-Run Only): `aura-cli sync <dir> --frame <name|id>` shipped as a structurally dry-run-only diff engine; live validation confirmed local get_md5 hashing is byte-identical to frame `md5_hash` (SYNC-02) — unblocks Phase 8 (write path). Next: Phase 8 (write/upload/delete path, live-verified).*
