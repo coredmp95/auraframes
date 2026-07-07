@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 06
 current_phase_name: inspect-frame-resolution
-status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-07-07T00:08:53.176Z"
+status: verifying
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-07-07T01:04:26.381Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 06 execution started
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 50
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 
 Phase: 06 (inspect-frame-resolution) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-07 — Phase 06 execution started
 
 Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
@@ -56,6 +56,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 05 P01 | 3min | 3 tasks | 3 files |
 | Phase 05 P02 | 21min | 2 tasks | 2 files |
 | Phase 06 P01 | 4min | 3 tasks | 4 files |
+| Phase 06 P02 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,6 +72,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 05-02]: Because `aura.py`'s `_init_logger()` is frozen (D-04), the verbose-stderr UAT gap is fixed from the CLI boundary — `_configure_cli_logging()` calls `logger.remove()` then re-adds the file sink + a WARNING-level stderr sink after `Aura()` construction, rather than editing the frozen file
 - [Phase 06-01]: N=10 for the inspect default first-N photo truncation; a trailing +K more line prints when a frame has more assets
 - [Phase 06-01]: resolve_frame() returns a status discriminator (resolved/ambiguous/not_found), not a raised exception, per deferred MOD-03
+- [Phase 06-02]: md5_hash content-hash diffing is scoped to photos only for Phase 7 - populated for 101/101 photo assets but null for 5/5 video assets on a real frame; a local-manifest fallback is only required scope if video sync enters Phase 7/8 scope
 
 ### Pending Todos
 
@@ -101,8 +103,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T00:08:42.558Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-07-07T01:04:26.375Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

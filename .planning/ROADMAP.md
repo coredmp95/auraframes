@@ -33,7 +33,7 @@ Full detail archived in [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP
 Safety-first, read-before-write: every phase before Phase 8 touches only already-live-verified read endpoints, sequencing all genuine new write-path risk into a single, well-prepared final phase.
 
 - [x] **Phase 5: CLI Skeleton + Status** — Runnable CLI entrypoint whose `status` command reports auth/config health and account frames (zero API risk) (completed 2026-07-06)
-- [ ] **Phase 6: Inspect + Frame Resolution** — `inspect --frame <name|id>` lists a frame's photos + metadata, resolves frames by name or ID, and answers the live `md5_hash`-on-read question that shapes Phase 7 (zero write risk)
+- [x] **Phase 6: Inspect + Frame Resolution** — `inspect --frame <name|id>` lists a frame's photos + metadata, resolves frames by name or ID, and answers the live `md5_hash`-on-read question that shapes Phase 7 (zero write risk) (completed 2026-07-07)
 - [ ] **Phase 7: Sync-Diffing Engine (Dry-Run Only)** — `sync <dir> --frame <name|id>` computes and prints an upload/delete/unchanged plan from content-hash diffing, executing nothing (no destructive path exists yet)
 - [ ] **Phase 8: Destructive Execution (Upload + Delete Verification)** — `sync ... --apply`/`--yes` runs the plan for real, proving the upload and delete write paths live for the first time
 
@@ -68,14 +68,14 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   3. Targeting a frame by an ambiguous name produces a clear error directing the user to use the ID instead
   4. It is confirmed live whether `md5_hash` is populated on read for pre-existing (non-client-uploaded) assets, documented as the input to Phase 7's design
 
-**Plans**: 1/2 plans executed
+**Plans**: 2/2 plans complete
 **Wave 1**
 
 - [x] 06-01-PLAN.md — `inspect` subcommand: frame resolution (name substring + id fallback), photo + metadata display, root-level `--debug` promotion, full offline test coverage
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-02-PLAN.md — Live `md5_hash` spike via `inspect --debug`; document the Phase 7 design input in STATE.md/PROJECT.md; close the folded `--debug` todo
+- [x] 06-02-PLAN.md — Live `md5_hash` spike via `inspect --debug`; document the Phase 7 design input in STATE.md/PROJECT.md; close the folded `--debug` todo
 
 ### Phase 7: Sync-Diffing Engine (Dry-Run Only)
 
@@ -114,7 +114,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 3. Run Docs & Verification Report | v1.0 | 1/1 | Complete | 2026-06-29 |
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
-| 6. Inspect + Frame Resolution | v2.0 | 1/2 | In Progress|  |
+| 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete   | 2026-07-07 |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 0/? | Not started | - |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
 
