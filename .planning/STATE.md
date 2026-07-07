@@ -78,7 +78,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Blockers/Concerns
 
-- **Phase 6 live spike (hard dependency for Phase 7 design):** unverified whether `md5_hash` is populated on read for pre-existing (non-client-uploaded) assets — if not, Phase 7 needs a local-manifest fallback
+- **Phase 6 live spike (hard dependency for Phase 7 design) — RESOLVED 2026-07-06:** confirmed live via `aura-cli --debug inspect` against a real frame (106 paginated assets): `md5_hash` is **populated** (non-null base64) for all 101/101 pre-existing photo (`.jpg`) assets, but **not populated** (null) for all 5/5 video (`.mp4`) assets. Phase 7 consequence: content-hash diffing via `md5_hash` is viable for photos with no fallback needed; a local-manifest/alternate-hash fallback is only required scope if video sync ever enters Phase 7/8 scope.
 - **Hash-format mismatch risk (Phase 7):** local hashing must match `S3Client.get_md5`'s base64-MD5 exactly, or every file looks "changed" forever → mass unwanted uploads/deletes
 - **Delete-primitive ambiguity (Phase 8):** `remove_asset` (soft, frame-scoped) vs `delete_asset` (hard, unverified S3/Glacier scope) — both must be live-verified before locking the safe default
 - **Hardcoded SQS frame ID (Phase 8, WRITE-04):** `get_sqs()` listens on the original test frame's queue; must be parameterized before sync can upload to an arbitrary frame

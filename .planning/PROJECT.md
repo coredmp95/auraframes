@@ -129,6 +129,15 @@ verified visually + via `inspect`.
   helper and an opt-in `--debug` flag, re-confirmed live. Threat register (6 threats,
   T-05-01–05 + T-05-SC) fully mitigated/accepted — see `05-SECURITY.md`. A todo carries
   forward the idea of promoting `--debug` to a global flag once Phase 6 designs `inspect`.
+- **Phase 6 (2026-07-06):** Shipped `aura-cli inspect --frame <name|id>` (frame resolution
+  by name or ID, metadata + first-N photo listing), and folded the `--debug`-promotion todo
+  into it (`--debug` is now a root-level `aura-cli` flag). Live spike (Success Criterion 4,
+  hard Phase 7 dependency): ran `inspect --debug` against a real frame (106 paginated assets)
+  and inspected the logged asset JSON — `md5_hash` is **populated** (non-null base64) for
+  101/101 pre-existing photo (`.jpg`) assets, but **not populated** (null) for 5/5 video
+  (`.mp4`) assets. Consequence for Phase 7: content-hash diffing via `md5_hash` is viable for
+  photos with no fallback needed; a local-manifest/alternate-hash fallback is only required
+  scope if video sync ever enters scope.
 
 ### Original baseline
 
