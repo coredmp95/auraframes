@@ -88,7 +88,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   2. The plan correctly classifies files by comparing local content-hashes to frame asset `md5_hash` values
   3. Local hashing uses the same base64-MD5 convention as `S3Client.get_md5`, validated equal against a real downloaded asset before diffing is trusted
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 **Wave 1**
 
@@ -96,7 +96,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 07-02-PLAN.md — CLI `sync <dir> --frame <name|id>` subcommand + `run_sync` handler + full untruncated dry-run plan output (D-07/D-08) with offline CLI tests
+- [x] 07-02-PLAN.md — CLI `sync <dir> --frame <name|id>` subcommand + `run_sync` handler + full untruncated dry-run plan output (D-07/D-08) with offline CLI tests
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -127,7 +127,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
-| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 1/3 | In Progress|  |
+| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 2/3 | In Progress|  |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
 
 ## Backlog
