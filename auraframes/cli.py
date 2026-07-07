@@ -277,7 +277,11 @@ def run_sync(dir_arg: str, frame_arg: str, aura=None, debug: bool = False) -> in
         print(f'To delete: {len(plan.to_delete)}')
         print(f'Unchanged: {plan.unchanged}')
 
-        for path in plan.to_upload:
+        # WR-03: local_hashes (and to_upload built from it) is populated in
+        # filesystem-traversal order, which is OS/filesystem dependent and
+        # not sorted -- sort here so dry-run output is reproducible across
+        # runs/machines (e.g. diffable, stable for bug reports).
+        for path in sorted(plan.to_upload):
             print(f'  + {path}')
 
         for asset in plan.to_delete:
