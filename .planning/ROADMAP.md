@@ -115,7 +115,23 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   4. Write/delete API errors raise loudly and are attributable to a specific file, and the CLI exits non-zero on any execution failure
   5. Plan output lists upload / delete / unchanged counts before applying
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — Foundations: AssetPartial model + fail-loud write/delete endpoints (WRITE-05) + get_sqs(frame_id) parameterization (WRITE-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 08-02-PLAN.md — `execute_plan()` mutating engine in sync.py: upload round-trip + remove_asset deletes, continue-past-failure, injected AWS clients (SYNC-03/04)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 08-03-PLAN.md — CLI `sync --apply`/`--yes` confirmation gate (D-01–D-04) + execute wiring + separated summary + non-zero exit (SYNC-03/04)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 08-04-PLAN.md — Live verification checkpoints: upload round-trip (WRITE-01), remove_asset (WRITE-02), delete_asset blast-radius probe on a disposable asset (WRITE-03)
 
 ## Progress
 
