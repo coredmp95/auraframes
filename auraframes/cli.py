@@ -2,12 +2,14 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
 
 from auraframes.aura import Aura
 from auraframes.models.frame import Frame
+from auraframes.sync import scan_directory, compute_plan
 
 # First-N photos printed by default before truncating with a "+K more"
 # summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
@@ -36,6 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser('status', help='Check config/auth health and list account frames')
     inspect_parser = subparsers.add_parser('inspect', help="Inspect a frame's photos and metadata")
     inspect_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
+    sync_parser = subparsers.add_parser('sync', help='Dry-run diff a local directory against a frame')
+    sync_parser.add_argument('dir', help='Local directory to scan for photos')
+    sync_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
     return parser
 
 
@@ -211,6 +216,77 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
     return 0
 
 
+def run_sync(dir_arg: str, frame_arg: str, aura=None, debug: bool = False) -> int:
+    """Sync command handler (SYNC-01). Dry-run only — resolves the target
+    frame, scans `dir_arg` locally, computes the upload/delete/unchanged plan
+    via `auraframes.sync`, and prints a full (untruncated) report. Executes
+    nothing: there is no `--apply`/`--yes` flag in this phase (T-07-04), and
+    this function never calls a mutating API/S3/SQS primitive.
+
+    Returns a process exit code (0 success, 1 failure) — never calls
+    sys.exit directly. Accepts an optional injected `Aura` (dependency-
+    injection seam) so this is testable offline, mirroring `run_inspect`.
+    """
+    aura = aura or Aura()
+    # Must run after Aura() construction (which registers the noisy sinks)
+    # and before login/get_frames (the HTTP calls that trigger them).
+    _configure_cli_logging(debug)
+
+    try:
+        aura.login()
+    except Exception as e:
+        # Fail-loud (D-05 convention): bad credentials, network error, or API
+        # drift all surface here — a broad catch at the CLI boundary is correct.
+        print(f'Login failed: {e}')
+        return 1
+
+    try:
+        frames = aura.frame_api.get_frames()
+        resolved = resolve_frame(frame_arg, frames)
+
+        if resolved.status == 'ambiguous':
+            print(f"'{frame_arg}' matches more than one frame name — re-run with --frame <id>:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        if resolved.status == 'not_found':
+            print(f"No frame matches name or id '{frame_arg}'. Available frames:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        frame = resolved.frame
+        assets = aura.get_all_assets(frame.id)
+
+        scan = scan_directory(Path(dir_arg))
+        plan = compute_plan(scan.local_hashes, assets, scan.skipped_non_image)
+
+        print(f'Sync plan for {frame.name} (id: {frame.id}) — DRY RUN, nothing will be changed')
+        print(f'To upload: {len(plan.to_upload)}')
+        print(f'To delete: {len(plan.to_delete)}')
+        print(f'Unchanged: {plan.unchanged}')
+
+        for path in plan.to_upload:
+            print(f'  + {path}')
+
+        for asset in plan.to_delete:
+            print(f'  - {asset.id} (taken {asset.taken_at_dt})')
+
+        if plan.skipped_non_image > 0:
+            print(f'{plan.skipped_non_image} non-photo files skipped')
+
+        if plan.frame_no_hash > 0:
+            print(f'{plan.frame_no_hash} frame assets without a content hash (e.g. videos) left untouched')
+    except Exception as e:
+        # WR-01 fail-loud (D-05): surface post-login API drift instead of a
+        # raw traceback.
+        print(f'Failed to sync frame: {e}')
+        return 1
+
+    return 0
+
+
 def main(argv=None) -> int:
     load_dotenv()
     args = build_parser().parse_args(argv)
@@ -219,6 +295,8 @@ def main(argv=None) -> int:
         return run_status(debug=args.debug)
     if args.command == 'inspect':
         return run_inspect(args.frame, debug=args.debug)
+    if args.command == 'sync':
+        return run_sync(args.dir, args.frame, debug=args.debug)
     raise ValueError(f'Unhandled command: {args.command}')
 
 
