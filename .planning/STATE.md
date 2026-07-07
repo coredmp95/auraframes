@@ -5,16 +5,16 @@ milestone_name: Directory-to-Frame Sync
 current_phase: 07
 current_phase_name: sync-diffing-engine-dry-run-only
 status: verifying
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-07-07T07:24:30.379Z"
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-07-07T08:36:02.370Z"
 last_activity: 2026-07-07
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 7
-  completed_plans: 6
-  percent: 50
+  completed_plans: 7
+  percent: 75
 ---
 
 # Project State
@@ -60,6 +60,7 @@ Progress: [██████████] 100% (plan 2/2 of Phase 5, complete)
 | Phase 07 P01 | 2min | 2 tasks | 2 files |
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
 | Phase 07 P02 | 6min | 2 tasks | 2 files |
+| Phase 07 P03 | 3min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 07-01]: compute_plan matches local hashes (demand=1 each, post-dedupe) against frame assets count-for-count (multiset): surplus frame-side duplicate assets beyond local demand become delete candidates; hashless frame assets (videos) excluded from unchanged/delete via frame_no_hash
 - [Phase 07-02]: run_sync has structurally no path to a mutating primitive -- no --apply/--yes flag exists, and the function body only calls scan_directory/compute_plan/print (T-07-04)
 - [Phase 07-02]: Plan output prints full upload/delete lists with no truncation (D-07), unlike inspect's first-N convention, since a sync review needs every item visible before Phase 8's --apply lands
+- [Phase 07-03]: Live validation performed via METHOD A (piggyback on the shipped sync feature itself) rather than a throwaway comparison script, per D-09's precedent of proving via real usage instead of adding a permanent automated fixture
 
 ### Pending Todos
 
@@ -110,8 +112,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T07:20:27.289Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-07-07T08:35:58.034Z
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

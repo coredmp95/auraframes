@@ -34,7 +34,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 
 - [x] **Phase 5: CLI Skeleton + Status** — Runnable CLI entrypoint whose `status` command reports auth/config health and account frames (zero API risk) (completed 2026-07-06)
 - [x] **Phase 6: Inspect + Frame Resolution** — `inspect --frame <name|id>` lists a frame's photos + metadata, resolves frames by name or ID, and answers the live `md5_hash`-on-read question that shapes Phase 7 (zero write risk) (completed 2026-07-07)
-- [ ] **Phase 7: Sync-Diffing Engine (Dry-Run Only)** — `sync <dir> --frame <name|id>` computes and prints an upload/delete/unchanged plan from content-hash diffing, executing nothing (no destructive path exists yet)
+- [x] **Phase 7: Sync-Diffing Engine (Dry-Run Only)** — `sync <dir> --frame <name|id>` computes and prints an upload/delete/unchanged plan from content-hash diffing, executing nothing (no destructive path exists yet) (completed 2026-07-07)
 - [ ] **Phase 8: Destructive Execution (Upload + Delete Verification)** — `sync ... --apply`/`--yes` runs the plan for real, proving the upload and delete write paths live for the first time
 
 ## Phase Details
@@ -88,7 +88,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   2. The plan correctly classifies files by comparing local content-hashes to frame asset `md5_hash` values
   3. Local hashing uses the same base64-MD5 convention as `S3Client.get_md5`, validated equal against a real downloaded asset before diffing is trusted
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 **Wave 1**
 
@@ -100,7 +100,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 07-03-PLAN.md — One-time LIVE hash-convention validation (SYNC-02, D-09): confirm local `get_md5` equals frame `md5_hash`, documented in STATE.md/PROJECT.md
+- [x] 07-03-PLAN.md — One-time LIVE hash-convention validation (SYNC-02, D-09): confirm local `get_md5` equals frame `md5_hash`, documented in STATE.md/PROJECT.md
 
 ### Phase 8: Destructive Execution (Upload + Delete Verification)
 
@@ -127,7 +127,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 4. Client Transport Seam for Offline Testability | v1.1 | 3/3 | Complete | 2026-07-05 |
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
-| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 2/3 | In Progress|  |
+| 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 3/3 | Complete   | 2026-07-07 |
 | 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 0/? | Not started | - |
 
 ## Backlog
