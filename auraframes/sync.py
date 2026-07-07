@@ -34,9 +34,12 @@ def scan_directory(root: Path) -> ScanResult:
 
     Non-eligible files (videos, dotfiles, arbitrary junk) are counted in
     `skipped_non_image` and never error (D-02, D-03). `Path.rglob` does not
-    follow directory symlinks, and only regular files (`is_file()`) are
-    considered -- bounding traversal to real files under the user's own
-    directory (T-07-01).
+    recurse into symlinked directories, and symlinks are excluded
+    explicitly below (in addition to the `is_file()` check) -- bounding
+    traversal to real files under the user's own directory (T-07-01,
+    WR-01: a symlink to a file directly inside the scanned root would
+    otherwise still be matched by `rglob('*')` and `is_file()` follows the
+    symlink, silently reading and hashing content from outside `root`).
 
     Raises `NotADirectoryError` if `root` does not exist or is not a
     directory (CR-01): `Path.rglob` silently yields nothing for a missing
@@ -51,7 +54,7 @@ def scan_directory(root: Path) -> ScanResult:
     skipped_non_image = 0
 
     for p in root.rglob('*'):
-        if not p.is_file():
+        if p.is_symlink() or not p.is_file():
             continue
 
         if p.suffix.lower() not in ELIGIBLE_EXTENSIONS:
