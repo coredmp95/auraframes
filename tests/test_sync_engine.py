@@ -2,8 +2,15 @@
 core). Zero network access, zero credentials -- scan_directory only reads
 local bytes under tmp_path, and compute_plan is a pure function.
 """
+from pathlib import Path
+
 from auraframes.aws.s3client import get_md5
-from auraframes.sync import scan_directory
+from auraframes.models.asset import Asset
+from auraframes.sync import compute_plan, scan_directory
+
+
+def _asset(id_, md5_hash, taken_at="2024-03-11T12:00:00.000Z"):
+    return Asset.model_construct(id=id_, md5_hash=md5_hash, taken_at=taken_at)
 
 
 def _write(path, data: bytes):
@@ -71,3 +78,64 @@ def test_scan_directory_empty_directory_yields_empty_result(tmp_path):
 
     assert result.local_hashes == {}
     assert result.skipped_non_image == 0
+
+
+def test_compute_plan_local_only_hash_becomes_single_upload():
+    local_hashes = {"hash-a": [Path("/photos/a.jpg"), Path("/photos/a-copy.jpg")]}
+
+    plan = compute_plan(local_hashes, frame_assets=[])
+
+    assert plan.to_upload == [Path("/photos/a.jpg")]
+    assert plan.to_delete == []
+    assert plan.unchanged == 0
+    assert plan.frame_no_hash == 0
+
+
+def test_compute_plan_matched_hash_is_unchanged_not_upload_or_delete():
+    local_hashes = {"hash-a": [Path("/photos/a.jpg")]}
+    matched = _asset("asset-1", "hash-a")
+
+    plan = compute_plan(local_hashes, frame_assets=[matched])
+
+    assert plan.to_upload == []
+    assert plan.to_delete == []
+    assert plan.unchanged == 1
+
+
+def test_compute_plan_multiset_surplus_frame_assets_become_delete_candidates():
+    local_hashes = {"hash-x": [Path("/photos/x.jpg")]}
+    kept = _asset("asset-kept", "hash-x")
+    surplus_1 = _asset("asset-surplus-1", "hash-x")
+    surplus_2 = _asset("asset-surplus-2", "hash-x")
+
+    plan = compute_plan(local_hashes, frame_assets=[kept, surplus_1, surplus_2])
+
+    assert plan.unchanged == 1
+    delete_ids = {a.id for a in plan.to_delete}
+    assert delete_ids == {"asset-surplus-1", "asset-surplus-2"}
+    assert plan.to_upload == []
+
+
+def test_compute_plan_frame_hash_absent_locally_becomes_delete():
+    orphan = _asset("asset-orphan", "hash-not-local")
+
+    plan = compute_plan(local_hashes={}, frame_assets=[orphan])
+
+    assert plan.to_delete == [orphan]
+    assert plan.unchanged == 0
+
+
+def test_compute_plan_hashless_frame_asset_excluded_from_unchanged_and_delete():
+    video_asset = _asset("asset-video", None)
+
+    plan = compute_plan(local_hashes={}, frame_assets=[video_asset])
+
+    assert plan.to_delete == []
+    assert plan.unchanged == 0
+    assert plan.frame_no_hash == 1
+
+
+def test_compute_plan_carries_skipped_non_image_onto_returned_plan():
+    plan = compute_plan(local_hashes={}, frame_assets=[], skipped_non_image=7)
+
+    assert plan.skipped_non_image == 7
