@@ -37,18 +37,25 @@ class Asset(BaseModel):
     burst_selection_types: Any
     colorized_file_name: Optional[str] = None
     created_at_on_client: Optional[str] = None
-    data_uti: str
+    # data_uti/file_name/good_resolution/height/width/upload_priority/taken_at/
+    # uploaded_at are Optional because the live API returns assets that are still
+    # mid-server-side-processing (a freshly-uploaded placeholder): source_id,
+    # local_identifier, user and selected are populated, but the processed
+    # content metadata (dimensions, filenames, dates, data_uti) is null and
+    # good_resolution is omitted entirely until processing completes. See
+    # .planning/debug/resolved/inspect-asset-null-fields.md.
+    data_uti: Optional[str] = None
     duplicate_of_id: Optional[str] = None
     duration: Optional[float] = None
     duration_unclipped: Optional[float] = None
     exif_orientation: int
     favorite: Optional[bool] = None
-    file_name: str
+    file_name: Optional[str] = None
     glaciered_at: str
-    good_resolution: bool
+    good_resolution: Optional[bool] = None
     handled_at: Optional[str] = None
     hdr: Optional[bool] = None
-    height: int
+    height: Optional[int] = None
     horizontal_accuracy: Optional[float] = None
     id: str
     ios_media_subtypes: Optional[int] = None
@@ -81,13 +88,13 @@ class Asset(BaseModel):
     rotation_cw: int
     selected: bool
     source_id: str
-    taken_at: str
+    taken_at: Optional[str] = None
     taken_at_granularity: Any
     taken_at_user_override_at: Optional[str] = None
     thumbnail_url: Optional[str] = None
     unglacierable: Optional[bool] = None
-    upload_priority: int
-    uploaded_at: str
+    upload_priority: Optional[int] = None
+    uploaded_at: Optional[str] = None
     user: User
     user_id: str
     user_landscape_16_10_rect: Optional[str] = None
@@ -100,10 +107,16 @@ class Asset(BaseModel):
     video_file_name: Optional[str] = None
     video_url: Optional[str] = None
     widget_url: Optional[str] = None
-    width: int
+    width: Optional[int] = None
 
     @property
     def taken_at_dt(self):
+        # taken_at is None for an unprocessed placeholder asset (see the field
+        # comment above); parse_aura_dt(None) would raise, and the CLI reads
+        # this property for every listed asset (cli.py inspect/sync), so return
+        # None rather than crash on a not-yet-processed asset.
+        if self.taken_at is None:
+            return None
         return parse_aura_dt(self.taken_at)
 
     # `is_local_asset` (formerly `return self.id is None`) was removed:

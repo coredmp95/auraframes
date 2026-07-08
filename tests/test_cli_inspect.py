@@ -129,6 +129,39 @@ def test_inspect_not_found_lists_available_frame_names(monkeypatch, capsys):
     assert 'Fake Frame' in out
 
 
+def test_inspect_tolerates_unprocessed_placeholder_asset(monkeypatch, capsys):
+    """Regression: `inspect` must not crash when the frame's asset list
+    contains a mid-server-side-processing placeholder (null data_uti/file_name/
+    taken_at/dimensions, `good_resolution` absent). Before the model fix this
+    raised 8 pydantic ValidationErrors inside get_all_assets and the CLI printed
+    'Failed to inspect frame' with rc=1. See
+    .planning/debug/resolved/inspect-asset-null-fields.md.
+    """
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    unprocessed = json.loads((FIXTURES_DIR / "asset_unprocessed.json").read_text())
+    unprocessed.pop("_comment", None)
+    # A single page (next_page_cursor null) so get_all_assets stops after it.
+    assets_response = httpx.Response(200, json={
+        "assets": [unprocessed],
+        "next_page_cursor": None,
+    })
+    aura = offline_aura(overrides={
+        '/v5/frames/frame-fake-0001/assets.json': assets_response,
+    })
+
+    rc = run_inspect('Fake', aura=aura)
+
+    assert rc == 0, capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert 'Failed to inspect frame' not in out
+    assert 'asset-unprocessed-0001' in out
+    # taken_at is null -> taken_at_dt is None, printed as the literal 'None'
+    # rather than crashing on parse_aura_dt(None).
+    assert 'None' in out
+
+
 def test_inspect_login_failure_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
     monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
