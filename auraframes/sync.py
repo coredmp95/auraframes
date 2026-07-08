@@ -1,5 +1,5 @@
 """Sync engine: pure dry-run core (Phase 7) plus the single mutating
-execute path (Phase 8).
+execute path (Phase 8, batched in quick task 260708-fyr).
 
 Contains a recursive local-directory scanner + content hasher
 (`scan_directory`) and a pure diff function (`compute_plan`) that classifies
@@ -16,6 +16,23 @@ Uploads are attempted before any delete (D-09), and a single item's
 failure is caught, recorded with its identity, and the loop continues
 rather than aborting (D-08), with results reported back as a separated
 `ExecutionResult` (D-10).
+
+Both `select_asset` and `batch_update` are native Pushd BATCH endpoints
+(the official app sends a whole collection in one `{"assets":[...]}` call
+rather than one call per asset -- see
+`.planning/debug/resolved/select-asset-401-unauthorized.md`). `execute_plan`
+chunks `to_upload`/`to_delete` at `WRITE_BATCH_SIZE` and, per upload chunk,
+performs per-file S3 prep (S3 is AWS, not the Pushd anti-abuse surface, so
+those uploads stay per-file) followed by exactly ONE `select_asset` call and
+ONE `batch_update` call carrying every prepped file in the chunk -- not the
+double `select_asset` + per-file round-trip the original single-item flow
+used. Per-file attribution is recovered from `batch_update`'s
+`successes[].local_identifier`: any prepped file whose local_identifier is
+absent from `successes` is attributed a failure. A delete chunk issues one
+`remove_asset` call for every asset id in the chunk; since `remove_asset`
+returns only a failure COUNT (never per-item), a chunk-level failure
+attributes ALL deletes in that chunk (coarser than upload attribution --
+documented tradeoff, T-fyr-01).
 """
 from __future__ import annotations
 
@@ -52,11 +69,27 @@ _DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
 # the Pushd anti-abuse layer trips on burst write volume (a 120-file apply
 # fired ~300ms apart, each upload issuing 2x select_asset + 1x batch_update,
 # got 401 on every call then escalated to a login lockout) while the
-# human-paced phone app is never flagged. This default paces every write to
-# resemble app-like traffic; it is deliberately conservative (a full apply
-# is a rare, batch operation, not a latency-sensitive path). Callers can
-# override via `throttle_seconds` (0 disables) and inject `sleep` for tests.
+# human-paced phone app is never flagged. Batching (WRITE_BATCH_SIZE) fixes
+# the root cause -- call COUNT -- by collapsing ~3N Pushd write calls to ~2
+# per chunk; this throttle remains as a second, independent layer of
+# defense that paces whatever write calls remain (2 per upload chunk, 1 per
+# delete chunk) so even a batched apply is never fired as a rapid burst. It
+# is deliberately conservative (a full apply is a rare, batch operation, not
+# a latency-sensitive path). Callers can override via `throttle_seconds` (0
+# disables) and inject `sleep` for tests.
 WRITE_THROTTLE_SECONDS = 0.5
+
+# Maximum number of items (uploads or deletes) batched into a single
+# select_asset/batch_update/remove_asset call. The official Aura Android app
+# has no observed hard client-side cap and does not appear to chunk at all in
+# normal use, but a single call carrying hundreds of assets is untested
+# territory -- it could re-trip the anti-abuse layer on payload size/shape
+# rather than call volume, or hit an undocumented server-side limit. 50 is a
+# conservative chunk size: small enough to stay well within any plausible
+# server limit, large enough that the ~3N-to-~2-per-chunk call-count
+# reduction is realized in practice. Injectable via `batch_size` so offline
+# tests can exercise the chunk-boundary logic with a small size.
+WRITE_BATCH_SIZE = 50
 
 # Number of write items that must fail in an unbroken run before execute_plan
 # aborts the whole batch. Root cause of this session's REOPENED gap: the Pushd
@@ -214,21 +247,23 @@ class ExecutionResult:
     delete_failures: list = field(default_factory=list)  # list[tuple[str, str]]
 
 
-def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queue_url, throttle=lambda: None) -> None:
-    """Perform the real upload round-trip for a single new local file.
+def _chunked(items: list, size: int):
+    """Yield successive `size`-length slices of `items` (the final slice may
+    be shorter). `size` is expected to be a positive int (`WRITE_BATCH_SIZE`
+    or an injected override); a chunk boundary is where the Pushd write-call
+    count collapses from ~3N to ~2 per chunk."""
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
 
-    Preserves the double `select_asset` call + discarded first SQS poll
-    from the original `Aura.upload_image()` for the first live attempt
-    (RESEARCH.md Pitfall 4) -- deliberately NOT collapsed into a single
-    call. Both SQS polls are best-effort/observational only (Pitfall 3):
-    their results are never used to gate success or failure.
 
-    `throttle` is called immediately before each write network call
-    (both select_asset calls and batch_update) so the per-upload write
-    burst is paced even though the double select_asset is retained --
-    addressing the burst-volume root cause without the unverified
-    behavioural change of dropping the second call (see the
-    select-asset-401-unauthorized debug session).
+def _prep_upload(path: Path, s3_client) -> AssetPartial:
+    """Per-file S3 prep phase for a single new local file: resolve the
+    Apple UTI, read image dimensions, upload the raw bytes to S3, and build
+    the `AssetPartial` that will be sent in the chunk's batched
+    `batch_update` call. Raises (fails closed) if the extension is
+    unmapped, `Image.open` fails, or the S3 upload fails -- the caller
+    catches this per file so one bad file never blocks the rest of the
+    chunk.
     """
     data_uti = _DATA_UTI_BY_SUFFIX.get(path.suffix.lower())
     if data_uti is None:
@@ -238,15 +273,9 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
     with Image.open(path) as image:
         width, height = image.size
 
-    throttle()
-    aura.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
-    sqs_client.receive_message(queue_url, wait_time_seconds=5)
-    throttle()
-    aura.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
-
     filename, md5 = s3_client.upload_file(path.read_bytes(), path.suffix)
 
-    pending = AssetPartial(
+    return local_identifier, AssetPartial(
         local_identifier=local_identifier,
         file_name=filename,
         md5_hash=md5,
@@ -257,32 +286,34 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
         selected=True,
         upload_priority=0,
     )
-    throttle()
-    aura.asset_api.batch_update(pending)
-
-    message = sqs_client.receive_message(queue_url, wait_time_seconds=5)
-    logger.debug(f'Trailing SQS poll after upload of {path}: {message}')
 
 
 def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep,
                  max_consecutive_failures: int = MAX_CONSECUTIVE_WRITE_FAILURES,
-                 progress=lambda *args: None) -> ExecutionResult:
+                 progress=lambda *args: None,
+                 batch_size: int = WRITE_BATCH_SIZE) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
-    mutating entry point (D-06/D-08/D-09/D-10).
+    mutating entry point (D-06/D-08/D-09/D-10), batched (quick task
+    260708-fyr) to collapse ~3N Pushd write calls to ~2 per chunk.
 
-    For each path in `plan.to_upload`, performs the real upload round-trip
-    (select_asset -> S3 upload -> batch_update); for each asset in
-    `plan.to_delete`, calls `remove_asset` to disassociate it from the
-    frame. All uploads are attempted before any delete is attempted (D-09)
-    -- on interruption mid-run this leaves the safer partial state (content
-    added, nothing removed). A single item's failure (upload or delete) is
-    caught, recorded with its identity, and the loop continues rather than
-    aborting (D-08); the aggregate outcome is returned as a separated
-    `ExecutionResult` with named per-item failures (D-10). The delete loop
-    calls `remove_asset` exclusively -- the module's grep-verified absence
-    of any reference to the other, hard Asset-removal primitive is what
-    enforces D-06's structural isolation.
+    `plan.to_upload` is processed in sorted-path chunks of up to
+    `batch_size`: each chunk performs per-file S3 uploads (S3 is AWS, not
+    the Pushd anti-abuse surface, so those stay per-file and precede the
+    chunk's batched writes), then exactly ONE `select_asset` call and ONE
+    `batch_update` call carrying every successfully-prepped file in the
+    chunk. Per-file attribution is recovered from `batch_update`'s
+    `successes[].local_identifier`: a prepped file's local_identifier
+    absent from `successes` is recorded as a per-file failure. `plan.to_delete`
+    is processed in chunks the same way, issuing one `remove_asset` call per
+    chunk; since `remove_asset` returns only a failure COUNT (never
+    per-item), a chunk-level failure attributes ALL deletes in that chunk
+    (coarser than upload attribution -- documented tradeoff, T-fyr-01). All
+    uploads are attempted before any delete is attempted (D-09) -- on
+    interruption mid-run this leaves the safer partial state (content added,
+    nothing removed). The delete loop calls `remove_asset` exclusively --
+    the module's grep-verified absence of any reference to the other, hard
+    Asset-removal primitive is what enforces D-06's structural isolation.
 
     `s3_client`/`sqs_client` are injected by the caller (never constructed
     in this module) so this function is offline-testable with fakes --
@@ -294,7 +325,8 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     :param s3_client: An object providing `upload_file(data, extension) -> (filename, md5)`.
     :param sqs_client: An object providing `get_queue_url(frame_id)` and `receive_message(...)`.
     :param throttle_seconds: Seconds to pause before each write network call
-        so a bulk apply is paced rather than fired as a burst (root-cause
+        so a bulk apply is paced rather than fired as a burst -- a second,
+        independent layer of defense on top of batching itself (root-cause
         mitigation for the select-asset-401-unauthorized session). 0 disables.
     :param sleep: The sleep function to call (injectable for offline tests
         so they pace-check without real delays).
@@ -305,7 +337,7 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         `MAX_CONSECUTIVE_WRITE_FAILURES`). Status-code agnostic: any caught
         per-item write failure counts. 0 disables the backstop entirely
         (restoring the pure unbounded per-item D-08 behaviour).
-    :param progress: Optional reporter called exactly once per attempted
+    :param progress: Optional reporter called exactly once per RESOLVED
         item -- an upload from `plan.to_upload` or a delete from
         `plan.to_delete` -- as `progress(kind, identifier, ok)`, where
         `kind` is `'upload'` or `'delete'`, `identifier` is the `Path` for
@@ -316,6 +348,10 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         calls always equals the number of attempted-and-resolved items.
         Defaults to a no-op so offline tests and any caller that doesn't
         care about live feedback are unaffected.
+    :param batch_size: Maximum number of items batched into a single
+        select_asset/batch_update/remove_asset call (see
+        `WRITE_BATCH_SIZE`). Injectable so offline tests can exercise the
+        chunk-boundary logic with a small size.
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
 
     Raises `RateLimitError` (from the client layer) WITHOUT catching it:
@@ -323,7 +359,7 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     rather than being recorded as one of N per-item failures -- the whole
     point being to stop hammering a throttling server and surface a single
     "back off" message instead of dozens of confusing per-item errors.
-    Ordinary per-item failures are still caught and recorded (D-08).
+    Ordinary per-item/per-chunk failures are still caught and recorded (D-08).
 
     Raises `ConsecutiveWriteFailureError` when `max_consecutive_failures`
     write items fail in an unbroken run -- the backstop for an anti-abuse
@@ -356,33 +392,82 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
 
     queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 
-    for path in sorted(plan.to_upload):
+    for chunk in _chunked(sorted(plan.to_upload), batch_size):
+        prepped: list = []  # list[tuple[Path, local_identifier, AssetPartial]]
+        for path in chunk:
+            try:
+                local_identifier, partial = _prep_upload(path, s3_client)
+                prepped.append((path, local_identifier, partial))
+            except Exception as e:
+                result.upload_failures.append((path, str(e)))
+                progress('upload', path, False)
+                note_failure(str(e))
+
+        if not prepped:
+            continue
+
         try:
-            _execute_upload(aura, frame_id, path, s3_client, sqs_client, queue_url, throttle)
-            result.upload_succeeded += 1
-            consecutive_failures = 0
-            progress('upload', path, True)
+            throttle()
+            aura.frame_api.select_asset(
+                frame_id, [AssetPartialId(local_identifier=lid) for (_, lid, _) in prepped]
+            )
+            # Best-effort/observational poll only -- never gates success or
+            # failure (Pitfall 3); at most once per chunk, not per file.
+            message = sqs_client.receive_message(queue_url, wait_time_seconds=5)
+            logger.debug(f'Best-effort SQS poll after chunk select_asset: {message}')
+
+            throttle()
+            _, successes = aura.asset_api.batch_update([partial for (_, _, partial) in prepped])
+            succeeded = {s.local_identifier for s in successes}
+
+            for path, local_identifier, _ in prepped:
+                if local_identifier in succeeded:
+                    result.upload_succeeded += 1
+                    consecutive_failures = 0
+                    progress('upload', path, True)
+                else:
+                    reason = 'file not acknowledged in batch_update successes'
+                    result.upload_failures.append((path, reason))
+                    progress('upload', path, False)
+                    note_failure(reason)
         except RateLimitError:
             # Anti-abuse throttle/lockout: abort the whole batch (do not
             # mask it as one per-item failure and keep hammering).
             raise
+        except ConsecutiveWriteFailureError:
+            # note_failure() above can raise this from WITHIN the per-file
+            # attribution loop (all prepped files already individually
+            # appended/reported there) -- it must propagate as-is, NOT be
+            # re-caught by the generic Exception branch below, which would
+            # otherwise mistake the abort for a whole-chunk Pushd failure and
+            # double-attribute every prepped file a second time.
+            raise
         except Exception as e:
-            result.upload_failures.append((path, str(e)))
-            progress('upload', path, False)
-            note_failure(str(e))
+            # A whole-chunk Pushd failure (select_asset or batch_update
+            # raising) attributes ALL prepped files in this chunk as failed
+            # -- there is no per-item signal to fall back on.
+            for path, _, _ in prepped:
+                result.upload_failures.append((path, str(e)))
+                progress('upload', path, False)
+                note_failure(str(e))
 
-    for asset in plan.to_delete:
+    for chunk in _chunked(plan.to_delete, batch_size):
         try:
             throttle()
-            aura.frame_api.remove_asset(frame_id, AssetPartialId(id=asset.id))
-            result.delete_succeeded += 1
-            consecutive_failures = 0
-            progress('delete', asset.id, True)
+            aura.frame_api.remove_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
+            for asset in chunk:
+                result.delete_succeeded += 1
+                consecutive_failures = 0
+                progress('delete', asset.id, True)
         except RateLimitError:
             raise
         except Exception as e:
-            result.delete_failures.append((asset.id, str(e)))
-            progress('delete', asset.id, False)
-            note_failure(str(e))
+            # remove_asset returns only a count, never per-item -- a raised
+            # chunk-level failure attributes ALL deletes in this chunk
+            # (coarser than upload attribution, T-fyr-01).
+            for asset in chunk:
+                result.delete_failures.append((asset.id, str(e)))
+                progress('delete', asset.id, False)
+                note_failure(str(e))
 
     return result

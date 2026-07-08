@@ -1,15 +1,21 @@
 """Offline tests for the write-call throttling and rate-limit batch-abort
 behavior in `auraframes.sync.execute_plan` (select-asset-401-unauthorized
-preventive fix, parts 1 & 3).
+preventive fix, parts 1 & 3; rewritten for the batched write-path semantics,
+quick task 260708-fyr).
 
 Proves:
-  * every write network call (both select_asset calls + batch_update per
-    upload, and each remove_asset per delete) is paced by a `sleep(seconds)`
-    call, so a bulk apply is throttled rather than fired as a burst;
+  * each upload CHUNK issues exactly 2 throttled write network calls
+    (select_asset + batch_update, not one round-trip per file -- the double
+    select_asset is gone);
+  * each delete CHUNK issues exactly 1 throttled write network call
+    (remove_asset);
   * `throttle_seconds=0` disables pacing entirely;
   * a `RateLimitError` from any write aborts the WHOLE batch (propagates,
     is not recorded as one of N per-item failures, and stops further items)
-    -- the anti-abuse back-off behavior.
+    -- the anti-abuse back-off behavior;
+  * the consecutive-failure-run backstop still fires, now counting
+    attributed per-file (upload) / per-chunk (delete) failures rather than
+    per-round-trip failures.
 
 All through `tests/offline.py`'s MockTransport harness + duck-typed S3/SQS
 fakes: zero network, no AWS credentials, and an injected fake `sleep` so no
@@ -88,27 +94,45 @@ class _SleepRecorder:
         self.calls.append(seconds)
 
 
+def _ack_all_batch_update(aura):
+    """Install a batch_update fake that acknowledges every local_identifier
+    it is sent -- the batched-mode equivalent of the always-succeeds
+    MockTransport override, since a real per-payload echo can't be done via
+    MockTransport's path-only routing."""
+    from auraframes.models.asset import AssetPartialId
+
+    def _fake(assets):
+        items = assets if isinstance(assets, list) else [assets]
+        ids = [item.local_identifier for item in items]
+        successes = [{'id': f'new-{lid}', 'local_identifier': lid} for lid in ids]
+        return ids, [AssetPartialId(**s) for s in successes]
+
+    aura.asset_api.batch_update = _fake
+
+
 # ---------------------------------------------------------------------------
 # Throttling (part 1)
 # ---------------------------------------------------------------------------
 
-def test_each_write_call_is_throttled_for_an_upload(tmp_path):
+def test_one_upload_chunk_issues_two_throttled_write_calls(tmp_path):
     path_a = tmp_path / 'a.jpg'
     _write_jpeg(path_a)
     plan = SyncPlan(to_upload=[path_a], to_delete=[])
     sleep = _SleepRecorder()
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
 
     execute_plan(
-        plan, offline_aura(overrides=_ok_overrides()), FRAME_ID,
+        plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=sleep,
     )
 
-    # One upload issues 3 write network calls (select_asset x2 + batch_update),
-    # each paced by a sleep at the default interval.
-    assert sleep.calls == [WRITE_THROTTLE_SECONDS] * 3
+    # One upload chunk issues 2 write network calls (select_asset +
+    # batch_update -- the double select_asset is gone), each paced.
+    assert sleep.calls == [WRITE_THROTTLE_SECONDS] * 2
 
 
-def test_each_write_call_is_throttled_for_a_delete():
+def test_one_delete_chunk_issues_one_throttled_write_call():
     plan = SyncPlan(to_upload=[], to_delete=[_asset('x1'), _asset('x2')])
     sleep = _SleepRecorder()
 
@@ -117,8 +141,8 @@ def test_each_write_call_is_throttled_for_a_delete():
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=sleep,
     )
 
-    # One remove_asset per delete, each paced.
-    assert sleep.calls == [WRITE_THROTTLE_SECONDS] * 2
+    # Both deletes chunk into ONE remove_asset call, paced once.
+    assert sleep.calls == [WRITE_THROTTLE_SECONDS] * 1
 
 
 def test_throttle_uses_supplied_interval(tmp_path):
@@ -126,14 +150,16 @@ def test_throttle_uses_supplied_interval(tmp_path):
     _write_jpeg(path_a)
     plan = SyncPlan(to_upload=[path_a], to_delete=[])
     sleep = _SleepRecorder()
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
 
     execute_plan(
-        plan, offline_aura(overrides=_ok_overrides()), FRAME_ID,
+        plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         throttle_seconds=2.5, sleep=sleep,
     )
 
-    assert sleep.calls == [2.5, 2.5, 2.5]
+    assert sleep.calls == [2.5, 2.5]
 
 
 def test_throttle_seconds_zero_disables_sleeping(tmp_path):
@@ -141,9 +167,11 @@ def test_throttle_seconds_zero_disables_sleeping(tmp_path):
     _write_jpeg(path_a)
     plan = SyncPlan(to_upload=[path_a], to_delete=[_asset('x1')])
     sleep = _SleepRecorder()
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
 
     execute_plan(
-        plan, offline_aura(overrides=_ok_overrides()), FRAME_ID,
+        plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         throttle_seconds=0, sleep=sleep,
     )
@@ -158,6 +186,10 @@ def test_throttle_seconds_zero_disables_sleeping(tmp_path):
 def test_rate_limited_upload_aborts_whole_batch(tmp_path):
     # 475 on select_asset must abort the entire apply, NOT be recorded as one
     # of N per-item upload failures (that was the confusing 120x-401 symptom).
+    # Note: S3 prep happens per-file BEFORE the chunk's select_asset call in
+    # the batched flow, so both files ARE uploaded to S3 before the abort --
+    # unlike the old per-file flow, S3 upload count no longer proves "nothing
+    # was attempted"; the batch_update call count does (never reached).
     path_a = tmp_path / 'a.jpg'
     path_b = tmp_path / 'b.jpg'
     _write_jpeg(path_a)
@@ -166,17 +198,25 @@ def test_rate_limited_upload_aborts_whole_batch(tmp_path):
 
     overrides = _ok_overrides()
     overrides[SELECT_ASSET_PATH] = httpx.Response(475, json={'message': 'locked out'})
-    s3 = _FakeS3Client()
+    aura = offline_aura(overrides=overrides)
+    batch_update_calls: list = []
+    original_batch_update = aura.asset_api.batch_update
+
+    def _counting_batch_update(assets):
+        batch_update_calls.append(assets)
+        return original_batch_update(assets)
+
+    aura.asset_api.batch_update = _counting_batch_update
 
     with pytest.raises(RateLimitError):
         execute_plan(
-            plan, offline_aura(overrides=overrides), FRAME_ID,
-            s3_client=s3, sqs_client=_FakeSQSClient(),
+            plan, aura, FRAME_ID,
+            s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
             throttle_seconds=0, sleep=lambda *_: None,
         )
 
-    # Aborted at the very first write -- no S3 upload, no second item attempted.
-    assert s3.upload_calls == []
+    # Aborted at the chunk's select_asset -- batch_update never reached.
+    assert batch_update_calls == []
 
 
 def test_rate_limited_delete_aborts_and_does_not_record_per_item(monkeypatch):
@@ -199,8 +239,10 @@ def test_rate_limited_delete_aborts_and_does_not_record_per_item(monkeypatch):
 
 def test_ordinary_per_item_failure_still_recorded_not_aborted(tmp_path):
     # A non-rate-limit failure (nonzero number_failed) must still be caught
-    # per-item and the loop continue -- the D-08 fail-loud-but-continue
-    # behavior is preserved for genuine per-item errors.
+    # at the chunk level and the loop continue -- the D-08 fail-loud-but-
+    # continue behavior is preserved. select_asset's number_failed is a
+    # count-only signal (batched), so it attributes ALL prepped files in the
+    # chunk as failed rather than a single item.
     path_a = tmp_path / 'a.jpg'
     path_b = tmp_path / 'b.jpg'
     _write_jpeg(path_a)
@@ -216,7 +258,7 @@ def test_ordinary_per_item_failure_still_recorded_not_aborted(tmp_path):
         throttle_seconds=0, sleep=lambda *_: None,
     )
 
-    # Both items failed per-item (not aborted), each recorded by name.
+    # Both items failed (chunk-level attribution, not aborted).
     assert result.upload_succeeded == 0
     assert len(result.upload_failures) == 2
 
@@ -229,7 +271,9 @@ def test_ordinary_per_item_failure_still_recorded_not_aborted(tmp_path):
 # write after the 7th succeeded, so execute_plan caught each of the 103
 # post-trip failures per-item and kept hammering. These prove a RUN of N
 # consecutive write failures (status-code agnostic) aborts the batch, while an
-# isolated failure (surrounded by successes) never does.
+# isolated failure (surrounded by successes) never does. In the batched flow,
+# a single fully-failed CHUNK attributes all its files as failures in one
+# pass, so the run can cross the threshold within one chunk.
 # ---------------------------------------------------------------------------
 
 def _write_jpegs(tmp_path, n):
@@ -243,9 +287,12 @@ def _write_jpegs(tmp_path, n):
 
 def test_run_of_plain_401_write_failures_aborts_batch(tmp_path):
     # The exact live regression: plain HTTP 401 (NOT 429/475, NOT a
-    # RateLimitError) on every select_asset. A run of them must abort the whole
-    # batch after MAX_CONSECUTIVE_WRITE_FAILURES rather than dutifully failing
-    # all N items one by one.
+    # RateLimitError) on select_asset. A run of attributed failures must
+    # abort the whole batch after MAX_CONSECUTIVE_WRITE_FAILURES rather than
+    # dutifully failing all N items one by one. With a single chunk of 7
+    # files, select_asset's 401 (an httpx.HTTPStatusError, not a
+    # RateLimitError) attributes files as failed in prepped order until the
+    # backstop trips at exactly MAX.
     paths = _write_jpegs(tmp_path, 7)
     plan = SyncPlan(to_upload=paths, to_delete=[])
 
@@ -262,11 +309,12 @@ def test_run_of_plain_401_write_failures_aborts_batch(tmp_path):
 
     err = exc_info.value
     assert err.count == MAX_CONSECUTIVE_WRITE_FAILURES
-    # Aborted after exactly N attempts -- the remaining 2 items were never
-    # attempted (did not hammer all 7).
+    # Aborted after exactly N attributed failures -- the remaining 2 files
+    # in the chunk were prepped/S3-uploaded (S3 prep precedes the chunk's
+    # select_asset in the batched flow) but never acknowledged/attributed.
     assert len(err.result.upload_failures) == MAX_CONSECUTIVE_WRITE_FAILURES
-    # select_asset fails before any S3 upload, so nothing was uploaded.
-    assert s3.upload_calls == []
+    # No file was ever acknowledged as succeeded.
+    assert err.result.upload_succeeded == 0
     # The distinct message, not the RateLimitError "Retry after" wording.
     assert 'consecutive write failures' in str(err)
 
@@ -274,20 +322,23 @@ def test_run_of_plain_401_write_failures_aborts_batch(tmp_path):
 def test_interspersed_failures_do_not_trip_the_backstop(tmp_path, monkeypatch):
     # Failures scattered among successes (max run of 1) must NEVER abort -- an
     # isolated bad/expired asset ref or a one-off permissions edge is not a
-    # lockout. 8 uploads, every other one fails at batch_update.
+    # lockout. 8 uploads split into 8 single-file chunks (batch_size=1) so
+    # each chunk's batch_update outcome is independently controllable, odd
+    # chunks failing so failures never run 2-in-a-row.
     paths = _write_jpegs(tmp_path, 8)
     plan = SyncPlan(to_upload=paths, to_delete=[])
     aura = offline_aura(overrides=_ok_overrides())
 
-    original_batch_update = aura.asset_api.batch_update
+    from auraframes.models.asset import AssetPartialId
 
-    def _flaky_batch_update(asset_partial):
-        # s3 fake names files 'uploaded-N.jpg'; N increments per processed
-        # upload. Fail odd N so failures never run 2-in-a-row.
-        n = int(asset_partial.file_name.split('-')[1].split('.')[0])
+    def _flaky_batch_update(assets):
+        items = assets if isinstance(assets, list) else [assets]
+        assert len(items) == 1
+        item = items[0]
+        n = int(item.file_name.split('-')[1].split('.')[0])
         if n % 2 == 1:
             raise RuntimeError('isolated per-item failure')
-        return original_batch_update(asset_partial)
+        return [item.local_identifier], [AssetPartialId(id=f'new-{n}', local_identifier=item.local_identifier)]
 
     monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
 
@@ -295,6 +346,7 @@ def test_interspersed_failures_do_not_trip_the_backstop(tmp_path, monkeypatch):
         plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         throttle_seconds=0, sleep=lambda *_: None,
+        batch_size=1,
     )
 
     # No abort: all 8 attempted, 4 succeeded, 4 recorded per-item (D-08 intact).
@@ -305,19 +357,22 @@ def test_interspersed_failures_do_not_trip_the_backstop(tmp_path, monkeypatch):
 def test_a_success_resets_the_consecutive_run(tmp_path, monkeypatch):
     # A run of 4 failures, then ONE success, then 4 more failures must NOT
     # abort even though 8 total failures occur -- only an unbroken run of N
-    # trips it, so the counter must reset on success.
+    # trips it, so the counter must reset on success. Chunked at
+    # batch_size=1 so each chunk's outcome is independently controllable.
     paths = _write_jpegs(tmp_path, 9)
     plan = SyncPlan(to_upload=paths, to_delete=[])
     aura = offline_aura(overrides=_ok_overrides())
 
-    original_batch_update = aura.asset_api.batch_update
+    from auraframes.models.asset import AssetPartialId
 
-    def _flaky_batch_update(asset_partial):
-        n = int(asset_partial.file_name.split('-')[1].split('.')[0])
+    def _flaky_batch_update(assets):
+        items = assets if isinstance(assets, list) else [assets]
+        item = items[0]
+        n = int(item.file_name.split('-')[1].split('.')[0])
         # Uploads 1-4 fail, upload 5 succeeds (reset), uploads 6-9 fail.
         if n != 5:
             raise RuntimeError('per-item failure')
-        return original_batch_update(asset_partial)
+        return [item.local_identifier], [AssetPartialId(id='new-5', local_identifier=item.local_identifier)]
 
     monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
 
@@ -325,10 +380,43 @@ def test_a_success_resets_the_consecutive_run(tmp_path, monkeypatch):
         plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         throttle_seconds=0, sleep=lambda *_: None,
+        batch_size=1,
     )
 
     assert result.upload_succeeded == 1
     assert len(result.upload_failures) == 8
+
+
+def test_all_files_unacknowledged_in_one_chunk_aborts_without_double_counting(tmp_path):
+    # A chunk where batch_update returns successfully (no raised exception)
+    # but acknowledges NONE of the sent local_identifiers must abort via the
+    # SAME note_failure()-raises-mid-attribution-loop path as an explicit
+    # per-item failure -- and must NOT be mistaken for a whole-chunk Pushd
+    # failure (that sibling except branch would otherwise re-catch the
+    # ConsecutiveWriteFailureError raised here and double-attribute every
+    # prepped file). Exactly MAX_CONSECUTIVE_WRITE_FAILURES failures must be
+    # recorded, not 2x MAX.
+    paths = _write_jpegs(tmp_path, MAX_CONSECUTIVE_WRITE_FAILURES)
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+    aura = offline_aura(overrides=_ok_overrides())
+
+    def _no_one_acknowledged(assets):
+        items = assets if isinstance(assets, list) else [assets]
+        return [item.local_identifier for item in items], []
+
+    aura.asset_api.batch_update = _no_one_acknowledged
+
+    with pytest.raises(ConsecutiveWriteFailureError) as exc_info:
+        execute_plan(
+            plan, aura, FRAME_ID,
+            s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+            throttle_seconds=0, sleep=lambda *_: None,
+        )
+
+    err = exc_info.value
+    assert err.count == MAX_CONSECUTIVE_WRITE_FAILURES
+    assert len(err.result.upload_failures) == MAX_CONSECUTIVE_WRITE_FAILURES
+    assert err.result.upload_succeeded == 0
 
 
 def test_max_consecutive_failures_zero_disables_the_backstop(tmp_path):
@@ -352,9 +440,12 @@ def test_max_consecutive_failures_zero_disables_the_backstop(tmp_path):
 
 
 def test_consecutive_run_spans_upload_and_delete_phases(tmp_path):
-    # The run counter carries across the upload->delete boundary (reset only on
-    # a success): 3 upload failures (below threshold) then delete failures push
-    # the run to N and abort in the delete loop.
+    # The run counter carries across the upload->delete boundary (reset only
+    # on a success): 3 upload failures (below threshold, single chunk) then
+    # delete failures push the run to N and abort in the delete loop.
+    # Deletes are chunked at batch_size=1 so the abort lands mid-loop,
+    # leaving the 3rd delete unattempted (matching the original per-item
+    # partial-abort assertion).
     paths = _write_jpegs(tmp_path, 3)
     plan = SyncPlan(to_upload=paths, to_delete=[_asset('d1'), _asset('d2'), _asset('d3')])
 
@@ -367,6 +458,7 @@ def test_consecutive_run_spans_upload_and_delete_phases(tmp_path):
             plan, offline_aura(overrides=overrides), FRAME_ID,
             s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
             throttle_seconds=0, sleep=lambda *_: None,
+            batch_size=1,
         )
 
     err = exc_info.value

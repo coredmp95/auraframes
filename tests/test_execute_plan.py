@@ -1,10 +1,18 @@
-"""Offline tests for `auraframes.sync.execute_plan` (Phase 8 Plan 02, Task 2).
+"""Offline tests for `auraframes.sync.execute_plan` (Phase 8 Plan 02, Task 2;
+rewritten for the batched write-path semantics, quick task 260708-fyr).
 
 `execute_plan` is exercised against the REST layer mocked via
 `offline_aura()` (`httpx.MockTransport`), while S3/SQS are duck-typed fakes
 injected as `s3_client=`/`sqs_client=` (RESEARCH.md Don't-Hand-Roll: inject
 fakes, not a botocore Stubber). Zero network access, zero AWS credentials --
 no real `S3Client`/`SQSClient` is ever constructed here.
+
+A batched upload chunk issues exactly ONE `select_asset` call (carrying every
+prepped file's local_identifier) and ONE `batch_update` call (carrying every
+prepped file's `AssetPartial`) -- not one round-trip per file. Per-file
+attribution is recovered from `batch_update`'s `successes[].local_identifier`.
+A delete chunk issues exactly ONE `remove_asset` call carrying every asset id
+in the chunk.
 """
 import httpx
 import pytest
@@ -42,8 +50,10 @@ def _asset(id_):
 def _default_overrides():
     """Canned success responses for every write endpoint execute_plan can
     reach -- select_asset/remove_asset report zero failures, batch_update
-    returns a successes envelope. MockTransport routes purely on path, so
-    the same response serves every upload/delete in a test."""
+    acknowledges every local_identifier it was sent. MockTransport routes
+    purely on path, so `_AckAllBatchUpdate` (installed per-test where needed)
+    is what actually inspects the payload; this default response is only
+    used by tests that don't care about per-file attribution."""
     return {
         SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
         REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
@@ -70,8 +80,8 @@ class _FakeS3Client:
 
 class _FakeSQSClient:
     """Duck-typed SQS fake -- get_queue_url records the frame_id it was
-    queried with; receive_message is a no-op (execute_plan treats both
-    polls as best-effort/observational only, per Pitfall 3)."""
+    queried with; receive_message is a no-op (execute_plan's chunk poll is
+    best-effort/observational only, never used to gate success)."""
 
     def __init__(self):
         self.queue_url_requests = []
@@ -84,6 +94,47 @@ class _FakeSQSClient:
         return {}
 
 
+def _install_ack_all_batch_update(aura):
+    """Monkeypatch `aura.asset_api.batch_update` to acknowledge every
+    local_identifier it is sent, recording each call's list of sent
+    `AssetPartial`s so a test can assert call counts / call shapes.
+
+    Established pattern (per PLAN context): the offline `MockTransport`
+    router discriminates only by path, so per-payload behavior (echoing
+    back exactly what was sent) requires monkeypatching the wrapper
+    directly rather than a canned httpx.Response.
+    """
+    from auraframes.models.asset import AssetPartialId
+
+    calls: list = []
+
+    def _fake_batch_update(assets):
+        items = assets if isinstance(assets, list) else [assets]
+        calls.append(items)
+        ids = [item.local_identifier for item in items]
+        successes = [{'id': f'new-{lid}', 'local_identifier': lid} for lid in ids]
+        return ids, [AssetPartialId(**s) for s in successes]
+
+    aura.asset_api.batch_update = _fake_batch_update
+    return calls
+
+
+def _install_select_asset_recorder(aura):
+    """Monkeypatch `aura.frame_api.select_asset` to record each call's list
+    of sent `AssetPartialId`s (as local_identifiers) while preserving the
+    real success (`number_failed=0`) behavior, so call-count/shape can be
+    asserted without relying on MockTransport's path-only routing."""
+    calls: list = []
+
+    def _fake_select_asset(frame_id, asset_partial_ids):
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
+        calls.append([item.local_identifier for item in items])
+        return 0
+
+    aura.frame_api.select_asset = _fake_select_asset
+    return calls
+
+
 def test_execute_plan_happy_path_uploads_and_deletes(tmp_path):
     path_a = tmp_path / 'a.jpg'
     path_b = tmp_path / 'b.jpg'
@@ -92,6 +143,8 @@ def test_execute_plan_happy_path_uploads_and_deletes(tmp_path):
     plan = SyncPlan(to_upload=[path_a, path_b], to_delete=[_asset('asset-to-delete')])
 
     aura = offline_aura(overrides=_default_overrides())
+    select_calls = _install_select_asset_recorder(aura)
+    batch_calls = _install_ack_all_batch_update(aura)
     s3 = _FakeS3Client()
     sqs = _FakeSQSClient()
 
@@ -104,64 +157,118 @@ def test_execute_plan_happy_path_uploads_and_deletes(tmp_path):
     assert len(s3.upload_calls) == 2
     assert sqs.queue_url_requests == [FRAME_ID]
 
+    # Exactly ONE select_asset + ONE batch_update call for the whole
+    # (single-chunk) upload batch -- not one round-trip per file.
+    assert len(select_calls) == 1
+    assert len(select_calls[0]) == 2
+    assert len(batch_calls) == 1
+    assert len(batch_calls[0]) == 2
 
-def test_execute_plan_upload_partial_failure_continues_and_records(tmp_path, monkeypatch):
+
+def test_execute_plan_partial_batch_update_splits_upload_succeeded_and_failures(tmp_path):
+    # A PARTIAL batch_update successes response (some local_identifiers
+    # acknowledged, some absent) must yield a correct mixed
+    # upload_succeeded/upload_failures split, naming the right Paths.
     path_a = tmp_path / 'a.jpg'
     path_b = tmp_path / 'b.jpg'
+    path_c = tmp_path / 'c.jpg'
     _write_jpeg(path_a)
     _write_jpeg(path_b)
-    plan = SyncPlan(to_upload=[path_a, path_b], to_delete=[])
+    _write_jpeg(path_c)
+    plan = SyncPlan(to_upload=[path_a, path_b, path_c], to_delete=[])
 
     aura = offline_aura(overrides=_default_overrides())
-    s3 = _FakeS3Client()
-    sqs = _FakeSQSClient()
 
-    original_batch_update = aura.asset_api.batch_update
+    def _partial_batch_update(assets):
+        from auraframes.models.asset import AssetPartialId
+        items = assets if isinstance(assets, list) else [assets]
+        ids = [item.local_identifier for item in items]
+        # Acknowledge only the FIRST and LAST sent local_identifier --
+        # sorted(plan.to_upload) processes a, b, c in that order, so this
+        # acks a.jpg and c.jpg but drops b.jpg.
+        successes = [
+            {'id': f'new-{lid}', 'local_identifier': lid}
+            for lid in (ids[0], ids[-1])
+        ]
+        return ids, [AssetPartialId(**s) for s in successes]
 
-    def _flaky_batch_update(asset_partial):
-        # sorted(plan.to_upload) processes a.jpg first, so the first S3
-        # upload call (whose fabricated filename starts with 'uploaded-1')
-        # corresponds to path_a -- fail only that one.
-        if asset_partial.file_name and asset_partial.file_name.startswith('uploaded-1'):
-            raise RuntimeError('simulated batch_update failure')
-        return original_batch_update(asset_partial)
+    aura.asset_api.batch_update = _partial_batch_update
 
-    monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
+    result = execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=lambda *_: None,
+    )
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
-
-    assert result.upload_succeeded == 1
+    assert result.upload_succeeded == 2
     assert len(result.upload_failures) == 1
     failed_path, message = result.upload_failures[0]
-    assert failed_path == path_a
-    assert 'simulated batch_update failure' in message
-    # The other upload still ran to completion -- loop did not abort (D-08).
-    assert len(s3.upload_calls) == 2
+    assert failed_path == path_b
+    assert 'not acknowledged' in message
 
 
-def test_execute_plan_delete_partial_failure_continues_and_records(monkeypatch):
+def test_execute_plan_chunks_uploads_past_batch_size(tmp_path):
+    # More than batch_size files must split into multiple chunks, each
+    # issuing its own select_asset + batch_update call pair, paced by the
+    # injected throttle.
+    paths = []
+    for i in range(5):
+        p = tmp_path / f'{i:02d}.jpg'
+        _write_jpeg(p)
+        paths.append(p)
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+
+    aura = offline_aura(overrides=_default_overrides())
+    select_calls = _install_select_asset_recorder(aura)
+    batch_calls = _install_ack_all_batch_update(aura)
+
+    sleeps: list = []
+
+    result = execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda s: sleeps.append(s),
+        batch_size=2,
+    )
+
+    assert result.upload_succeeded == 5
+    assert result.upload_failures == []
+
+    # 5 files at batch_size=2 -> chunks of [2, 2, 1] -> 3 chunks.
+    assert len(select_calls) == 3
+    assert len(batch_calls) == 3
+    assert [len(c) for c in select_calls] == [2, 2, 1]
+    assert [len(c) for c in batch_calls] == [2, 2, 1]
+
+    # Each chunk paces 2 throttled write calls (select_asset + batch_update).
+    assert len(sleeps) == 3 * 2
+
+
+def test_execute_plan_delete_chunk_failure_records_whole_chunk(monkeypatch):
+    # remove_asset returns only a count, so a raised chunk-level failure
+    # attributes ALL deletes in that chunk as failed (coarse per-chunk
+    # attribution -- documented tradeoff, unlike upload's per-file
+    # attribution via batch_update successes).
     plan = SyncPlan(to_upload=[], to_delete=[_asset('asset-good'), _asset('asset-bad')])
 
     aura = offline_aura(overrides=_default_overrides())
-    s3 = _FakeS3Client()
-    sqs = _FakeSQSClient()
 
-    original_remove_asset = aura.frame_api.remove_asset
+    def _failing_remove_asset(frame_id, asset_partial_ids):
+        raise RuntimeError('simulated remove_asset chunk failure')
 
-    def _flaky_remove_asset(frame_id, asset_partial_id):
-        if asset_partial_id.id == 'asset-bad':
-            raise RuntimeError('simulated remove_asset failure')
-        return original_remove_asset(frame_id, asset_partial_id)
+    monkeypatch.setattr(aura.frame_api, 'remove_asset', _failing_remove_asset)
 
-    monkeypatch.setattr(aura.frame_api, 'remove_asset', _flaky_remove_asset)
+    result = execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=lambda *_: None,
+    )
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
+    assert result.delete_succeeded == 0
+    assert len(result.delete_failures) == 2
+    assert {aid for aid, _ in result.delete_failures} == {'asset-good', 'asset-bad'}
+    assert all('simulated remove_asset chunk failure' in msg for _, msg in result.delete_failures)
 
-    assert result.delete_succeeded == 1
-    assert result.delete_failures == [('asset-bad', 'simulated remove_asset failure')]
 
-
-def test_execute_plan_reports_progress_per_item(tmp_path, monkeypatch):
+def test_execute_plan_reports_progress_per_item(tmp_path):
     path_a = tmp_path / 'a.jpg'
     path_b = tmp_path / 'b.jpg'
     _write_jpeg(path_a)
@@ -169,20 +276,18 @@ def test_execute_plan_reports_progress_per_item(tmp_path, monkeypatch):
     plan = SyncPlan(to_upload=[path_a, path_b], to_delete=[_asset('asset-good')])
 
     aura = offline_aura(overrides=_default_overrides())
-    s3 = _FakeS3Client()
-    sqs = _FakeSQSClient()
 
-    original_batch_update = aura.asset_api.batch_update
+    def _partial_batch_update(assets):
+        from auraframes.models.asset import AssetPartialId
+        items = assets if isinstance(assets, list) else [assets]
+        # sorted(plan.to_upload) processes a.jpg first -- ack only b.jpg's
+        # local_identifier (the second sent item), dropping a.jpg's.
+        acked = items[1].local_identifier
+        return [item.local_identifier for item in items], [
+            AssetPartialId(id='new-asset', local_identifier=acked)
+        ]
 
-    def _flaky_batch_update(asset_partial):
-        # sorted(plan.to_upload) processes a.jpg first, so the first S3
-        # upload call (whose fabricated filename starts with 'uploaded-1')
-        # corresponds to path_a -- fail only that one.
-        if asset_partial.file_name and asset_partial.file_name.startswith('uploaded-1'):
-            raise RuntimeError('simulated batch_update failure')
-        return original_batch_update(asset_partial)
-
-    monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
+    aura.asset_api.batch_update = _partial_batch_update
 
     recorded: list = []
 
@@ -190,7 +295,7 @@ def test_execute_plan_reports_progress_per_item(tmp_path, monkeypatch):
         recorded.append((kind, identifier, ok))
 
     result = execute_plan(
-        plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None,
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=lambda *_: None,
         progress=_recording_progress,
     )
 
@@ -220,15 +325,16 @@ def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
     plan = SyncPlan(to_upload=[path_a], to_delete=[_asset('asset-1'), _asset('asset-2')])
 
     aura = offline_aura(overrides=_default_overrides())
+    _install_ack_all_batch_update(aura)
     call_order: list = []
     s3 = _FakeS3Client(call_order=call_order)
     sqs = _FakeSQSClient()
 
     original_remove_asset = aura.frame_api.remove_asset
 
-    def _recording_remove_asset(frame_id, asset_partial_id):
+    def _recording_remove_asset(frame_id, asset_partial_ids):
         call_order.append('delete')
-        return original_remove_asset(frame_id, asset_partial_id)
+        return original_remove_asset(frame_id, asset_partial_ids)
 
     monkeypatch.setattr(aura.frame_api, 'remove_asset', _recording_remove_asset)
 
@@ -236,4 +342,6 @@ def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
 
     assert result.upload_succeeded == 1
     assert result.delete_succeeded == 2
-    assert call_order == ['upload', 'delete', 'delete']
+    # Both deletes are chunked into a SINGLE remove_asset call, so 'delete'
+    # appears exactly once in call_order -- after the single 'upload'.
+    assert call_order == ['upload', 'delete']
