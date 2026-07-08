@@ -217,7 +217,8 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
 
 
 def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
-                 throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep) -> ExecutionResult:
+                 throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep,
+                 progress=lambda *args: None) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10).
 
@@ -248,6 +249,17 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         mitigation for the select-asset-401-unauthorized session). 0 disables.
     :param sleep: The sleep function to call (injectable for offline tests
         so they pace-check without real delays).
+    :param progress: Optional reporter called exactly once per attempted
+        item -- an upload from `plan.to_upload` or a delete from
+        `plan.to_delete` -- as `progress(kind, identifier, ok)`, where
+        `kind` is `'upload'` or `'delete'`, `identifier` is the `Path` for
+        an upload or the asset id string for a delete, and `ok` is True on
+        success / False on a caught per-item failure. Deliberately NOT
+        called on the `RateLimitError` abort path below -- that item never
+        resolves, the whole batch stops there, so the number of reporter
+        calls always equals the number of attempted-and-resolved items.
+        Defaults to a no-op so offline tests and any caller that doesn't
+        care about live feedback are unaffected.
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
 
     Raises `RateLimitError` (from the client layer) WITHOUT catching it:
@@ -269,21 +281,25 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         try:
             _execute_upload(aura, frame_id, path, s3_client, sqs_client, queue_url, throttle)
             result.upload_succeeded += 1
+            progress('upload', path, True)
         except RateLimitError:
             # Anti-abuse throttle/lockout: abort the whole batch (do not
             # mask it as one per-item failure and keep hammering).
             raise
         except Exception as e:
             result.upload_failures.append((path, str(e)))
+            progress('upload', path, False)
 
     for asset in plan.to_delete:
         try:
             throttle()
             aura.frame_api.remove_asset(frame_id, AssetPartialId(id=asset.id))
             result.delete_succeeded += 1
+            progress('delete', asset.id, True)
         except RateLimitError:
             raise
         except Exception as e:
             result.delete_failures.append((asset.id, str(e)))
+            progress('delete', asset.id, False)
 
     return result

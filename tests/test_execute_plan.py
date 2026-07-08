@@ -161,6 +161,59 @@ def test_execute_plan_delete_partial_failure_continues_and_records(monkeypatch):
     assert result.delete_failures == [('asset-bad', 'simulated remove_asset failure')]
 
 
+def test_execute_plan_reports_progress_per_item(tmp_path, monkeypatch):
+    path_a = tmp_path / 'a.jpg'
+    path_b = tmp_path / 'b.jpg'
+    _write_jpeg(path_a)
+    _write_jpeg(path_b)
+    plan = SyncPlan(to_upload=[path_a, path_b], to_delete=[_asset('asset-good')])
+
+    aura = offline_aura(overrides=_default_overrides())
+    s3 = _FakeS3Client()
+    sqs = _FakeSQSClient()
+
+    original_batch_update = aura.asset_api.batch_update
+
+    def _flaky_batch_update(asset_partial):
+        # sorted(plan.to_upload) processes a.jpg first, so the first S3
+        # upload call (whose fabricated filename starts with 'uploaded-1')
+        # corresponds to path_a -- fail only that one.
+        if asset_partial.file_name and asset_partial.file_name.startswith('uploaded-1'):
+            raise RuntimeError('simulated batch_update failure')
+        return original_batch_update(asset_partial)
+
+    monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
+
+    recorded: list = []
+
+    def _recording_progress(kind, identifier, ok):
+        recorded.append((kind, identifier, ok))
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None,
+        progress=_recording_progress,
+    )
+
+    assert result.upload_succeeded == 1
+    assert len(result.upload_failures) == 1
+
+    assert len(recorded) == len(plan.to_upload) + len(plan.to_delete)
+
+    failed_upload = [r for r in recorded if r[0] == 'upload' and r[2] is False]
+    assert failed_upload == [('upload', path_a, False)]
+
+    succeeded_upload = [r for r in recorded if r[0] == 'upload' and r[2] is True]
+    assert succeeded_upload == [('upload', path_b, True)]
+
+    delete_entries = [r for r in recorded if r[0] == 'delete']
+    assert delete_entries == [('delete', 'asset-good', True)]
+
+    # Every 'upload' entry appears before every 'delete' entry (D-09).
+    upload_indices = [i for i, r in enumerate(recorded) if r[0] == 'upload']
+    delete_indices = [i for i, r in enumerate(recorded) if r[0] == 'delete']
+    assert max(upload_indices) < min(delete_indices)
+
+
 def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
     path_a = tmp_path / 'a.jpg'
     _write_jpeg(path_a)
