@@ -144,7 +144,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 3/3 | Complete    | 2026-07-07 |
-| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 4/4 | Complete   | 2026-07-08 |
+| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 4/4 | Complete    | 2026-07-08 |
 
 ## Backlog
 
