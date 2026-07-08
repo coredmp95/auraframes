@@ -221,7 +221,7 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client) 
     """
     result = ExecutionResult()
 
-    queue_url = sqs_client.get_queue_url(frame_id)
+    queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 
     for path in sorted(plan.to_upload):
         try:
