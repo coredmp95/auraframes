@@ -228,6 +228,7 @@ def test_execute_plan_chunks_uploads_past_batch_size(tmp_path):
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         sleep=lambda s: sleeps.append(s),
         batch_size=2,
+        chunk_delay_seconds=0,  # isolate this test to the per-call throttle only
     )
 
     assert result.upload_succeeded == 5

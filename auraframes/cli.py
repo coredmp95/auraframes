@@ -349,9 +349,14 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
                 status = 'ok' if ok else 'FAIL'
                 bar.set_postfix_str(f'{kind} {status} {identifier}')
 
+            def _report_wait(remaining):
+                # Inter-chunk cooldown -- the bar doesn't advance, so surface
+                # the countdown in the postfix rather than looking frozen.
+                bar.set_postfix_str(f'cooldown {remaining:.0f}s before next batch')
+
             result = execute_plan(
                 plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client,
-                progress=_report_progress,
+                progress=_report_progress, on_wait=_report_wait,
             )
 
         # D-10: separated success/failure summary, each failed item named.

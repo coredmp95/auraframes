@@ -91,6 +91,19 @@ WRITE_THROTTLE_SECONDS = 0.5
 # tests can exercise the chunk-boundary logic with a small size.
 WRITE_BATCH_SIZE = 50
 
+# Seconds to pause BETWEEN write chunks (separate from WRITE_THROTTLE_SECONDS,
+# which paces individual network calls). This spaces out the per-chunk write
+# bursts over the whole apply so the run looks human-paced rather than firing
+# every chunk back-to-back -- a third layer of defense on top of batching
+# (call count) and the per-call throttle. Motivated live: after the batched
+# fix, a first 50-file chunk succeeded but the immediately-following second
+# chunk still tripped the anti-abuse layer, consistent with a cumulative
+# write-volume-over-time limit, not a per-call one. Realized via the injected
+# `sleep` in 1s steps and surfaced through `on_wait` so the CLI can show a
+# live countdown instead of a frozen progress bar. Injectable via
+# `chunk_delay_seconds` (0 disables). Skipped before the first write chunk.
+WRITE_CHUNK_DELAY_SECONDS = 5.0
+
 # Number of write items that must fail in an unbroken run before execute_plan
 # aborts the whole batch. Root cause of this session's REOPENED gap: the Pushd
 # anti-abuse trip does NOT reliably announce itself with the 429/475 that
@@ -292,7 +305,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep,
                  max_consecutive_failures: int = MAX_CONSECUTIVE_WRITE_FAILURES,
                  progress=lambda *args: None,
-                 batch_size: int = WRITE_BATCH_SIZE) -> ExecutionResult:
+                 batch_size: int = WRITE_BATCH_SIZE,
+                 chunk_delay_seconds: float = WRITE_CHUNK_DELAY_SECONDS,
+                 on_wait=lambda *args: None) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10), batched (quick task
     260708-fyr) to collapse ~3N Pushd write calls to ~2 per chunk.
@@ -352,6 +367,15 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         select_asset/batch_update/remove_asset call (see
         `WRITE_BATCH_SIZE`). Injectable so offline tests can exercise the
         chunk-boundary logic with a small size.
+    :param chunk_delay_seconds: Seconds to pause BETWEEN write chunks (see
+        `WRITE_CHUNK_DELAY_SECONDS`) -- distinct from `throttle_seconds`
+        (which paces individual calls). Skipped before the first write chunk
+        of the run; applied before every subsequent chunk (uploads then
+        deletes are paced as one sequence). Realized via `sleep` in 1s steps.
+        0 disables. Injectable for offline tests.
+    :param on_wait: Optional callback invoked once per second during an
+        inter-chunk pause as `on_wait(remaining_seconds)`, so a CLI can render
+        a live countdown instead of a frozen bar. Defaults to a no-op.
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
 
     Raises `RateLimitError` (from the client layer) WITHOUT catching it:
@@ -390,9 +414,31 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         if 0 < max_consecutive_failures <= consecutive_failures:
             raise ConsecutiveWriteFailureError(consecutive_failures, last_error, result)
 
+    first_write_chunk = True
+
+    def interchunk_pause() -> None:
+        # Human-pacing pause BETWEEN write chunks -- separate from throttle()
+        # (which paces individual network calls). Skipped before the very
+        # first write chunk of the run, so uploads then deletes are spaced as
+        # one continuous sequence. Realized via the injected `sleep` in 1s
+        # steps, calling on_wait(remaining) each second so the CLI can show a
+        # live countdown rather than a frozen bar. chunk_delay_seconds=0
+        # disables the pause entirely.
+        nonlocal first_write_chunk
+        if first_write_chunk:
+            first_write_chunk = False
+            return
+        remaining = chunk_delay_seconds
+        while remaining > 0:
+            on_wait(remaining)
+            step = 1.0 if remaining >= 1.0 else remaining
+            sleep(step)
+            remaining -= step
+
     queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 
     for chunk in _chunked(sorted(plan.to_upload), batch_size):
+        interchunk_pause()
         prepped: list = []  # list[tuple[Path, local_identifier, AssetPartial]]
         for path in chunk:
             try:
@@ -452,6 +498,7 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                 note_failure(str(e))
 
     for chunk in _chunked(plan.to_delete, batch_size):
+        interchunk_pause()
         try:
             throttle()
             aura.frame_api.remove_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])

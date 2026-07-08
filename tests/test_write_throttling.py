@@ -32,6 +32,7 @@ from auraframes.sync import (
     ConsecutiveWriteFailureError,
     MAX_CONSECUTIVE_WRITE_FAILURES,
     SyncPlan,
+    WRITE_CHUNK_DELAY_SECONDS,
     WRITE_THROTTLE_SECONDS,
     execute_plan,
 )
@@ -174,6 +175,7 @@ def test_throttle_seconds_zero_disables_sleeping(tmp_path):
         plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
         throttle_seconds=0, sleep=sleep,
+        chunk_delay_seconds=0,  # isolate to the per-call throttle (this plan spans 2 chunks)
     )
 
     assert sleep.calls == []
@@ -467,3 +469,98 @@ def test_consecutive_run_spans_upload_and_delete_phases(tmp_path):
     # the 3rd delete is never attempted.
     assert len(err.result.upload_failures) == 3
     assert len(err.result.delete_failures) == 2
+
+
+# ---------------------------------------------------------------------------
+# Inter-chunk pacing (WRITE_CHUNK_DELAY_SECONDS)
+# ---------------------------------------------------------------------------
+
+class _WaitRecorder:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, remaining):
+        self.calls.append(remaining)
+
+
+def test_interchunk_pause_runs_between_upload_chunks(tmp_path):
+    # With >1 chunk, a chunk_delay pause runs BETWEEN chunks: realized via the
+    # injected sleep in 1s steps, surfacing a per-second on_wait countdown.
+    # throttle_seconds=0 isolates the assertion to the inter-chunk pause only.
+    paths = _write_jpegs(tmp_path, 4)  # batch_size=2 -> 2 chunks -> 1 gap
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
+    sleep = _SleepRecorder()
+    waits = _WaitRecorder()
+
+    result = execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        throttle_seconds=0, sleep=sleep, batch_size=2,
+        chunk_delay_seconds=5.0, on_wait=waits,
+    )
+
+    assert result.upload_succeeded == 4
+    # One 5s gap between the two chunks -> 5 one-second sleeps, no throttle noise.
+    assert sleep.calls == [1.0] * 5
+    # The countdown is surfaced each second, high to low, for the UI to render.
+    assert waits.calls == [5.0, 4.0, 3.0, 2.0, 1.0]
+
+
+def test_no_interchunk_pause_before_the_first_chunk(tmp_path):
+    # A single chunk means no inter-chunk gap at all -- the pause is skipped
+    # before the very first write chunk of the run.
+    paths = _write_jpegs(tmp_path, 2)  # batch_size=2 -> exactly 1 chunk
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
+    sleep = _SleepRecorder()
+    waits = _WaitRecorder()
+
+    execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        throttle_seconds=0, sleep=sleep, batch_size=2,
+        chunk_delay_seconds=5.0, on_wait=waits,
+    )
+
+    assert sleep.calls == []
+    assert waits.calls == []
+
+
+def test_chunk_delay_seconds_zero_disables_the_interchunk_pause(tmp_path):
+    # chunk_delay_seconds=0 disables the pause even across multiple chunks.
+    paths = _write_jpegs(tmp_path, 4)  # batch_size=2 -> 2 chunks
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
+    sleep = _SleepRecorder()
+    waits = _WaitRecorder()
+
+    execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        throttle_seconds=0, sleep=sleep, batch_size=2,
+        chunk_delay_seconds=0, on_wait=waits,
+    )
+
+    assert sleep.calls == []
+    assert waits.calls == []
+
+
+def test_interchunk_pause_defaults_to_write_chunk_delay_seconds(tmp_path):
+    # The default (no chunk_delay_seconds arg) paces at WRITE_CHUNK_DELAY_SECONDS.
+    paths = _write_jpegs(tmp_path, 4)  # batch_size=2 -> 2 chunks -> 1 gap
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+    aura = offline_aura(overrides=_ok_overrides())
+    _ack_all_batch_update(aura)
+    sleep = _SleepRecorder()
+
+    execute_plan(
+        plan, aura, FRAME_ID,
+        s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        throttle_seconds=0, sleep=sleep, batch_size=2,
+    )
+
+    assert sleep.calls == [1.0] * int(WRITE_CHUNK_DELAY_SECONDS)
