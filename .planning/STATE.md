@@ -111,6 +111,7 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 | 260630-qs8 | main.py loads a local .env at startup so the read-path demo picks up creds without exporting them; python-dotenv promoted to a runtime dep | 2026-06-30 | cd9ab6b |
 | 260708-dt9 | Add progress feedback to aura-cli sync --apply write loop (tqdm-based, injectable reporter in execute_plan) | 2026-07-08 | dd92c9e |
 | 260708-fyr | Batch refactor of sync --apply write path: select_asset/remove_asset/batch_update accept single-or-list, execute_plan chunks at WRITE_BATCH_SIZE=50 (~3N to ~2 Pushd write calls per chunk), per-file attribution via batch_update successes | 2026-07-08 | af344fa, 52eaf80 |
+| (fast) | Add 5s inter-chunk pause (WRITE_CHUNK_DELAY_SECONDS) with visible on_wait countdown to batched sync --apply — human-pacing between chunks after live evidence of cumulative anti-abuse trip | 2026-07-08 | 59b28ca |
 
 ## Deferred Items
 
