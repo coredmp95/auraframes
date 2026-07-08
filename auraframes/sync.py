@@ -35,6 +35,15 @@ from auraframes.utils.dt import format_dt_to_aura, get_utc_now
 # so videos/non-images are excluded here rather than diffed unsafely.
 ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})
 
+# Maps a local file's suffix to the Apple UTI the API expects in
+# `data_uti`. Deliberately narrower than ELIGIBLE_EXTENSIONS: '.heic'
+# has no registered Pillow decoder in this environment (no pillow-heif
+# installed) so `Image.open()` on a `.heic` path always raises before a
+# UTI would even be used, and '.png' has no verified-correct UTI value
+# yet -- both are left unmapped so `_execute_upload` fails closed with a
+# named reason instead of mislabeling the upload server-side.
+_DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
+
 
 @dataclass
 class ScanResult:
@@ -152,6 +161,10 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
     call. Both SQS polls are best-effort/observational only (Pitfall 3):
     their results are never used to gate success or failure.
     """
+    data_uti = _DATA_UTI_BY_SUFFIX.get(path.suffix.lower())
+    if data_uti is None:
+        raise ValueError(f'Unsupported upload extension: {path.suffix}')
+
     local_identifier = str(uuid.uuid4())
     image = Image.open(path)
 
@@ -168,7 +181,7 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
         height=image.height,
         width=image.width,
         taken_at=format_dt_to_aura(get_utc_now()),
-        data_uti='public.jpeg',
+        data_uti=data_uti,
         selected=True,
         upload_priority=0,
     )
