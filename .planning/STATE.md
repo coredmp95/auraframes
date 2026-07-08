@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 08
 current_phase_name: Destructive Execution (Upload + Delete Verification
-status: executing
+status: verifying
 stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-07-07T17:03:00.937Z"
+last_updated: "2026-07-08T04:55:33.453Z"
 last_activity: 2026-07-07
-last_activity_desc: Phase 08 execution started
+last_activity_desc: Completed 08-03-PLAN.md
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
   completed_plans: 10
-  percent: 91
+  percent: 75
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 
 Phase: 08 (Destructive Execution (Upload + Delete Verification)) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-07 — Completed 08-03-PLAN.md
 
 Progress: [█████████░] 91% (10/11 plans complete)
@@ -100,9 +100,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 - **Phase 6 live spike (hard dependency for Phase 7 design) — RESOLVED 2026-07-06:** confirmed live via `aura-cli --debug inspect` against a real frame (106 paginated assets): `md5_hash` is **populated** (non-null base64) for all 101/101 pre-existing photo (`.jpg`) assets, but **not populated** (null) for all 5/5 video (`.mp4`) assets. Phase 7 consequence: content-hash diffing via `md5_hash` is viable for photos with no fallback needed; a local-manifest/alternate-hash fallback is only required scope if video sync ever enters Phase 7/8 scope.
 - **Hash-format mismatch risk (Phase 7) — RESOLVED 2026-07-07:** confirmed live via METHOD A (`aura-cli sync ./data/ --frame "Cadre de Fabrice"`, frame id `c063b384-38fa-4324-aaf8-319d17a5867a`) — dry-run reported "Unchanged: 1" for a directory containing one file with an original that already existed on the frame and one file that did not; the matching file was classified unchanged (not upload), confirming local `get_md5(original_bytes)` equalled that frame asset's `md5_hash` byte-for-byte (SYNC-02 success criterion 3 satisfied), while the other, non-matching file correctly fell into "To upload" — proving the hashing/matching logic discriminates rather than trivially matching everything. Caveat: per D-08's minimal-disclosure convention, the dry-run report only lists upload/delete items in full and reports unchanged as a count, so the specific matched asset's id is not available to cite — the confirmation is the "Unchanged: 1" count itself, corroborated by the other file's correct "To upload" classification in the same run.
-- **Delete-primitive ambiguity (Phase 8):** `remove_asset` (soft, frame-scoped) vs `delete_asset` (hard, unverified S3/Glacier scope) — both must be live-verified before locking the safe default
-- **Hardcoded SQS frame ID (Phase 8, WRITE-04):** `get_sqs()` listens on the original test frame's queue; must be parameterized before sync can upload to an arbitrary frame
-- API is undocumented and may have drifted since April 2023; the write path has never been exercised live in three years
+- **Delete-primitive ambiguity (Phase 8) — RESOLVED 2026-07-07:** confirmed live against "Cadre de Fabrice" — `remove_asset` disassociates an asset from the target frame only (72 real deletes succeeded live with no side effects observed outside the frame); `delete_asset`, probed directly (never via `--apply`) against a dedicated disposable throwaway image, hit the asset-scoped `DELETE /assets/{id}.json` endpoint (not frame-scoped) and made the asset vanish entirely — confirming it is broader than `remove_asset`, matching (not exceeding) its docstring's suspected worst case. `remove_asset` is reaffirmed as `--apply`'s safe default (D-06); `delete_asset` remains completely unwired. See `08-LIVE-FINDINGS.md`.
+- **Hardcoded SQS frame ID (Phase 8, WRITE-04) — RESOLVED 2026-07-07:** `Aura.get_sqs(frame_id)` parameterized and confirmed live — the upload round-trip correctly targeted "Cadre de Fabrice"'s own queue, not the original hardcoded test-frame id. See `08-LIVE-FINDINGS.md`.
+- API is undocumented and may have drifted since April 2023; the write path has never been exercised live in three years — as of Phase 8, upload/remove_asset/delete_asset have now all been live-verified at least once.
 
 ### Quick Tasks Completed
 
