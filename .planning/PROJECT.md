@@ -73,18 +73,23 @@ verified visually + via `inspect`.
 - ✓ Packaged `aura-cli` entrypoint distinct from `main.py`, with a `status` subcommand reporting config/auth health, login result, and the account's frames — quiet by default with an opt-in `--debug` flag for verbose loguru output (CLI-01, CLI-02) — Validated in Phase 5: CLI Skeleton + Status
 - ✓ `inspect --frame <name|id>` resolves a frame by case-insensitive name substring or exact ID, displays its photos and metadata (name, owner, contributor count, asset count), and gives a clear disambiguation error on ambiguous name matches; `--debug` promoted to a root-level flag (CLI-03, CLI-04) — Validated in Phase 6: Inspect + Frame Resolution
 - ✓ `sync <dir> --frame <name|id>` computes and prints a full upload/delete/unchanged dry-run plan by content-hash diffing (never filename), with zero mutating call reachable from the command — structurally dry-run only, no `--apply`/`--yes` path exists yet (SYNC-01, SYNC-02) — Validated in Phase 7: Sync-Diffing Engine (Dry-Run Only)
+- ✓ `sync --apply`/`--yes` executes the computed plan for real — uploads new local files (`select_asset` → S3 → `batch_update`) and removes gone-locally frame photos via `remove_asset`; prints upload/delete/unchanged counts before applying and exits non-zero on any execution failure (SYNC-03, SYNC-04) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Image upload round-trip verified live against a real account/frame (WRITE-01) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ `remove_asset`'s real behavior verified live — disassociates from the frame only (WRITE-02) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ `delete_asset`'s real behavior verified live — asset-scoped `DELETE /assets/{id}.json`, broader than `remove_asset`, correctly left unwired from `--apply` (WRITE-03) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Hardcoded frame ID in the SQS upload-confirmation lookup fixed and confirmed live for an arbitrary frame (WRITE-04) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Fail-loud error handling extended to the write/delete endpoints (WRITE-05) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
 
 ### Active
 
-<!-- v1.0 and v1.1 fully validated. v2.0 (Directory-to-Frame Sync) is in progress —
-     see Current Milestone above; full requirement list will be scoped into
-     REQUIREMENTS.md via /gsd-new-milestone. -->
+<!-- v1.0, v1.1, and v2.0 (Directory-to-Frame Sync) fully validated as of Phase 8.
+     Milestone completion review is a separate step — see /gsd-complete-milestone. -->
 
-- _All v1.0 and v1.1 requirements validated — see Validated above._
-- 🚧 (v2.0, in progress) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- 🚧 (v2.0, in progress) `sync --apply`/`--yes` execute path (destructive upload + delete) — dry-run half shipped in Phase 7, see Validated above
+- _All v1.0, v1.1, and v2.0 requirements validated — see Validated above._
 - ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
 - ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
+- ⏭ (future-milestone candidate) Phase 8 code review flagged 3 unresolved critical findings (see `08-REVIEW.md`): `AssetPartialId`'s cross-field validator is a no-op for the common construction path; `batch_update`'s partial-success response isn't validated against the requested id list; hardcoded `data_uti='public.jpeg'` will silently mis-tag/fail `.png`/`.heic` uploads (Pillow has no HEIC decoder in this project's environment)
+- ⏭ (future-milestone candidate) Auth-token-expiry-mid-batch: a live incident during Phase 8 verification showed a single large `--apply` run can outlive the auth session's token lifetime (WRITE-05/D-08 handled it correctly — no data corruption — but a token-refresh-mid-batch mechanism would be a future hardening candidate)
 
 ### Out of Scope
 
@@ -150,6 +155,24 @@ verified visually + via `inspect`.
   `md5_hash`, making the dry-run diff engine's core content-hash matching assumption sound.
   Unblocks Phase 8 (the write/upload/delete path) to trust the diff without re-deriving
   the hash convention.
+- **Phase 8 (2026-07-08) — v2.0 milestone complete:** Shipped `sync --apply`/`--yes`,
+  the first mutating path in this codebase's ~3-year history. `execute_plan()` (the
+  mutating counterpart to `compute_plan()`) uploads new local files (`select_asset` → S3
+  → `batch_update`, via a new `AssetPartial` identity model) and removes gone-locally
+  photos via `remove_asset`, with uploads-before-deletes ordering and per-item
+  continue-past-failure. Fixed the hardcoded SQS frame-id bug (WRITE-04) and extended
+  fail-loud error handling to all write/delete endpoints (WRITE-05). Live-verified
+  against "Cadre de Fabrice": the upload round-trip, `remove_asset`, and a standalone
+  `delete_asset` probe against a disposable asset all confirmed working as designed —
+  `delete_asset` is asset-scoped (`DELETE /assets/{id}.json`, broader than `remove_asset`'s
+  frame-scoped disassociation) and remains structurally unreachable from `--apply` (D-06).
+  A live-verification incident (an operator run against a near-empty local directory
+  triggered a 72-item delete plan against the standing test frame; 25 of 72 deletes hit a
+  mid-batch auth-token expiry) validated WRITE-05/SYNC-04's fail-loud, continue-past-failure,
+  non-zero-exit design under a real partial-failure condition — no data was lost (photos
+  independently backed up) and a fresh re-run completed cleanly. Code review flagged 3
+  unresolved critical findings (see Active, future-milestone candidates) that do not block
+  this milestone's must-haves but should be triaged before further write-path work.
 
 ### Original baseline
 
@@ -206,4 +229,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-07 after Phase 7 (Sync-Diffing Engine, Dry-Run Only): `aura-cli sync <dir> --frame <name|id>` shipped as a structurally dry-run-only diff engine; live validation confirmed local get_md5 hashing is byte-identical to frame `md5_hash` (SYNC-02) — unblocks Phase 8 (write path). Next: Phase 8 (write/upload/delete path, live-verified).*
+*Last updated: 2026-07-08 after Phase 8 (Destructive Execution, Upload + Delete Verification) — v2.0 milestone core value achieved: the write path (`sync --apply`/`--yes`) is live-verified end-to-end, same as v1.0/v1.1 proved the read path. All v2.0 requirements validated. Next: `/gsd-complete-milestone` to close out v2.0, or triage the 3 open code-review findings from Phase 8 first.*
