@@ -58,6 +58,30 @@ def test_select_asset_returns_number_failed_on_success():
     assert result == 0
 
 
+def test_select_asset_accepts_a_list_and_sends_one_batched_call():
+    overrides = {SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0})}
+    aura = offline_aura(overrides=overrides)
+
+    items = [
+        AssetPartialId(local_identifier='local-id-1'),
+        AssetPartialId(local_identifier='local-id-2'),
+        AssetPartialId(local_identifier='local-id-3'),
+    ]
+    result = aura.frame_api.select_asset(FRAME_ID, items)
+
+    assert result == 0
+    # Exactly one call was made and it carried all 3 assets in one payload.
+    select_calls = [r for r in aura._client.history if r.request.url.path == SELECT_ASSET_PATH]
+    assert len(select_calls) == 1
+    import json as _json
+    sent = _json.loads(select_calls[0].request.content)
+    assert sent == {'assets': [
+        {'asset_local_identifier': 'local-id-1'},
+        {'asset_local_identifier': 'local-id-2'},
+        {'asset_local_identifier': 'local-id-3'},
+    ]}
+
+
 # ---------------------------------------------------------------------------
 # remove_asset
 # ---------------------------------------------------------------------------
@@ -93,6 +117,21 @@ def test_remove_asset_returns_number_failed_on_success():
     assert not result
 
 
+def test_remove_asset_accepts_a_list_and_sends_one_batched_call():
+    overrides = {REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0})}
+    aura = offline_aura(overrides=overrides)
+
+    items = [AssetPartialId(id='asset-1'), AssetPartialId(id='asset-2')]
+    result = aura.frame_api.remove_asset(FRAME_ID, items)
+
+    assert result == 0
+    remove_calls = [r for r in aura._client.history if r.request.url.path == REMOVE_ASSET_PATH]
+    assert len(remove_calls) == 1
+    import json as _json
+    sent = _json.loads(remove_calls[0].request.content)
+    assert sent == {'assets': [{'asset_id': 'asset-1'}, {'asset_id': 'asset-2'}]}
+
+
 # ---------------------------------------------------------------------------
 # batch_update
 # ---------------------------------------------------------------------------
@@ -123,6 +162,33 @@ def test_batch_update_succeeds_with_asset_partial():
     assert ids == ['local-id-1']
     assert len(successes) == 1
     assert successes[0].id == 'asset-1'
+
+
+def test_batch_update_accepts_a_list_and_does_not_raise_on_partial_successes():
+    # A partial `successes` list (fewer than sent) is the NORMAL, expected
+    # batch-mode signal that the caller must attribute per-item -- it must
+    # NOT raise. This is the behavioral change from the old single-item
+    # partial-failure raise (attribution is now the caller's job).
+    overrides = {
+        BATCH_UPDATE_PATH: httpx.Response(200, json={
+            'ids': ['local-id-1', 'local-id-2', 'local-id-3'],
+            'successes': [{'id': 'asset-1', 'local_identifier': 'local-id-1'}],
+        }),
+    }
+    aura = offline_aura(overrides=overrides)
+    partials = [
+        AssetPartial(local_identifier='local-id-1', file_name='a.jpg'),
+        AssetPartial(local_identifier='local-id-2', file_name='b.jpg'),
+        AssetPartial(local_identifier='local-id-3', file_name='c.jpg'),
+    ]
+
+    ids, successes = aura.asset_api.batch_update(partials)
+
+    assert ids == ['local-id-1', 'local-id-2', 'local-id-3']
+    assert len(successes) == 1
+    assert successes[0].local_identifier == 'local-id-1'
+    batch_calls = [r for r in aura._client.history if r.request.url.path == BATCH_UPDATE_PATH]
+    assert len(batch_calls) == 1
 
 
 # ---------------------------------------------------------------------------

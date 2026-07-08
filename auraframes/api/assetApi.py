@@ -6,19 +6,35 @@ from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
 
 class AssetApi(BaseApi):
 
-    def batch_update(self, asset: Asset | AssetPartial) -> tuple[list[str], list[AssetPartialId]]:
+    def batch_update(self, assets: Asset | AssetPartial | list[Asset | AssetPartial]) -> tuple[list[str], list[AssetPartialId]]:
         """
-        Posts new metadata to the API. This does not appear to affect the frame; however subsequent calls to retrieve
-        this asset will have the modified metadata.
+        Posts new metadata to the API for one or more assets. This does not appear to affect the
+        frame; however subsequent calls to retrieve the asset(s) will have the modified metadata.
 
-        Primarily used to to update an asset after the image has been uploaded to S3.
+        Primarily used to update an asset after the image has been uploaded to S3.
 
-        :param asset: Asset containing new metadata
-        :return: List of sent remote ids, list of received AssetPartialId successes
+        This is a native Pushd BATCH endpoint: the official app sends the whole collection of
+        assets to update in a single `{"assets": [...]}` call rather than one call per asset. A
+        single `Asset`/`AssetPartial` is accepted for backward compatibility (normalized to a
+        one-element list); the legacy single-item caller (`Aura.upload_image`) discards this
+        method's return value, so this does not change its behavior.
+
+        `successes` in the response (each carrying `id` + `local_identifier`) is the per-file
+        source of truth for batch callers: match each sent item's `local_identifier` against
+        `successes[].local_identifier` to attribute success/failure per item -- a partial
+        `successes` list (fewer entries than sent) is the NORMAL, expected signal in batch mode
+        that the caller must attribute per-item, not an error to raise on. Only the `error`
+        envelope (a whole-call failure) raises here.
+
+        :param assets: A single `Asset`/`AssetPartial`, or a list of them, to update in one call.
+        :return: List of sent remote ids, list of received AssetPartialId successes (may be a
+            partial subset of what was sent -- see above).
         """
+        items = assets if isinstance(assets, list) else [assets]
+
         json_response = self._client.put(f'/assets/batch_update.json', data={
             "assets": [
-                asset.dict(
+                item.dict(
                     include={
                         'data_uti': True,
                         'favorite': True,
@@ -34,6 +50,7 @@ class AssetApi(BaseApi):
                         'upload_priority': True,
                         'width': True
                     })
+                for item in items
             ]
         })
         if json_response.get('error'):
@@ -41,11 +58,6 @@ class AssetApi(BaseApi):
 
         ids = json_response.get('ids') or []
         successes = json_response.get('successes') or []
-        if len(successes) < len(ids):
-            raise RuntimeError(
-                f"batch_update reported {len(ids) - len(successes)} failure(s) "
-                f"out of {len(ids)} requested"
-            )
 
         return ids, [AssetPartialId(**partial_asset_id) for partial_asset_id in successes]
 

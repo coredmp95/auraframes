@@ -102,18 +102,28 @@ class FrameApi(BaseApi):
                                          data={'frame': frame_partial.dict(exclude_unset=True)})
         return Frame(**json_response.get('frame'))
 
-    def select_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+    def select_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Associates an asset to a frame. This is typically done immediately before the asset is uploaded to S3.
+        Associates one or more assets to a frame. This is typically done immediately before the
+        asset(s) are uploaded to S3.
+
+        This is a native Pushd BATCH endpoint: the official app sends the whole collection of
+        assets to associate in a single `{"assets": [...]}` call rather than one call per asset.
+        A single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list) and legacy single-item callers are unaffected.
 
         :param frame_id: Frame id
-        :param asset_partial_id: The asset identifier to associate to the frame.
-        :return: The number of assets that failed to be associated to the frame.
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to associate to
+            the frame in one call.
+        :return: The number of assets that failed to be associated to the frame. NOTE: this is a
+            count only -- in batch mode (a list of more than one item) there is no per-item
+            signal in this response, so a caller cannot learn WHICH item(s) failed from
+            select_asset alone.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/select_asset.json',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
         if json_response.get('error'):
             raise RuntimeError(f"select_asset failed for frame {frame_id}: {json_response.get('error')}")
 
@@ -144,18 +154,28 @@ class FrameApi(BaseApi):
 
         return number_failed
 
-    def remove_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+    def remove_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Disassociates an asset from a frame. This does not seem to remove the asset from S3/Glacier.
+        Disassociates one or more assets from a frame. This does not seem to remove the asset(s)
+        from S3/Glacier.
 
-        :param frame_id: Frame id containing the asset.
-        :param asset_partial_id: The asset identifier to remove from the frame.
-        :return: The number of assets that failed to be removed from the frame.
+        This is a native Pushd BATCH endpoint: the official app sends the whole collection of
+        assets to remove in a single `{"assets": [...]}` call rather than one call per asset. A
+        single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list). Per-item delete attribution degrades to per-chunk in batch mode: a
+        nonzero `number_failed` or a raised error fails the WHOLE batch's deletes, since this
+        endpoint returns only a count, never which item(s) failed.
+
+        :param frame_id: Frame id containing the asset(s).
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to remove from
+            the frame in one call.
+        :return: The number of assets that failed to be removed from the frame. NOTE: this is a
+            count only -- there is no per-item signal in this response.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/remove_asset.json',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
         if json_response.get('error'):
             raise RuntimeError(f"remove_asset failed for frame {frame_id}: {json_response.get('error')}")
 
