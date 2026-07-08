@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, field_validator, ValidationInfo
+from pydantic import BaseModel, model_validator
 
 from auraframes.models.meta import make_partial
 from auraframes.models.user import User
@@ -116,12 +116,11 @@ class AssetPartialId(BaseModel):
     local_identifier: Optional[str] = None
     user_id: Optional[str] = None
 
-    @field_validator('id')
-    @classmethod
-    def check_id_or_local_id(cls, _id: Optional[str], info: ValidationInfo) -> Optional[str]:
-        if not info.data.get('local_identifier') and not _id:
+    @model_validator(mode='after')
+    def check_id_or_local_id(self) -> 'AssetPartialId':
+        if not self.id and not self.local_identifier:
             raise ValueError('Either id or local_identifier is required')
-        return _id
+        return self
 
     def to_request_format(self):
         # 'user_id': user_id # in the iphone version user_id is not passed in
