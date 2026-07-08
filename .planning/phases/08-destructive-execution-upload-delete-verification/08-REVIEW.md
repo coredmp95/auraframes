@@ -16,9 +16,9 @@ files_reviewed_list:
   - tests/test_cli_apply.py
 findings:
   critical: 3
-  warning: 4
-  info: 1
-  total: 8
+  warning: 5
+  info: 2
+  total: 10
 status: issues_found
 ---
 
@@ -31,33 +31,32 @@ status: issues_found
 
 ## Summary
 
-Reviewed the destructive-execution upload/delete path added in Phase 8: `sync.execute_plan`/`_execute_upload`, the fail-loud upgrades to `FrameApi`/`AssetApi`, the new `AssetPartial` model, and the `--apply`/`--yes` CLI wiring, plus their offline test coverage.
+Reviewed the destructive-execution path added in Phase 8: `sync.execute_plan`/`_execute_upload`, the fail-loud upgrades to `FrameApi`/`AssetApi`, the new `AssetPartial`/`AssetPartialId` handling, and the `--apply`/`--yes` CLI wiring, plus their offline test coverage. The overall shape — uploads attempted before deletes, per-item try/except with named failures, a fail-closed confirmation gate — is sound and backed by real tests.
 
-The overall shape (uploads-before-deletes, per-item try/except with named failures, fail-closed confirmation gate) is sound and is backed by real tests. However, hands-on verification (actually constructing the models and reading the diffs against `master`) surfaced three correctness bugs that undercut the phase's own stated goal of "verification": a pre-existing but newly load-bearing validator on `AssetPartialId` that silently does nothing in the common case, a `batch_update` success check that doesn't actually verify the upload succeeded, and a hardcoded `data_uti` that contradicts the module's own declared support for `.png`/`.heic` files. None of these were caught by the test suite — each is a genuine gap in the "fail loud" guarantee this phase set out to build. Four further warnings (an unconditional SQS call that can abort delete-only plans, dead code, an inconsistent sibling method, and an unclosed file handle) round out the report.
+Independently re-deriving (not just trusting) the logic and executing the model directly against the installed pydantic 2.13.4 confirms three correctness bugs that undercut this phase's own "verification" goal: `AssetPartialId`'s guard validator is a no-op for the common case and wrongly rejects valid input in another (confirmed by direct construction, see CR-01); `AssetApi.batch_update`'s success check doesn't actually verify the upload was applied (CR-02); and a hardcoded `data_uti` makes `.heic` uploads guaranteed to fail and `.png` uploads permanently mislabeled, despite both being declared eligible via `ELIGIBLE_EXTENSIONS` (confirmed: this Pillow install has no `.heic` decoder registered) (CR-03). None of these are caught by the existing test suite. Additional findings below cover an unconditional SQS call that can abort delete-only plans, a genuinely dead branch in `AssetApi` inherited from a pre-existing model gap that this phase's `delete_asset` fail-loud change now sits directly on top of, unreachable trailing code, an inconsistent sibling method, and an unclosed file handle.
 
 ## Critical Issues
 
 ### CR-01: `AssetPartialId`'s id-or-local_identifier guard is a no-op in the common case (and wrongly rejects valid input in another)
 
-**File:** `auraframes/models/asset.py:114-124`
+**File:** `auraframes/models/asset.py:119-124`
 
-**Issue:** `check_id_or_local_id` is a `@field_validator('id')` that inspects `info.data.get('local_identifier')` to enforce "either `id` or `local_identifier` must be set." This is broken for two independent reasons that combine into a validator that provides essentially no real protection:
+**Issue:** `check_id_or_local_id` is declared as `@field_validator('id')` and inspects `info.data.get('local_identifier')` to enforce "either `id` or `local_identifier` must be set." Verified directly against the installed pydantic 2.13.4:
 
-1. **Pydantic v2 skips field validators for fields that use their default value** (no `validate_default=True` on the field). Since both `id` and `local_identifier` default to `None`, *any* construction that omits `id` skips this validator entirely — including the "neither field set" case the validator exists to catch.
-2. **`id` is declared before `local_identifier`** in the model, so even when the validator does run (i.e., `id` is passed explicitly), `info.data` does not yet contain `local_identifier`'s value — it hasn't been validated yet at that point in the field-declaration order.
-
-Verified directly against the installed pydantic 2.13:
-```python
->>> AssetPartialId()                                    # should fail — succeeds silently
+```
+>>> AssetPartialId()                              # should fail — succeeds silently
 AssetPartialId(id=None, local_identifier=None, user_id=None)
->>> AssetPartialId(user_id='abc')                        # should fail — succeeds silently
+>>> AssetPartialId(user_id='abc')                 # should fail — succeeds silently
 AssetPartialId(id=None, local_identifier=None, user_id='abc')
->>> AssetPartialId(id=None, local_identifier='abc')       # should succeed — raises instead
+>>> AssetPartialId(id=None, local_identifier='abc')  # should succeed — raises instead
 ValidationError: Either id or local_identifier is required
 ```
-This is directly reachable in production code, not just a theoretical edge case: `AssetApi.batch_update` hydrates `AssetPartialId(**partial_asset_id)` straight from the server's `successes` payload (`auraframes/api/assetApi.py:42-43`). If any success entry the live API returns ever includes an explicit `id: null` alongside a valid `local_identifier` (plausible for a newly-created, not-yet-numbered asset correlated only by `local_identifier` — exactly `execute_plan`'s upload scenario), hydration will raise `ValidationError` on what the server reported as a *success*. Conversely, the intended safety net — refusing to build a degenerate identifier with neither `id` nor `local_identifier` — never fires for the common omitted-field construction pattern used throughout `sync.py`/`aura.py` (`AssetPartialId(local_identifier=local_identifier)`), so a caller bug that leaves `local_identifier` unset would silently produce `to_request_format() == {'asset_local_identifier': None}` sent straight to the frame-mutating `select_asset`/`remove_asset` endpoints.
 
-**Fix:** Replace the field validator with a `model_validator(mode='after')`, which runs after every field is set regardless of whether defaults were used and has no field-order dependency:
+Two independent causes: (1) pydantic v2 skips a field validator when the field is left at its default (`None`) unless `validate_default=True` is set — since both `id` and `local_identifier` default to `None`, any construction that omits `id` entirely (the common "neither set" bug case) skips the validator. (2) `id` is declared before `local_identifier` in the model, so even when the validator *does* run (i.e. `id` is passed explicitly), `info.data` does not yet contain `local_identifier`'s validated value at that point in field-declaration order — the guard only "works" by accident when `_id` itself is truthy (short-circuits the `and`), and actively misfires when `id=None` is passed explicitly alongside a valid `local_identifier`.
+
+This is reachable in production, not just theoretical: `AssetApi.batch_update` hydrates `AssetPartialId(**partial_asset_id)` straight from the server's `successes` payload (`auraframes/api/assetApi.py:42-43`). A success entry for a newly-created asset correlated only by `local_identifier` (exactly `execute_plan`'s upload scenario) that includes an explicit `id: null` would raise `ValidationError` on what the server reported as a success. Meanwhile the intended safety net never fires for the omitted-field construction pattern used throughout `sync.py`/`aura.py` (`AssetPartialId(local_identifier=local_identifier)`), so a caller bug that leaves `local_identifier` unset/empty would silently produce `to_request_format() == {'asset_local_identifier': None}` sent straight to the frame-mutating `select_asset`/`remove_asset` endpoints.
+
+**Fix:** Use a `model_validator(mode='after')`, which runs after every field regardless of default usage and has no field-order dependency:
 ```python
 from pydantic import model_validator
 
@@ -83,13 +82,13 @@ if json_response.get('error'):
     raise RuntimeError(f"batch_update failed: {json_response.get('error')}")
 return json_response.get('ids'), [AssetPartialId(**partial_asset_id) for partial_asset_id in json_response.get('successes')]
 ```
-It never checks that `successes` actually contains an entry corresponding to what was sent, unlike its siblings `select_asset`/`remove_asset` (also touched in this phase), which explicitly raise on a nonzero `number_failed`. `_execute_upload` compounds this by discarding the return value entirely:
+It never checks that `successes` actually corresponds to what was sent — unlike its siblings `select_asset`/`remove_asset` (also touched in this phase), which explicitly raise on a nonzero `number_failed`. If the response omits `successes` entirely (no `error` key either), this raises an opaque `TypeError: 'NoneType' object is not iterable` instead of an attributable `RuntimeError`. `_execute_upload` compounds the risk by discarding the return value entirely:
 ```python
 aura.asset_api.batch_update(pending)   # return value never inspected
 ```
-If the live API ever responds `200` with no `error` field but an empty or short `successes` list (a very plausible "partial success" shape for a batch endpoint — it is literally why `select_asset`/`remove_asset` gained a `number_failed` check in this same phase), `execute_plan` will still increment `result.upload_succeeded` even though the just-uploaded file's metadata (file_name/md5/dimensions/taken_at) was never actually attached to any asset server-side. This is precisely the "verification" gap the phase is named for, and it is untested — `tests/test_write_endpoints_failloud.py::test_batch_update_succeeds_with_asset_partial` only exercises the 1:1 `ids`/`successes` match case.
+If the live API ever responds `200` with no `error` field but an empty/short `successes` list, `execute_plan` still increments `result.upload_succeeded` even though the just-uploaded file's metadata (file_name/md5/dimensions/taken_at) was never attached to any asset server-side. This is precisely the "verification" gap the phase is named for, and it's untested — `tests/test_write_endpoints_failloud.py::test_batch_update_succeeds_with_asset_partial` only exercises the 1:1 `ids`/`successes` match case.
 
-**Fix:** Validate the response shape in `batch_update` itself (mirroring the `number_failed` precedent already established for `select_asset`/`remove_asset` in this phase):
+**Fix:** Validate the response shape in `batch_update` itself, mirroring the `number_failed` precedent from this same phase:
 ```python
 ids = json_response.get('ids') or []
 successes = json_response.get('successes') or []
@@ -105,21 +104,17 @@ return ids, [AssetPartialId(**s) for s in successes]
 
 **File:** `auraframes/sync.py:36`, `auraframes/sync.py:156-174`
 
-**Issue:** `ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})` declares that PNG and HEIC files are diffed and, when new, uploaded. But `_execute_upload` unconditionally builds:
-```python
-pending = AssetPartial(
-    ...
-    data_uti='public.jpeg',
-    ...
-)
+**Issue:** `ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})` declares that PNG and HEIC files are diffed and, when new, uploaded. But `_execute_upload` unconditionally sets `data_uti='public.jpeg'` regardless of the file's actual extension, and calls `Image.open(path)` before any network activity. Verified directly against the installed environment:
 ```
-regardless of the actual file's extension. Two distinct, verifiable failure modes result:
-- A new `.png` file uploads "successfully" (per CR-02's weak check) but is permanently mislabeled with the JPEG UTI server-side.
-- A new `.heic` file can **never** upload successfully: `Image.open(path)` (line 156) is called before any network activity, and this project's installed Pillow has no HEIC decoder registered (`Image.registered_extensions().get('.heic')` is `None` — no `pillow-heif` or equivalent dependency is declared in `pyproject.toml`). Every `.heic` candidate in `plan.to_upload` will raise `PIL.UnidentifiedImageError` and be recorded as a permanent, unactionable `upload_failure` on every run.
+>>> from PIL import Image
+>>> Image.registered_extensions().get('.heic')
+None
+>>> Image.registered_extensions().get('.png')
+'PNG'
+```
+No `pillow-heif` (or equivalent) dependency is declared in `pyproject.toml`. Consequences: every `.heic` candidate in `plan.to_upload` raises `PIL.UnidentifiedImageError` inside `_execute_upload` on every single run — a permanent, unactionable `upload_failure` for a file type the module's own `ELIGIBLE_EXTENSIONS` claims to support end-to-end. A new `.png` file, meanwhile, "succeeds" (per CR-02's weak check) but is permanently mislabeled server-side with the JPEG UTI.
 
-The project's own research doc (`08-RESEARCH.md`, Pitfall 5) explicitly scoped `data_uti='public.jpeg'` as an assumption for JPEG only ("`data_uti='public.jpeg'` for JPEG"), but that scoping was never reflected in `ELIGIBLE_EXTENSIONS`, which still advertises PNG/HEIC as eligible for the full upload round-trip.
-
-**Fix:** Either restrict `ELIGIBLE_EXTENSIONS` to what upload can actually support today, or map extension to UTI and skip/report HEIC distinctly:
+**Fix:** Map extension to UTI and fail closed (or skip with a named reason) for unsupported ones instead of hardcoding one value for all four declared-eligible extensions:
 ```python
 _DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg', '.png': 'public.png'}
 
@@ -130,40 +125,36 @@ def _execute_upload(...):
         raise ValueError(f'Unsupported upload extension: {path.suffix}')
     ...
 ```
+Or narrow `ELIGIBLE_EXTENSIONS` to `.jpg`/`.jpeg` only until PNG/HEIC upload is actually implemented.
 
 ## Warnings
 
-### WR-01: `execute_plan` fetches an SQS queue URL even for delete-only plans, and its failure aborts everything
+### WR-01: `execute_plan` fetches an SQS queue URL even for delete-only plans, and its failure aborts the whole run
 
 **File:** `auraframes/sync.py:211`
 
-**Issue:** `queue_url = sqs_client.get_queue_url(frame_id)` runs unconditionally before either loop, including when `plan.to_upload` is empty. This call sits outside both per-item `try/except` blocks, so if it raises (auth hiccup, no queue provisioned for a frame that's never had an upload, transient AWS error), the exception propagates out of `execute_plan` entirely — aborting the delete loop too, even though deletes never need `queue_url`. A delete-only `sync --apply` can therefore fail closed for a reason that has nothing to do with deletion.
+**Issue:** `queue_url = sqs_client.get_queue_url(frame_id)` runs unconditionally before either loop, including when `plan.to_upload` is empty. This call sits outside both per-item `try/except` blocks, so if it raises (auth hiccup, no queue provisioned for a frame that's never had an upload, transient AWS error), the exception propagates out of `execute_plan` entirely — aborting the delete loop too, even though deletes never reference `queue_url`. A delete-only `sync --apply` can therefore fail closed for a reason that has nothing to do with deletion, and no test exercises a delete-only plan combined with a raising `sqs_client`.
 
-**Fix:** Only resolve the queue URL when there is something to upload:
+**Fix:**
 ```python
 queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 ```
 
-### WR-02: Dead code — unreachable trailing `return 0` in `run_sync`
+### WR-02: `Asset.is_local_asset` is unreachable given `Asset.id`'s required-`str` typing, silently dead-ending two branches this phase hardened
 
-**File:** `auraframes/cli.py:351`
+**File:** `auraframes/models/asset.py:53,109-111`, `auraframes/api/assetApi.py:68-71,84-88`
 
-**Issue:** Every path through the enclosing `try` block now returns explicitly (the `if not apply: return 0`, the `--yes`/tty checks, the abort path, and the final `return 1 if (...) else 0` added in this phase's `08-03` commit), and the `except Exception` branch also returns. The trailing `return 0` at the end of the function is unreachable. It was live code before this phase (the old body fell through after printing `frame_no_hash`) but became dead once the `--apply` branch was added and not cleaned up.
+**Issue:** `Asset.id` is typed `id: str` (required, not `Optional[str]`), so any `Asset` built via normal validated construction (`Asset(**json_response)`, the only path used by `FrameApi.get_assets`/`AssetApi.get_asset_by_local_identifier`) can never have `id=None`. `Asset.is_local_asset` (`return self.id is None`) is therefore always `False` for every real, validated `Asset` — dead code. `AssetApi.delete_asset` (touched in this phase to add its fail-loud `error` check, `assetApi.py:90-91`) and `update_taken_at_date` both branch on `asset.is_local_asset` to decide between a local-identifier-based request and an id-based one; the local-identifier branch is unreachable through the normal hydration path and can only be exercised today via `Asset.model_construct(...)` (validation-bypassing), exactly as `tests/test_write_endpoints_failloud.py:137` does. In other words, `delete_asset`'s newly-added fail-loud guard was layered onto a branch that production code can never actually take for a locally-only asset — the phase hardened a path that isn't reachable, while the real question ("what happens if you try to delete an asset that only has a `local_identifier`") remains unanswered.
 
-**Fix:** Remove the trailing `return 0` (or leave a `# unreachable` comment if intentionally kept as a defensive fallback — but then it should not silently mean "success").
+**Fix:** Either make `Asset.id: Optional[str] = None` and audit callers that assume it's always present, or remove `is_local_asset`/its dependent branches and document that `Asset` (as opposed to `AssetPartial`) always represents a server-hydrated asset.
 
 ### WR-03: `FrameApi.exclude_asset` was left out of this phase's fail-loud upgrade, inconsistent with its neighbors
 
 **File:** `auraframes/api/frameApi.py:126-139`
 
-**Issue:** `select_asset` and `remove_asset` were both upgraded in this phase to raise `RuntimeError` on an `error` envelope or nonzero `number_failed` (WRITE-05). `exclude_asset`, defined between them in the same file, still does neither:
-```python
-json_response = self._client.post(f'/frames/{frame_id}/exclude_asset', data={...})
-return json_response.get('number_failed')
-```
-This was called out as explicitly out-of-scope in the phase plan, but it leaves a trap for future maintainers: someone extending the CLI to also exclude assets would silently inherit the old, already-identified-as-broken silent-failure pattern right next to two methods that look identical but aren't.
+**Issue:** `select_asset` and `remove_asset` were both upgraded in this phase to raise `RuntimeError` on an `error` envelope or nonzero `number_failed` (WRITE-05). `exclude_asset`, defined between them in the same file, does neither — it silently returns `json_response.get('number_failed')` with no validation. A future caller extending the CLI to exclude assets would inherit the already-identified-as-broken silent-failure pattern right next to two methods that look identical but aren't.
 
-**Fix:** Apply the same guard used for `select_asset`/`remove_asset`:
+**Fix:**
 ```python
 if json_response.get('error'):
     raise RuntimeError(f"exclude_asset failed for frame {frame_id}: {json_response.get('error')}")
@@ -173,11 +164,11 @@ if number_failed:
 return number_failed
 ```
 
-### WR-04: `Image.open(path)` handles are never closed in `_execute_upload`
+### WR-04: `Image.open(path)` handle is never closed in `_execute_upload`
 
 **File:** `auraframes/sync.py:156`
 
-**Issue:** `image = Image.open(path)` opens a file handle that is only read for `.size` (via `image.height`/`image.width`) and is never closed — no context manager, no `.close()` call. Across a large batch (the live-verification run in `08-LIVE-FINDINGS.md` processed dozens of items in one `execute_plan` call), this accumulates open file descriptors for the life of the process.
+**Issue:** `image = Image.open(path)` opens a file handle read only for `.height`/`.width`; it's never closed (no context manager, no `.close()`). Across a large `execute_plan` batch this accumulates open file descriptors for the life of the process.
 
 **Fix:**
 ```python
@@ -186,15 +177,31 @@ with Image.open(path) as image:
 ```
 and use the captured `width`/`height` when building `AssetPartial`.
 
+### WR-05: Unreachable trailing `return 0` in `run_sync`
+
+**File:** `auraframes/cli.py:351`
+
+**Issue:** Every path through the enclosing `try` block now returns explicitly — the ambiguous/not-found checks, the `OSError` scan-failure branch, `if not apply: return 0`, the non-tty/`--yes` check, the abort-on-answer path, and the final `return 1 if (...) else 0` added in this phase's `08-03` commit — and the `except Exception` branch also returns. The trailing `return 0` at line 351 is therefore dead code; it predates this phase but became provably unreachable once the `--apply` branch's exhaustive returns were added here without removing it.
+
+**Fix:** Delete the trailing `return 0`.
+
 ## Info
 
 ### IN-01: `AssetApi.crop_asset`/`update_taken_at_date` remain unguarded
 
 **File:** `auraframes/api/assetApi.py:56-114`
 
-**Issue:** `batch_update` and `delete_asset` gained `error`-key checks in this phase; `crop_asset` and `update_taken_at_date` in the same file did not (pre-existing, explicitly out of this phase's stated scope). Noting for future consistency since this file is now a mix of fail-loud and silent-failure methods.
+**Issue:** `batch_update` and `delete_asset` gained `error`-key checks in this phase; `crop_asset` and `update_taken_at_date` in the same file did not (explicitly out of this phase's stated scope, per `08-RESEARCH.md`). Noting for future consistency since this file is now a mix of fail-loud and silent-failure methods.
 
-**Fix:** When these methods are next touched, apply the same `if json_response.get('error'): raise RuntimeError(...)` guard used elsewhere in this file.
+**Fix:** Apply the same `if json_response.get('error'): raise RuntimeError(...)` guard when these methods are next touched.
+
+### IN-02: `sync.py`/`assetApi.py`'s reliance on pydantic v1-style `.dict()` is deprecated in v2
+
+**File:** `auraframes/api/assetApi.py:21,102`, project-wide pre-existing pattern also exercised by the new `AssetPartial` payloads in `sync.py:175`
+
+**Issue:** `.dict(include={...})` is pydantic v2's deprecated alias for `.model_dump()`. It still works today (verified: `tests/test_asset_partial.py` passes against the installed pydantic 2.13.4) but emits a `PydanticDeprecatedSince20` warning and is not guaranteed to survive a future major pydantic bump. This phase's new `AssetPartial` upload path now depends on this deprecated call succeeding, widening its blast radius slightly.
+
+**Fix:** When this file is next touched, migrate to `.model_dump(include={...})`.
 
 ---
 
