@@ -348,8 +348,6 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         print(f'Failed to sync frame: {e}')
         return 1
 
-    return 0
-
 
 def main(argv=None) -> int:
     load_dotenv()
