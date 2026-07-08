@@ -13,7 +13,7 @@ from loguru import logger
 
 import auraframes.cli as cli
 from auraframes.client import RateLimitError
-from auraframes.sync import ExecutionResult
+from auraframes.sync import ConsecutiveWriteFailureError, ExecutionResult
 from tests.offline import offline_aura
 
 FRAME_ID = 'frame-fake-0001'
@@ -226,6 +226,39 @@ def test_apply_rate_limited_batch_aborts_with_single_backoff_message(tmp_path, m
     assert '60s' in out
     # Not a per-item upload summary -- the batch never produced one.
     assert 'Uploads:' not in out
+
+
+def test_apply_consecutive_failures_aborts_with_distinct_message(tmp_path, monkeypatch, capsys):
+    # execute_plan raising ConsecutiveWriteFailureError (the plain-401 run that
+    # RateLimitError could not classify) must produce a DISTINCT back-off
+    # message -- different wording from the RateLimitError "Aborted:" path --
+    # plus the partial progress, and rc 1.
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+
+    def failing_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None):
+        raise ConsecutiveWriteFailureError(
+            5,
+            "Client error '401 Unauthorized' for url '.../select_asset.json'",
+            ExecutionResult(upload_succeeded=7),
+        )
+
+    monkeypatch.setattr(cli, 'execute_plan', failing_execute_plan)
+
+    (tmp_path / 'new.jpg').write_bytes(b'new-photo-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    # Distinct wording from the RateLimitError path (which prints "Aborted:").
+    assert 'consecutive write failures' in out
+    assert 'lockout' in out.lower()
+    # Partial progress surfaced.
+    assert '7 uploads' in out
+    # Not the throttle-specific "Aborted:" lead-in.
+    assert 'Aborted:' not in out
 
 
 def test_login_rate_limited_reports_clear_message(tmp_path, monkeypatch, capsys):

@@ -58,6 +58,54 @@ _DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
 # override via `throttle_seconds` (0 disables) and inject `sleep` for tests.
 WRITE_THROTTLE_SECONDS = 0.5
 
+# Number of write items that must fail in an unbroken run before execute_plan
+# aborts the whole batch. Root cause of this session's REOPENED gap: the Pushd
+# anti-abuse trip does NOT reliably announce itself with the 429/475 that
+# `RateLimitError` catches. The live regression showed it as a plain HTTP 401
+# on every write after the 7th succeeded, so execute_plan caught each of the
+# 103 post-trip failures per-item (D-08) and kept hammering the throttling
+# server ~103 more times instead of backing off. A RUN of consecutive failures
+# is the reliable, STATUS-CODE-AGNOSTIC signature of a systemic cut-off, while a
+# genuine isolated failure (one bad/expired asset ref, one permissions edge) is
+# a single failure surrounded by successes and never reaches the threshold.
+# Deliberately counts ANY caught per-item write failure (plain 401, 5xx,
+# network error, ValueError) rather than sniffing the status -- the whole
+# lesson of this session is that the trip cannot be recognised from the HTTP
+# status alone. This is a BACKSTOP below the RateLimitError fast-path: a 429/475
+# still aborts on its FIRST occurrence via its own branch; this catches trips
+# the status code hides. N=5 balances catching the lockout early (5 wasted calls
+# vs 103) against tolerating a small unlucky cluster of independent failures.
+MAX_CONSECUTIVE_WRITE_FAILURES = 5
+
+
+class ConsecutiveWriteFailureError(Exception):
+    """Raised by `execute_plan` when `max_consecutive_failures` write items
+    fail in an unbroken run -- the signature of an account lockout / systemic
+    cut-off that did NOT announce itself with a 429/475 (`RateLimitError`),
+    e.g. the plain-HTTP-401 form of the Pushd anti-abuse trip seen in the
+    select-asset-401-unauthorized session's live regression.
+
+    Distinct from `RateLimitError` so the CLI surfaces a separate "run of
+    failures -- probable lockout, stop and investigate" message rather than the
+    throttle-specific Retry-After wording. Carries the run length (`count`), the
+    last per-item error string (`last_error`), and the partial `ExecutionResult`
+    accumulated before the abort (`result`) so the caller can report what
+    succeeded first.
+    """
+
+    def __init__(self, count: int, last_error: str, result: "ExecutionResult"):
+        self.count = count
+        self.last_error = last_error
+        self.result = result
+        super().__init__(
+            f'Aborted after {count} consecutive write failures -- this is the '
+            f'signature of an account lockout or a systemic cut-off (the Pushd '
+            f'anti-abuse trip can surface as a run of plain HTTP 401s with no '
+            f'Retry-After), not isolated per-item errors. Stop and investigate '
+            f'before retrying; continued calls may extend a lockout. '
+            f'Last error: {last_error}'
+        )
+
 
 @dataclass
 class ScanResult:
@@ -218,6 +266,7 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
 
 def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep,
+                 max_consecutive_failures: int = MAX_CONSECUTIVE_WRITE_FAILURES,
                  progress=lambda *args: None) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10).
@@ -249,6 +298,13 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         mitigation for the select-asset-401-unauthorized session). 0 disables.
     :param sleep: The sleep function to call (injectable for offline tests
         so they pace-check without real delays).
+    :param max_consecutive_failures: Abort the whole batch once this many
+        write items fail in an unbroken run (reset on any success) -- the
+        backstop for an anti-abuse trip that surfaces as plain HTTP 401s
+        rather than the 429/475 `RateLimitError` catches (see
+        `MAX_CONSECUTIVE_WRITE_FAILURES`). Status-code agnostic: any caught
+        per-item write failure counts. 0 disables the backstop entirely
+        (restoring the pure unbounded per-item D-08 behaviour).
     :param progress: Optional reporter called exactly once per attempted
         item -- an upload from `plan.to_upload` or a delete from
         `plan.to_delete` -- as `progress(kind, identifier, ok)`, where
@@ -268,12 +324,35 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     point being to stop hammering a throttling server and surface a single
     "back off" message instead of dozens of confusing per-item errors.
     Ordinary per-item failures are still caught and recorded (D-08).
+
+    Raises `ConsecutiveWriteFailureError` when `max_consecutive_failures`
+    write items fail in an unbroken run -- the backstop for an anti-abuse
+    trip that surfaces as plain HTTP 401s (indistinguishable at the status
+    level from an isolated per-item auth failure) rather than the 429/475
+    `RateLimitError` catches. The counter spans BOTH loops and resets on any
+    success, so an isolated failure never trips it. The final failing item is
+    still recorded in `result` and reported via `progress` before the abort
+    (so the reporter-call count still equals the attempted-and-resolved item
+    count); items after the abort are never attempted.
     """
     result = ExecutionResult()
+    consecutive_failures = 0
 
     def throttle() -> None:
         if throttle_seconds > 0:
             sleep(throttle_seconds)
+
+    def note_failure(last_error: str) -> None:
+        # Bump the shared consecutive-failure run and abort the whole batch
+        # once it crosses the threshold. Status-code agnostic on purpose: the
+        # trip cannot be recognised from the HTTP status alone (this session's
+        # core lesson), so ANY caught per-item write failure counts toward the
+        # run. RateLimitError never reaches here -- it is re-raised above and
+        # aborts on its first occurrence.
+        nonlocal consecutive_failures
+        consecutive_failures += 1
+        if 0 < max_consecutive_failures <= consecutive_failures:
+            raise ConsecutiveWriteFailureError(consecutive_failures, last_error, result)
 
     queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 
@@ -281,6 +360,7 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         try:
             _execute_upload(aura, frame_id, path, s3_client, sqs_client, queue_url, throttle)
             result.upload_succeeded += 1
+            consecutive_failures = 0
             progress('upload', path, True)
         except RateLimitError:
             # Anti-abuse throttle/lockout: abort the whole batch (do not
@@ -289,17 +369,20 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         except Exception as e:
             result.upload_failures.append((path, str(e)))
             progress('upload', path, False)
+            note_failure(str(e))
 
     for asset in plan.to_delete:
         try:
             throttle()
             aura.frame_api.remove_asset(frame_id, AssetPartialId(id=asset.id))
             result.delete_succeeded += 1
+            consecutive_failures = 0
             progress('delete', asset.id, True)
         except RateLimitError:
             raise
         except Exception as e:
             result.delete_failures.append((asset.id, str(e)))
             progress('delete', asset.id, False)
+            note_failure(str(e))
 
     return result

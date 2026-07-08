@@ -13,7 +13,7 @@ from auraframes.aws.s3client import S3Client
 from auraframes.aws.sqsclient import SQSClient
 from auraframes.client import RateLimitError
 from auraframes.models.frame import Frame
-from auraframes.sync import scan_directory, compute_plan, execute_plan
+from auraframes.sync import scan_directory, compute_plan, execute_plan, ConsecutiveWriteFailureError
 
 # First-N photos printed by default before truncating with a "+K more"
 # summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
@@ -368,6 +368,17 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         # 429/475). execute_plan aborted the batch rather than emitting N
         # confusing per-item 401s -- surface the single back-off message.
         print(f'Aborted: {e}')
+        return 1
+    except ConsecutiveWriteFailureError as e:
+        # A RUN of consecutive write failures with no 429/475 signal -- the
+        # plain-HTTP-401 form of the anti-abuse trip (or another systemic
+        # cut-off). execute_plan aborted after the run rather than emitting N
+        # confusing per-item errors. Report what succeeded first, then the
+        # distinct back-off message (deliberately worded differently from the
+        # RateLimitError "Aborted:" path above so the two are distinguishable).
+        print(f'{e.result.upload_succeeded} uploads and {e.result.delete_succeeded} '
+              f'deletes succeeded before the run of failures.')
+        print(str(e))
         return 1
     except Exception as e:
         # WR-01 fail-loud (D-05): surface post-login API drift instead of a

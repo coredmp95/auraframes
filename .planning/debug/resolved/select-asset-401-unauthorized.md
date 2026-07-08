@@ -2,7 +2,7 @@
 status: resolved
 trigger: "Live sync --apply against 'Cadre de Fabrice' gets HTTP 401 Unauthorized on every select_asset call (all 120/120 uploads failed), even though the same process's login() and get_assets() (dry-run diff) succeeded moments earlier in the same session. This is the first write command run today — not a long-running batch, so 'token expires over time' doesn't fully explain it. User suspects this could be account-level blacklisting/flagging of write endpoints rather than simple rate-limiting, possibly triggered by yesterday's Phase 8 live-verification burst (uploads, ~72 remove_asset deletes, and a direct delete_asset probe against a disposable asset, all within a short window against this same frame/account)."
 created: "2026-07-08T06:00:00Z"
-updated: "2026-07-08T08:40:00Z"
+updated: "2026-07-08T11:00:00Z"
 ---
 
 ## Symptoms
@@ -38,7 +38,27 @@ Client error '401 Unauthorized' for url 'https://api.pushd.com/v5/frames/c063b38
 hypothesis: CONFIRMED (a) — Server-side anti-abuse throttling/flagging on the Aura/Pushd account, triggered by an abnormally high volume of write/destructive API calls (yesterday's ~72 remove_asset + delete_asset probe + uploads, then today's 120 rapid-fire select_asset burst). It first manifested as 401 on all write (POST) endpoints while reads (GET) still worked, and has since ESCALATED to reject even login with a custom HTTP 475 ("The email or password was incorrect.") despite the credentials being valid. Not a client code defect: the write-path code is byte-identical to yesterday's successful single-file writes. CHECKPOINT RESOLVED: human confirms the official Aura phone app is working fine against this account/frame right now — consistent with (a), since human-paced app traffic never looks like a burst and never trips the anti-abuse layer; rules out a persistent full-account ban, supports a burst-triggered throttle instead.
 test: (done, read-only) Live login diagnostic to inspect token validity + capture the raw failing-response signature. Result: login now returns HTTP 475 with body {"error":true,"message":"The email or password was incorrect."} using the SAME .env credentials that produced a 200 login at 07:49 today.
 expecting: (met) A server-side signal that distinguishes rate-limit/flagging from a client bug. The custom 475 code + credentials-valid-13-min-ago proves a server-side account state change.
-next_action: DONE. Preventive fix part (2) applied and offline-verified (pytest -m "not live" → 92 passed). Client now classifies 429/475 into RateLimitError; execute_plan paces every write and aborts the batch on a rate-limit instead of emitting N per-item 401s; CLI prints one clear back-off message. Live end-to-end write verification remains DEFERRED (needs a recovered account + explicit human approval for a minimal live burst). See Resolution.verification.
+next_action: CLOSED 2026-07-08 — RESOLVED. Consecutive-failure-run backstop implemented in `execute_plan`, reviewed by an independent Python code-quality pass (no blocking or minor findings — see "Specialist Review" below), verified fully offline (`pytest -m "not live"` → 103 passed, 4 live deselected, 1.29s), and committed. Live re-confirmation on a recovered/cooled-down account remains explicitly deferred — no live write bursts were run at any point in this continuation.
+
+## Reasoning Checkpoint (2026-07-08, consecutive-failure backstop)
+
+reasoning_checkpoint:
+  hypothesis: "The anti-abuse trip does not reliably announce itself with the 429/475 that RateLimitError catches — the live regression showed it as a plain HTTP 401 on every write after the 7th success. execute_plan therefore caught each of the 103 post-trip failures per-item (D-08) and kept hammering. A RUN of N consecutive write failures is the reliable, status-code-agnostic signature of a systemic cut-off, whereas a genuine isolated failure (one bad/expired asset ref, one permissions edge) is a single failure surrounded by successes."
+  confirming_evidence:
+    - "Live regression transcript: 7 uploads succeeded, then 103 uploads + 1 delete ALL failed with plain 401 — an unbroken run, not scattered failures ('Live end-to-end test result (regression)' entry)."
+    - "Client._raise_if_rate_limited only reclassifies 429/475; a plain 401 flows through raise_for_status as httpx.HTTPStatusError and is caught by execute_plan's generic `except Exception` per-item branch (confirmed by reading client.py + sync.py; test_ordinary_401_still_raises_http_status_error_not_rate_limit locks this in)."
+    - "Existing per-item D-08 failures in the test suite never exceed 2 in a row — a threshold of 5 does not disturb any genuine isolated-failure case."
+  falsification_test: "If a batch of 5+ genuinely-independent bad items (e.g. 5 adjacent corrupt/unsupported files) is a COMMON, expected workflow, then a consecutive-run abort would misfire often and the heuristic is wrong. Offline test with interspersed failures (max run 1 across 8 items, 4 failures) must NOT abort; a 4-fail / success / 4-fail sequence must NOT abort (proves reset-on-success); only an unbroken run of 5 aborts."
+  fix_rationale: "Counting a RUN of consecutive failures (reset on any success) targets the systemic-cut-off signature directly rather than the unreliable HTTP status. It is a backstop BELOW the RateLimitError fast-path: 429/475 still aborts on the first occurrence; this catches trips the status code hides. It cannot misclassify an isolated 401 because a single failure never reaches the run threshold. N=5 balances catching the lockout early (5 wasted calls vs 103) against tolerating a small unlucky cluster of independent failures."
+  blind_spots: "Cannot live-verify the server truly stays 401 (vs recovering) after the 5th — offline only. A pathological batch of exactly-adjacent unsupported files (.png/.heic ValueErrors) would trip the abort; mitigated by an honest message that names 'lockout OR systemic error' rather than asserting a lockout. The chosen N=5 is a judgement call, not a server-derived constant."
+
+## Live end-to-end test result (regression)
+
+DATA_START
+User ran (paraphrased terminal transcript, own real invocation): `aura-cli sync ./data/ --frame "Cadre de Fabrice" --apply` — dry-run plan: 110 to upload, 1 to delete, 12 unchanged. Confirmed with `y`. Progress bar completed all 111 items in 3:16 (1.77s/item avg). Result: `Uploads: 7 succeeded, 103 failed` — first 7 items succeeded normally, then every remaining upload failed with `Client error '401 Unauthorized' for url '.../select_asset.json'`, individually reported per item (not a single aborted-batch message). `Deletes: 0 succeeded, 1 failed` — the one delete also failed with 401 on `remove_asset.json`. No RateLimitError abort occurred; the run completed "normally" (progress bar reached 100%, full per-item failure list printed), it just failed almost everything after the 7th item.
+DATA_END
+
+Interpretation: This is the live confirmation that was deferred when the throttling fix (0.5s pacing + 429/475 RateLimitError classification) was applied and only offline-verified. It shows two things: (1) the underlying anti-abuse trip is STILL happening even at a slow, paced rate (7 successful writes was enough to trip it this time — much lower than the ~120-burst that tripped it originally, consistent with the account/frame still being sensitized from repeated recent testing) — 0.5s pacing alone does not prevent the trip; (2) the RateLimitError abort-and-message logic never fired because this trip manifested as plain 401 (indistinguishable at the HTTP-status level from a genuine, isolated per-item auth failure), so the client kept dutifully retrying all 103 remaining items one by one instead of stopping after a clear failure pattern emerged — the opposite of the intended UX (one clear back-off message instead of N confusing failures).
 
 ## Reasoning Checkpoint (2026-07-08, applying preventive fix)
 
@@ -168,9 +188,119 @@ verification: |
 
 files_changed:
   - auraframes/client.py            # RateLimitError + _parse_retry_after + _raise_if_rate_limited on all 4 request methods (429/475 classification)
-  - auraframes/sync.py              # execute_plan write throttling (throttle_seconds/sleep injection) + RateLimitError batch-abort (re-raise, not per-item)
-  - auraframes/cli.py               # clear back-off messages: batch "Aborted:" and login "Rate limited / locked out at login"
+  - auraframes/sync.py              # execute_plan write throttling + RateLimitError batch-abort + NEW ConsecutiveWriteFailureError backstop (shared run counter, reset on success, max_consecutive_failures seam)
+  - auraframes/cli.py               # clear back-off messages: batch "Aborted:" (429/475), NEW distinct "consecutive write failures / lockout" message, and login "Rate limited / locked out at login"
   - tests/test_client_rate_limit.py # NEW — Client 429/475 classification, Retry-After parsing, non-rate-limit 4xx untouched
-  - tests/test_write_throttling.py  # NEW — per-write pacing, throttle_seconds=0 disable, RateLimitError batch abort
-  - tests/test_cli_apply.py         # rate-limit CLI messaging (batch abort + login lockout)
+  - tests/test_write_throttling.py  # per-write pacing, throttle_seconds=0 disable, RateLimitError batch abort, + NEW consecutive-run backstop (plain-401 run aborts, interspersed no-abort, reset-on-success, disable via 0, cross-phase carry)
+  - tests/test_cli_apply.py         # rate-limit CLI messaging (batch abort + login lockout) + NEW distinct consecutive-failure message
   - tests/test_execute_plan.py      # inject no-op sleep into existing calls so the default 0.5s pacing does not slow the suite
+
+## Continuation fix (2026-07-08, consecutive-failure backstop)
+
+fix_part_4: |
+  DETECTION BACKSTOP for anti-abuse trips that do NOT surface as 429/475.
+  The live regression proved the trip can appear as a plain HTTP 401 on every
+  write after the 7th succeeded — indistinguishable at the HTTP-status level
+  from a genuine isolated auth failure, so RateLimitError classification (which
+  only reclassifies 429/475) never fired and execute_plan caught all 103
+  post-trip failures per-item.
+
+  Added a status-code-AGNOSTIC consecutive-failure-run detector in
+  `execute_plan`:
+    - A single `consecutive_failures` counter spans BOTH the upload and delete
+      loops. It increments on every caught per-item write failure (any
+      exception: plain 401, 5xx, network error, ValueError) and resets to 0 on
+      any success.
+    - Reaching `MAX_CONSECUTIVE_WRITE_FAILURES` (default 5, injectable via
+      `max_consecutive_failures`; 0 disables) raises a NEW
+      `ConsecutiveWriteFailureError` — distinct from `RateLimitError` — that
+      aborts the whole batch. It carries the run length, last error, and the
+      partial `ExecutionResult` (what succeeded first).
+    - It is a BACKSTOP below the RateLimitError fast-path: 429/475 still aborts
+      on the FIRST occurrence via its own branch; the run detector only catches
+      trips the status code hides.
+
+  Why N=5 (not lower): a genuine isolated 401 (bad/expired asset ref, one
+  permissions edge) is a single failure surrounded by successes and never
+  reaches the threshold, so it is not misclassified. 5-in-a-row is a strong
+  systemic signal; it caps wasted calls at 5 (~2.5s at 0.5s pacing) vs the 103
+  the regression wasted. The CLI prints a DISTINCT message ("N consecutive
+  write failures … account lockout or systemic cut-off …") separate from the
+  RateLimitError "Aborted:" wording, plus the partial success counts.
+
+verification_part_4: |
+  OFFLINE-VERIFIED (live end-to-end DEFERRED — same constraint as the rest of
+  this session: no live write bursts against a possibly-sensitized account).
+  `pytest -m "not live"` → 103 passed, 4 live deselected, 1.30s (fast runtime
+  confirms the injected fake sleep fires; no real pacing leaked).
+
+  New offline tests prove:
+    1. A run of plain HTTP 401s (NOT 429/475, NOT RateLimitError) on select_asset
+       aborts after exactly MAX_CONSECUTIVE_WRITE_FAILURES — the remaining items
+       are never attempted, nothing is uploaded to S3
+       (test_run_of_plain_401_write_failures_aborts_batch).
+    2. Interspersed failures (max run of 1 across 8 items, 4 failures) do NOT
+       abort — the isolated-failure case is not misclassified
+       (test_interspersed_failures_do_not_trip_the_backstop).
+    3. A success resets the run: 4 fail / 1 success / 4 fail (8 total failures)
+       does NOT abort (test_a_success_resets_the_consecutive_run).
+    4. max_consecutive_failures=0 restores unbounded per-item D-08 behaviour
+       (test_max_consecutive_failures_zero_disables_the_backstop).
+    5. The counter carries across the upload→delete boundary: 3 upload + 2 delete
+       failures abort in the delete loop
+       (test_consecutive_run_spans_upload_and_delete_phases).
+    6. The CLI surfaces a DISTINCT back-off message (not the RateLimitError
+       "Aborted:" path) with partial progress
+       (test_apply_consecutive_failures_aborts_with_distinct_message).
+    Existing RateLimitError fast-path, per-item D-08, throttling, and CLI tests
+    all still pass — the two mechanisms compose without duplicating logic.
+
+  DEFERRED (needs a recovered account + explicit human approval): confirming the
+  server actually stays 401 (vs recovering) after the 5th write in the live
+  trip, and whether N=5 is optimal against the real anti-abuse threshold.
+  Neither is offline-observable.
+
+## Specialist Review (2026-07-08, pre-commit gate)
+
+DATA_START
+Reviewer: independent Python code-quality pass over the consecutive-write-failure
+backstop (specialist_dispatch_enabled=true, hint=python; the project's normal
+`python-expert-best-practices-code-review` skill is not installed in this
+environment, so `feature-dev:code-reviewer` was substituted as the reviewer for
+this gate). Scope: auraframes/sync.py, auraframes/cli.py (primary),
+auraframes/client.py (read-only, for RateLimitError interaction),
+tests/test_write_throttling.py, tests/test_cli_apply.py.
+
+Findings: none at confidence >= 80 (no BLOCKING, no MINOR). Checked and passed:
+counter correctness (function-local, no cross-call leakage, no off-by-one at the
+threshold), exception design (ConsecutiveWriteFailureError subclasses Exception
+directly, not RateLimitError -- no isinstance collision in the CLI's except
+branches; carries count/last_error/result without leaking tokens/headers),
+RateLimitError interaction (429/475 re-raises before note_failure() -- no
+double-counting), max_consecutive_failures=0 truly disables the check (0 < 0 is
+False), test boundary coverage (exact N, N-1, reset-on-success, upload->delete
+carry, disable-via-0 all exercised with strong assertions), and convention
+consistency (type hints, UPPER_SNAKE_CASE constant, PascalCase exception,
+reST docstrings matching the RateLimitError precedent). The one documented
+blind spot (a genuinely-clustered isolated failure of >=5 could misfire) was
+confirmed to be an accepted, explicitly-documented tradeoff from the reasoning
+checkpoint above, not an implementation bug.
+
+Verdict: no changes requested.
+DATA_END
+
+## Closure (2026-07-08)
+
+Session closed as `resolved`. The consecutive-write-failure backstop passed
+independent Python review with zero findings and is fully offline-verified
+(`pytest -m "not live"` -> 103 passed, 4 live deselected, 1.29s). Committed to
+the working branch. Archived to `.planning/debug/resolved/` and summarized in
+`.planning/debug/knowledge-base.md`.
+
+Live re-confirmation remains deferred by explicit, standing constraint: no live
+write bursts were run at any point in this continuation (original throttling
+fix through this backstop), because the account may still be sensitized from
+repeated recent testing. When the account has cooled down, a real
+`aura-cli sync ... --apply` that re-trips the anti-abuse layer should now abort
+after ~5 failures with one clear "consecutive write failures" message instead of
+100+ per-item 401s -- that is the one remaining live-only check.
