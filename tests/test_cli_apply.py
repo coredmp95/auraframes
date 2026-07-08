@@ -7,14 +7,31 @@ interfere.
 `auraframes.cli` namespace -- these tests never touch the network or AWS,
 matching tests/test_cli_sync.py's offline-only convention.
 """
+import copy
+import json
+from pathlib import Path
+
 import httpx
 import pytest
 from loguru import logger
 
 import auraframes.cli as cli
+from auraframes.aws.s3client import get_md5
 from auraframes.client import RateLimitError
 from auraframes.sync import ConsecutiveWriteFailureError, ExecutionResult
 from tests.offline import offline_aura
+
+FIXTURES_DIR = Path(__file__).parent / 'fixtures'
+
+
+def _frame_asset(**overrides):
+    """A frame-side Asset payload (from assets_page1.json) with overridable
+    fields -- used to seed a delete candidate (an asset whose md5 has no local
+    match) so `push`'s no-delete guarantee can be proven."""
+    data = json.loads((FIXTURES_DIR / 'assets_page1.json').read_text())
+    asset = copy.deepcopy(data['assets'][0])
+    asset.update(overrides)
+    return asset
 
 FRAME_ID = 'frame-fake-0001'
 FRAME_NAME = 'Fake Frame'
@@ -70,13 +87,16 @@ def _patch_execute_plan(monkeypatch, result=None):
     default). Returns the list of recorded calls for assertions."""
     calls = []
 
-    def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None):
+    def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None,
+                          batch_size=None, chunk_delay_seconds=None):
         calls.append({
             'plan': plan,
             'aura': aura,
             'frame_id': frame_id,
             's3_client': s3_client,
             'sqs_client': sqs_client,
+            'batch_size': batch_size,
+            'chunk_delay_seconds': chunk_delay_seconds,
         })
         return result if result is not None else ExecutionResult()
 
@@ -276,3 +296,84 @@ def test_login_rate_limited_reports_clear_message(tmp_path, monkeypatch, capsys)
     out = capsys.readouterr().out
     assert 'Rate limited / locked out at login' in out
     assert 'HTTP 475' in out
+
+
+# ---------------------------------------------------------------------------
+# `push` (additive upload) + probe flags (--limit / --batch-size / --chunk-delay)
+# ---------------------------------------------------------------------------
+
+def test_push_never_deletes_even_with_delete_candidates(tmp_path, monkeypatch, capsys):
+    # SECURITY-CRITICAL: `push` (no_delete=True) must NEVER remove existing
+    # frame photos, even when the diff would classify them as delete
+    # candidates -- the guarantee that lets you push from a "buffet" supply
+    # directory without wiping the frame. The plan handed to execute_plan
+    # must carry ZERO deletes.
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+
+    (tmp_path / 'new.jpg').write_bytes(b'brand-new-photo-bytes')
+    # A frame asset with no local match -> a delete candidate under plain sync.
+    frame_asset = _frame_asset(id='asset-on-frame', md5_hash=get_md5(b'not-in-local-dir'))
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response(frame_asset)})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura,
+                      no_delete=True, verb='push')
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert calls[0]['plan'].to_delete == []          # nothing to delete, ever
+    assert len(calls[0]['plan'].to_upload) == 1       # the new photo still uploads
+    out = capsys.readouterr().out
+    assert 'additive' in out.lower()
+    assert 'asset-on-frame' not in out                # the delete candidate is not even listed
+
+
+def test_push_limit_caps_uploads(tmp_path, monkeypatch, capsys):
+    # --limit N attempts at most N uploads this run (controlled budget probing).
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+
+    for i in range(5):
+        (tmp_path / f'{i:02d}.jpg').write_bytes(f'photo-{i}'.encode())
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura,
+                      no_delete=True, limit=2, verb='push')
+
+    assert rc == 0
+    assert len(calls[0]['plan'].to_upload) == 2
+    assert 'To upload: 2' in capsys.readouterr().out
+
+
+def test_push_forwards_batch_size_and_chunk_delay(tmp_path, monkeypatch):
+    # --batch-size / --chunk-delay are forwarded to execute_plan when supplied.
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+
+    (tmp_path / 'a.jpg').write_bytes(b'photo')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura,
+                 no_delete=True, batch_size=7, chunk_delay=3.0, verb='push')
+
+    assert calls[0]['batch_size'] == 7
+    assert calls[0]['chunk_delay_seconds'] == 3.0
+
+
+def test_sync_defaults_do_not_override_execute_plan_defaults(tmp_path, monkeypatch):
+    # Backward compat: a classic sync --apply (no new flags) forwards NEITHER
+    # batch_size nor chunk_delay, so execute_plan keeps its own defaults.
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch)
+
+    (tmp_path / 'a.jpg').write_bytes(b'photo')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura)
+
+    assert calls[0]['batch_size'] is None
+    assert calls[0]['chunk_delay_seconds'] is None

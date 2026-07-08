@@ -47,6 +47,22 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
     sync_parser.add_argument('--apply', action='store_true', default=False, help='Execute the plan (upload + delete) instead of only printing it')
     sync_parser.add_argument('--yes', action='store_true', default=False, help='Skip the confirmation prompt (required for --apply when running non-interactively)')
+
+    # `push` = purely additive upload from a supply ("buffet") directory. Unlike
+    # `sync`, the frame is NOT diffed-to-match the directory: nothing is ever
+    # deleted (structurally -- to_delete is forced empty). Photos already on the
+    # frame are still skipped via the md5 diff, so only new files upload. The
+    # probe flags (--limit/--batch-size/--chunk-delay) make it the safe tool for
+    # empirically measuring the anti-abuse write budget without touching
+    # existing frame photos.
+    push_parser = subparsers.add_parser('push', help='Upload photos from a directory to a frame (additive -- never deletes)')
+    push_parser.add_argument('dir', help='Local directory of photos to upload (a supply/"buffet"; the frame is NOT synced to match it)')
+    push_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
+    push_parser.add_argument('--apply', action='store_true', default=False, help='Execute the upload instead of only printing the plan')
+    push_parser.add_argument('--yes', action='store_true', default=False, help='Skip the confirmation prompt (required for --apply when running non-interactively)')
+    push_parser.add_argument('--limit', type=int, default=None, help='Upload at most N photos this run (for controlled anti-abuse budget probing)')
+    push_parser.add_argument('--batch-size', type=int, default=None, dest='batch_size', help='Assets per select_asset/batch_update call (default 50)')
+    push_parser.add_argument('--chunk-delay', type=float, default=None, dest='chunk_delay', help='Seconds to pause between write chunks (default 5)')
     return parser
 
 
@@ -222,7 +238,9 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
     return 0
 
 
-def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = False, aura=None, debug: bool = False) -> int:
+def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = False, aura=None, debug: bool = False,
+             no_delete: bool = False, limit: int = None, batch_size: int = None, chunk_delay: float = None,
+             verb: str = 'sync') -> int:
     """Sync command handler (SYNC-01/SYNC-03/SYNC-04). Resolves the target
     frame, scans `dir_arg` locally, computes the upload/delete/unchanged plan
     via `auraframes.sync`, and prints a full (untruncated) report.
@@ -294,9 +312,28 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
 
         plan = compute_plan(scan.local_hashes, assets, scan.skipped_non_image)
 
-        print(f'Sync plan for {frame.name} (id: {frame.id}) — DRY RUN, nothing will be changed')
+        # Opt-in probe/push affordances. Defaults (no_delete=False, limit=None)
+        # leave the classic `sync` behaviour byte-identical. `no_delete` (always
+        # on for the `push` verb) makes the run purely additive -- it clears
+        # to_delete so no existing frame photo can ever be removed, the safe
+        # primitive for pushing from a "buffet" supply directory. `limit` caps
+        # how many uploads are attempted, for controlled anti-abuse budget
+        # probing. Both are applied BEFORE the plan is printed so the report
+        # reflects exactly what will run.
+        if no_delete:
+            plan.to_delete = []
+        if limit is not None:
+            plan.to_upload = sorted(plan.to_upload)[:limit]
+
+        if verb == 'push':
+            print(f'Push plan for {frame.name} (id: {frame.id}) — additive (no deletes), DRY RUN, nothing will be changed')
+        else:
+            print(f'Sync plan for {frame.name} (id: {frame.id}) — DRY RUN, nothing will be changed')
         print(f'To upload: {len(plan.to_upload)}')
-        print(f'To delete: {len(plan.to_delete)}')
+        if no_delete:
+            print('To delete: 0 (additive mode — existing frame photos left untouched)')
+        else:
+            print(f'To delete: {len(plan.to_delete)}')
         print(f'Unchanged: {plan.unchanged}')
 
         # WR-03: local_hashes (and to_upload built from it) is populated in
@@ -354,9 +391,18 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
                 # the countdown in the postfix rather than looking frozen.
                 bar.set_postfix_str(f'cooldown {remaining:.0f}s before next batch')
 
+            # Only forward batch_size/chunk_delay when explicitly supplied so
+            # execute_plan keeps its own defaults (WRITE_BATCH_SIZE /
+            # WRITE_CHUNK_DELAY_SECONDS) otherwise -- no hardcoded values here.
+            exec_kwargs = {}
+            if batch_size is not None:
+                exec_kwargs['batch_size'] = batch_size
+            if chunk_delay is not None:
+                exec_kwargs['chunk_delay_seconds'] = chunk_delay
+
             result = execute_plan(
                 plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client,
-                progress=_report_progress, on_wait=_report_wait,
+                progress=_report_progress, on_wait=_report_wait, **exec_kwargs,
             )
 
         # D-10: separated success/failure summary, each failed item named.
@@ -402,6 +448,12 @@ def main(argv=None) -> int:
         return run_inspect(args.frame, debug=args.debug)
     if args.command == 'sync':
         return run_sync(args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug)
+    if args.command == 'push':
+        return run_sync(
+            args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug,
+            no_delete=True, limit=args.limit, batch_size=args.batch_size,
+            chunk_delay=args.chunk_delay, verb='push',
+        )
     raise ValueError(f'Unhandled command: {args.command}')
 
 
