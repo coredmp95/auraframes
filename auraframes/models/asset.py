@@ -106,9 +106,14 @@ class Asset(BaseModel):
     def taken_at_dt(self):
         return parse_aura_dt(self.taken_at)
 
-    @property
-    def is_local_asset(self):
-        return self.id is None
+    # `is_local_asset` (formerly `return self.id is None`) was removed:
+    # `id` above is a required `str`, so any `Asset` built through normal
+    # validated construction (the only path used by `FrameApi.get_assets`/
+    # `AssetApi.get_asset_by_local_identifier`) can never have `id=None`.
+    # The property was always `False` and its dependent branches in
+    # `AssetApi` were unreachable dead code. `Asset` (as opposed to
+    # `AssetPartial`) always represents a server-hydrated asset with a
+    # real `id`.
 
 
 class AssetPartialId(BaseModel):

@@ -67,15 +67,13 @@ class AssetApi(BaseApi):
         :param asset: Asset with new taken_at or taken_at_granularity
         :return: The asset with modified dates
         """
+        # Asset.id is a required str (never None for a server-hydrated
+        # Asset), so this always uses the id-based request shape.
         request = {
             'taken_at': asset.taken_at,
-            'taken_at_granularity': asset.taken_at_granularity
+            'taken_at_granularity': asset.taken_at_granularity,
+            'id': asset.id,
         }
-
-        if asset.is_local_asset:
-            request.update({'local_identifier': asset.local_identifier, 'source_id': asset.source_id})
-        else:
-            request.update({'id': asset.id})
 
         json_response = self._client.post(f'/assets/update_taken_at_date.json', data=request)
         return Asset(**json_response)
@@ -88,11 +86,9 @@ class AssetApi(BaseApi):
         :param asset: Asset for removal
         :return: TODO
         """
-        if asset.is_local_asset:
-            json_response = self._client.post(f'/assets/destroy_by_local_identifier.json',
-                                              data={'local_identifier': asset.local_identifier})
-        else:
-            json_response = self._client.delete(f'/assets/{asset.id}.json')
+        # Asset.id is a required str (never None for a server-hydrated
+        # Asset), so this always uses the id-based delete endpoint.
+        json_response = self._client.delete(f'/assets/{asset.id}.json')
 
         if json_response.get('error'):
             raise RuntimeError(f"delete_asset failed: {json_response.get('error')}")
