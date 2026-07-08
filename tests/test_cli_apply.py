@@ -70,7 +70,7 @@ def _patch_execute_plan(monkeypatch, result=None):
     default). Returns the list of recorded calls for assertions."""
     calls = []
 
-    def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client):
+    def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None):
         calls.append({
             'plan': plan,
             'aura': aura,
@@ -209,7 +209,7 @@ def test_apply_rate_limited_batch_aborts_with_single_backoff_message(tmp_path, m
     _env(monkeypatch)
     _patch_aws_clients(monkeypatch)
 
-    def rate_limited_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client):
+    def rate_limited_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None):
         raise RateLimitError(429, retry_after=60, server_message='too many')
 
     monkeypatch.setattr(cli, 'execute_plan', rate_limited_execute_plan)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
+from tqdm import tqdm
 
 from auraframes.aura import Aura
 from auraframes.aws.s3client import S3Client
@@ -338,7 +339,20 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         # from Phase 8 Plan 02).
         s3_client = S3Client()
         sqs_client = SQSClient()
-        result = execute_plan(plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client)
+
+        total = len(plan.to_upload) + len(plan.to_delete)
+        # tqdm writes to stderr, so stdout-based test assertions (D-10's
+        # summary, printed after the bar closes below) are unaffected.
+        with tqdm(total=total, desc='Applying', unit='item') as bar:
+            def _report_progress(kind, identifier, ok):
+                bar.update(1)
+                status = 'ok' if ok else 'FAIL'
+                bar.set_postfix_str(f'{kind} {status} {identifier}')
+
+            result = execute_plan(
+                plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client,
+                progress=_report_progress,
+            )
 
         # D-10: separated success/failure summary, each failed item named.
         print(f'Uploads: {result.upload_succeeded} succeeded, {len(result.upload_failures)} failed')
