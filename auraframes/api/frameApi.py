@@ -135,8 +135,14 @@ class FrameApi(BaseApi):
         # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/exclude_asset',
                                           data={'assets': [asset_partial_id.to_request_format()]})
+        if json_response.get('error'):
+            raise RuntimeError(f"exclude_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"exclude_asset reported {number_failed} failure(s) for frame {frame_id}")
+
+        return number_failed
 
     def remove_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
         """
