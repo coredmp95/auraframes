@@ -35,7 +35,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 - [x] **Phase 5: CLI Skeleton + Status** — Runnable CLI entrypoint whose `status` command reports auth/config health and account frames (zero API risk) (completed 2026-07-06)
 - [x] **Phase 6: Inspect + Frame Resolution** — `inspect --frame <name|id>` lists a frame's photos + metadata, resolves frames by name or ID, and answers the live `md5_hash`-on-read question that shapes Phase 7 (zero write risk) (completed 2026-07-07)
 - [x] **Phase 7: Sync-Diffing Engine (Dry-Run Only)** — `sync <dir> --frame <name|id>` computes and prints an upload/delete/unchanged plan from content-hash diffing, executing nothing (no destructive path exists yet) (completed 2026-07-07)
-- [ ] **Phase 8: Destructive Execution (Upload + Delete Verification)** — `sync ... --apply`/`--yes` runs the plan for real, proving the upload and delete write paths live for the first time
+- [x] **Phase 8: Destructive Execution (Upload + Delete Verification)** — `sync ... --apply`/`--yes` runs the plan for real, proving the upload and delete write paths live for the first time (completed 2026-07-08)
 
 ## Phase Details
 
@@ -115,7 +115,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
   4. Write/delete API errors raise loudly and are attributable to a specific file, and the CLI exits non-zero on any execution failure
   5. Plan output lists upload / delete / unchanged counts before applying
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 **Wave 1**
 
@@ -131,7 +131,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 08-04-PLAN.md — Live verification checkpoints: upload round-trip (WRITE-01), remove_asset (WRITE-02), delete_asset blast-radius probe on a disposable asset (WRITE-03)
+- [x] 08-04-PLAN.md — Live verification checkpoints: upload round-trip (WRITE-01), remove_asset (WRITE-02), delete_asset blast-radius probe on a disposable asset (WRITE-03)
 
 ## Progress
 
@@ -144,7 +144,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 | 5. CLI Skeleton + Status | v2.0 | 2/2 | Complete    | 2026-07-06 |
 | 6. Inspect + Frame Resolution | v2.0 | 2/2 | Complete    | 2026-07-07 |
 | 7. Sync-Diffing Engine (Dry-Run Only) | v2.0 | 3/3 | Complete    | 2026-07-07 |
-| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 3/4 | In Progress|  |
+| 8. Destructive Execution (Upload + Delete Verification) | v2.0 | 4/4 | Complete   | 2026-07-08 |
 
 ## Backlog
 
