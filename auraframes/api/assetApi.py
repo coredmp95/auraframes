@@ -39,8 +39,15 @@ class AssetApi(BaseApi):
         if json_response.get('error'):
             raise RuntimeError(f"batch_update failed: {json_response.get('error')}")
 
-        return json_response.get('ids'), [AssetPartialId(**partial_asset_id) for partial_asset_id in
-                                          json_response.get('successes')]
+        ids = json_response.get('ids') or []
+        successes = json_response.get('successes') or []
+        if len(successes) < len(ids):
+            raise RuntimeError(
+                f"batch_update reported {len(ids) - len(successes)} failure(s) "
+                f"out of {len(ids)} requested"
+            )
+
+        return ids, [AssetPartialId(**partial_asset_id) for partial_asset_id in successes]
 
     def get_asset_by_local_identifier(self, local_id: str):
         """
