@@ -262,6 +262,20 @@ Python toolchain, so we know exactly what survives before building anything new.
 ## Cross-Cutting Concerns
 <!-- GSD:architecture-end -->
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (`coredmp95/auraframes`) via the `gh` CLI. External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 <!-- GSD:skills-start source:skills/ -->
 ## Project Skills
 
