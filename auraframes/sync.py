@@ -166,7 +166,8 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
         raise ValueError(f'Unsupported upload extension: {path.suffix}')
 
     local_identifier = str(uuid.uuid4())
-    image = Image.open(path)
+    with Image.open(path) as image:
+        width, height = image.size
 
     aura.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
     sqs_client.receive_message(queue_url, wait_time_seconds=5)
@@ -178,8 +179,8 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
         local_identifier=local_identifier,
         file_name=filename,
         md5_hash=md5,
-        height=image.height,
-        width=image.width,
+        height=height,
+        width=width,
         taken_at=format_dt_to_aura(get_utc_now()),
         data_uti=data_uti,
         selected=True,
