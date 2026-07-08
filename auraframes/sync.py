@@ -19,6 +19,7 @@ rather than aborting (D-08), with results reported back as a separated
 """
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ from PIL import Image
 from loguru import logger
 
 from auraframes.aws.s3client import get_md5
+from auraframes.client import RateLimitError
 from auraframes.models.asset import AssetPartial, AssetPartialId
 from auraframes.utils.dt import format_dt_to_aura, get_utc_now
 
@@ -43,6 +45,18 @@ ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})
 # yet -- both are left unmapped so `_execute_upload` fails closed with a
 # named reason instead of mislabeling the upload server-side.
 _DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
+
+# Seconds to pause before each write network call (select_asset /
+# batch_update / remove_asset) so a bulk apply is paced rather than fired as
+# a rapid burst. Root cause of the select-asset-401-unauthorized session:
+# the Pushd anti-abuse layer trips on burst write volume (a 120-file apply
+# fired ~300ms apart, each upload issuing 2x select_asset + 1x batch_update,
+# got 401 on every call then escalated to a login lockout) while the
+# human-paced phone app is never flagged. This default paces every write to
+# resemble app-like traffic; it is deliberately conservative (a full apply
+# is a rare, batch operation, not a latency-sensitive path). Callers can
+# override via `throttle_seconds` (0 disables) and inject `sleep` for tests.
+WRITE_THROTTLE_SECONDS = 0.5
 
 
 @dataclass
@@ -152,7 +166,7 @@ class ExecutionResult:
     delete_failures: list = field(default_factory=list)  # list[tuple[str, str]]
 
 
-def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queue_url) -> None:
+def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queue_url, throttle=lambda: None) -> None:
     """Perform the real upload round-trip for a single new local file.
 
     Preserves the double `select_asset` call + discarded first SQS poll
@@ -160,6 +174,13 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
     (RESEARCH.md Pitfall 4) -- deliberately NOT collapsed into a single
     call. Both SQS polls are best-effort/observational only (Pitfall 3):
     their results are never used to gate success or failure.
+
+    `throttle` is called immediately before each write network call
+    (both select_asset calls and batch_update) so the per-upload write
+    burst is paced even though the double select_asset is retained --
+    addressing the burst-volume root cause without the unverified
+    behavioural change of dropping the second call (see the
+    select-asset-401-unauthorized debug session).
     """
     data_uti = _DATA_UTI_BY_SUFFIX.get(path.suffix.lower())
     if data_uti is None:
@@ -169,8 +190,10 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
     with Image.open(path) as image:
         width, height = image.size
 
+    throttle()
     aura.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
     sqs_client.receive_message(queue_url, wait_time_seconds=5)
+    throttle()
     aura.frame_api.select_asset(frame_id, AssetPartialId(local_identifier=local_identifier))
 
     filename, md5 = s3_client.upload_file(path.read_bytes(), path.suffix)
@@ -186,13 +209,15 @@ def _execute_upload(aura, frame_id: str, path: Path, s3_client, sqs_client, queu
         selected=True,
         upload_priority=0,
     )
+    throttle()
     aura.asset_api.batch_update(pending)
 
     message = sqs_client.receive_message(queue_url, wait_time_seconds=5)
     logger.debug(f'Trailing SQS poll after upload of {path}: {message}')
 
 
-def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client) -> ExecutionResult:
+def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
+                 throttle_seconds: float = WRITE_THROTTLE_SECONDS, sleep=time.sleep) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10).
 
@@ -218,23 +243,46 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client) 
     :param frame_id: The frame to upload to / delete from.
     :param s3_client: An object providing `upload_file(data, extension) -> (filename, md5)`.
     :param sqs_client: An object providing `get_queue_url(frame_id)` and `receive_message(...)`.
+    :param throttle_seconds: Seconds to pause before each write network call
+        so a bulk apply is paced rather than fired as a burst (root-cause
+        mitigation for the select-asset-401-unauthorized session). 0 disables.
+    :param sleep: The sleep function to call (injectable for offline tests
+        so they pace-check without real delays).
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
+
+    Raises `RateLimitError` (from the client layer) WITHOUT catching it:
+    a 429/475 throttle or lockout aborts the entire batch immediately
+    rather than being recorded as one of N per-item failures -- the whole
+    point being to stop hammering a throttling server and surface a single
+    "back off" message instead of dozens of confusing per-item errors.
+    Ordinary per-item failures are still caught and recorded (D-08).
     """
     result = ExecutionResult()
+
+    def throttle() -> None:
+        if throttle_seconds > 0:
+            sleep(throttle_seconds)
 
     queue_url = sqs_client.get_queue_url(frame_id) if plan.to_upload else None
 
     for path in sorted(plan.to_upload):
         try:
-            _execute_upload(aura, frame_id, path, s3_client, sqs_client, queue_url)
+            _execute_upload(aura, frame_id, path, s3_client, sqs_client, queue_url, throttle)
             result.upload_succeeded += 1
+        except RateLimitError:
+            # Anti-abuse throttle/lockout: abort the whole batch (do not
+            # mask it as one per-item failure and keep hammering).
+            raise
         except Exception as e:
             result.upload_failures.append((path, str(e)))
 
     for asset in plan.to_delete:
         try:
+            throttle()
             aura.frame_api.remove_asset(frame_id, AssetPartialId(id=asset.id))
             result.delete_succeeded += 1
+        except RateLimitError:
+            raise
         except Exception as e:
             result.delete_failures.append((asset.id, str(e)))
 

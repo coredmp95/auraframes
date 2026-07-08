@@ -12,6 +12,7 @@ import pytest
 from loguru import logger
 
 import auraframes.cli as cli
+from auraframes.client import RateLimitError
 from auraframes.sync import ExecutionResult
 from tests.offline import offline_aura
 
@@ -199,3 +200,46 @@ def test_apply_execution_failures_return_1_and_name_failed_items(tmp_path, monke
     assert 'Uploads: 0 succeeded, 1 failed' in out
     assert 'bad.jpg' in out
     assert 'boom' in out
+
+
+def test_apply_rate_limited_batch_aborts_with_single_backoff_message(tmp_path, monkeypatch, capsys):
+    # execute_plan raising RateLimitError mid-apply must produce ONE clear
+    # back-off message and rc 1 -- not N per-item lines (the confusing
+    # 120x-401 symptom that motivated this fix).
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+
+    def rate_limited_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client):
+        raise RateLimitError(429, retry_after=60, server_message='too many')
+
+    monkeypatch.setattr(cli, 'execute_plan', rate_limited_execute_plan)
+
+    (tmp_path / 'new.jpg').write_bytes(b'new-photo-bytes')
+    aura = offline_aura(overrides={ASSETS_PATH: _assets_response()})
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=aura)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Aborted:' in out
+    assert 'HTTP 429' in out
+    assert '60s' in out
+    # Not a per-item upload summary -- the batch never produced one.
+    assert 'Uploads:' not in out
+
+
+def test_login_rate_limited_reports_clear_message(tmp_path, monkeypatch, capsys):
+    # The 475 login lockout escalation must surface as a back-off message,
+    # not a generic "Login failed".
+    _env(monkeypatch)
+
+    class _LockedOutAura:
+        def login(self):
+            raise RateLimitError(475, server_message='The email or password was incorrect.')
+
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, yes=True, aura=_LockedOutAura())
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Rate limited / locked out at login' in out
+    assert 'HTTP 475' in out

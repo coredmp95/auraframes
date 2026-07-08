@@ -10,6 +10,7 @@ from loguru import logger
 from auraframes.aura import Aura
 from auraframes.aws.s3client import S3Client
 from auraframes.aws.sqsclient import SQSClient
+from auraframes.client import RateLimitError
 from auraframes.models.frame import Frame
 from auraframes.sync import scan_directory, compute_plan, execute_plan
 
@@ -248,6 +249,12 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
 
     try:
         aura.login()
+    except RateLimitError as e:
+        # Anti-abuse throttle/lockout escalated to reject login (the HTTP 475
+        # seen in the select-asset-401-unauthorized session). Surface the
+        # back-off message explicitly rather than as a generic login failure.
+        print(f'Rate limited / locked out at login — {e}')
+        return 1
     except Exception as e:
         # Fail-loud (D-05 convention): bad credentials, network error, or API
         # drift all surface here — a broad catch at the CLI boundary is correct.
@@ -342,6 +349,12 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
             print(f'  ! {asset_id}: {err}')
 
         return 1 if (result.upload_failures or result.delete_failures) else 0
+    except RateLimitError as e:
+        # The API is throttling/locking out this account mid-apply (HTTP
+        # 429/475). execute_plan aborted the batch rather than emitting N
+        # confusing per-item 401s -- surface the single back-off message.
+        print(f'Aborted: {e}')
+        return 1
     except Exception as e:
         # WR-01 fail-loud (D-05): surface post-login API drift instead of a
         # raw traceback.

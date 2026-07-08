@@ -95,7 +95,7 @@ def test_execute_plan_happy_path_uploads_and_deletes(tmp_path):
     s3 = _FakeS3Client()
     sqs = _FakeSQSClient()
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs)
+    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
 
     assert result.upload_succeeded == 2
     assert result.delete_succeeded == 1
@@ -128,7 +128,7 @@ def test_execute_plan_upload_partial_failure_continues_and_records(tmp_path, mon
 
     monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs)
+    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
 
     assert result.upload_succeeded == 1
     assert len(result.upload_failures) == 1
@@ -155,7 +155,7 @@ def test_execute_plan_delete_partial_failure_continues_and_records(monkeypatch):
 
     monkeypatch.setattr(aura.frame_api, 'remove_asset', _flaky_remove_asset)
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs)
+    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
 
     assert result.delete_succeeded == 1
     assert result.delete_failures == [('asset-bad', 'simulated remove_asset failure')]
@@ -179,7 +179,7 @@ def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(aura.frame_api, 'remove_asset', _recording_remove_asset)
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs)
+    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
 
     assert result.upload_succeeded == 1
     assert result.delete_succeeded == 2
