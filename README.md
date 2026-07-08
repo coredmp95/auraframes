@@ -65,11 +65,65 @@ precedence.
 - `AURA_DEVICE_IDENTIFIER`: The unique identifier of the device to mimic. (Default: `0000000000000000`)
   - Ideally this should be set to your unique identifier, though it accepts others.
 
+## CLI Usage (`aura-cli`)
+
+A small CLI wraps the library (installed as the `aura-cli` entry point by `uv sync`):
+
+```bash
+# Health check: config/auth + list your account's frames.
+uv run aura-cli status
+
+# Inspect a frame's photos and metadata (read-only). --frame takes a name substring or id.
+uv run aura-cli inspect --frame "Living Room"
+
+# Diff a local directory against a frame (DRY RUN by default -- prints the plan, changes nothing).
+uv run aura-cli sync ./photos/ --frame "Living Room"
+
+# Actually apply the sync (uploads new files AND deletes frame photos absent locally).
+# Requires --yes to run non-interactively.
+uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes
+
+# ADDITIVE upload from a supply ("buffet") directory -- NEVER deletes anything on the frame.
+# Photos already on the frame are skipped by md5; only new files upload.
+uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes
+
+# Probe flags on `push` (for the anti-abuse write budget -- see below):
+#   --limit N         upload at most N photos this run
+#   --batch-size N    assets per select_asset/batch_update call (default 50)
+#   --chunk-delay S   seconds to pause between write chunks (default 5)
+uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes --limit 40 --batch-size 5
+```
+
+Add `--debug` before the subcommand for verbose request/response logging.
+
+## Write Path (upload) — status & anti-abuse budget
+
+> **Partially live-exercised (v2.0), with an important caveat.** Uploads DO work: the
+> batched write path successfully registered assets against a live frame. But a large
+> first-time bulk import hits an **undocumented server-side anti-abuse write budget**.
+
+Key findings (from live runs + decompiling the official Android app):
+
+- `select_asset` and `batch_update` are **native batch endpoints** — the client now sends a
+  whole chunk of assets per call (`WRITE_BATCH_SIZE`, default 50) instead of one call per
+  file, collapsing ~3N Pushd write calls to ~2 per chunk.
+- The account has a rolling **write-volume budget** over a time window (≈50 new assets
+  observed before a trip). Exceeding it returns a bare `401`/custom `475` (no `Retry-After`),
+  which the client detects as a run of consecutive failures and **aborts loudly** rather than
+  hammering. The official app never trips this because it drip-feeds uploads via a background
+  `JobScheduler` queue over time (gated on charging + WiFi), retrying failures across runs.
+- Consequence for bulk imports: use `push --limit` in **small waves spaced over time** rather
+  than one big burst. `sync`/`push` are resumable — the md5 diff means re-running only
+  attempts what is still missing. Full live end-to-end verification of a large import is still
+  pending a rested account.
+
 ## iOS/Android Device's Upload Image Flow
 
 > **Documented from code, NOT verified in this revive milestone.** The flow below is
 > transcribed from the 2023-era implementation and has not been exercised against the live
-> API during the read-path revive. Treat it as a reference, not a proven path.
+> API during the read-path revive. Treat it as a reference, not a proven path. NOTE: the
+> current CLI write path **batches** steps 4–9 across many assets per call (see *Write Path*
+> above); the per-asset sequence below is the original single-asset reference.
 
 [Aura.upload_image](auraframes/aura.py#L101) attempts to implement this flow as closely as possible.
 1. A frame is selected and the frame's data is retrieved from the API (`/frames/<frame_id>.json`).
@@ -131,3 +185,15 @@ sequenceDiagram
   - Worth checking if the Asset's (S3) filename changes.
 - Reverse the _actual_ frame's rendering process. Presumably it uses the same endpoints.
   - Worth checking with MITM proxy before JTAG/firmware dumping.
+
+## Credits
+
+This is an unofficial, reverse-engineered client.
+
+- **Original author:** [zmanowar](https://github.com/zmanowar) (`zach@codehooker.com`) — created
+  the original Aura/Pushd Python client in 2023, including the reverse-engineered API models,
+  the auth/read/upload flows, and the first version of this README. All of the reverse-
+  engineering insight this project builds on is his work.
+- **Revive & extend (2026):** Fabrice DIDIERJEAN — modernized the ~3-year-old codebase onto
+  Python 3.14 + `uv`, verified the read path live, and built the `aura-cli`
+  (`status`/`inspect`/`sync`/`push`) CLI plus the batched, anti-abuse-aware write path.
