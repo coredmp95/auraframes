@@ -71,6 +71,7 @@ Progress: [█████████░] 91% (10/11 plans complete)
 ### Roadmap Evolution
 
 - Phase 9 added (2026-07-09): Proactive Write Rate-Limiter & Geo Guard — proactive client-side request budget (token bucket, persisted + reconciled) + geo pre-flight guard to make the anti-abuse write-lockout structurally unreachable. Root cause reframed this session: the persistent 401 write-lockout was largely a VPN geo mismatch (Belgium≠France), on top of a real but generous request-rate limit (~42 write requests / ~40 min recovery, measured live). Design spec: docs/superpowers/specs/2026-07-09-write-rate-limiter-design.md
+- Phase 10 added (2026-07-09): Hide-instead-of-delete sync mode — `sync --apply` should default to hiding removed photos (marking them invisible on the frame) instead of deleting/removing them, with an opt-in flag for real deletion. Rationale (user): the frame has no photo-count limit, so preservation is the safer default and a mistaken sync should never destroy photos. Open question for planning: which API mechanism backs the app's "make invisible" action and how it maps onto the existing remove_asset/delete_asset/batch_update write path.
 
 ### Decisions
 
