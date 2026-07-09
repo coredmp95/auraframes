@@ -79,13 +79,15 @@ verified visually + via `inspect`.
 - ✓ `delete_asset`'s real behavior verified live — asset-scoped `DELETE /assets/{id}.json`, broader than `remove_asset`, correctly left unwired from `--apply` (WRITE-03) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
 - ✓ Hardcoded frame ID in the SQS upload-confirmation lookup fixed and confirmed live for an arbitrary frame (WRITE-04) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
 - ✓ Fail-loud error handling extended to the write/delete endpoints (WRITE-05) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Proactive client-side write rate-limiter (`WriteBudget` token bucket, persisted per-account + reconciled on real anti-abuse trips) that waits/stops before tripping the Pushd limit, plus a configurable geo pre-flight guard (`check_geo`, fail-open by default) that refuses writes when the exit-IP country differs from the account's country — wired into `execute_plan`/`run_sync`/CLI as a true no-op when unconfigured, 100% offline-tested (ANTI-01..ANTI-07) — Validated in Phase 9: Proactive Write Rate-Limiter & Geo Guard
 
 ### Active
 
-<!-- v1.0, v1.1, and v2.0 (Directory-to-Frame Sync) fully validated as of Phase 8.
+<!-- v1.0, v1.1, and v2.0 (Directory-to-Frame Sync) fully validated as of Phase 8;
+     v2.x anti-abuse hardening (ANTI-01..ANTI-07) validated as of Phase 9.
      Milestone completion review is a separate step — see /gsd-complete-milestone. -->
 
-- _All v1.0, v1.1, and v2.0 requirements validated — see Validated above._
+- _All v1.0, v1.1, v2.0, and v2.x (Phase 9 anti-abuse) requirements validated — see Validated above._
 - ⏭ (future-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
 - ⏭ (future-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
 - ⏭ (future-milestone candidate) Phase 8 code review flagged 3 unresolved critical findings (see `08-REVIEW.md`): `AssetPartialId`'s cross-field validator is a no-op for the common construction path; `batch_update`'s partial-success response isn't validated against the requested id list; hardcoded `data_uti='public.jpeg'` will silently mis-tag/fail `.png`/`.heic` uploads (Pillow has no HEIC decoder in this project's environment)
@@ -229,4 +231,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-08 after Phase 8 (Destructive Execution, Upload + Delete Verification) — v2.0 milestone core value achieved: the write path (`sync --apply`/`--yes`) is live-verified end-to-end, same as v1.0/v1.1 proved the read path. All v2.0 requirements validated. Next: `/gsd-complete-milestone` to close out v2.0, or triage the 3 open code-review findings from Phase 8 first.*
+*Last updated: 2026-07-09 after Phase 9 (Proactive Write Rate-Limiter & Geo Guard) — ANTI-01..ANTI-07 validated: a persisted-per-account `WriteBudget` token bucket + `check_geo` pre-flight guard now make the anti-abuse write-lockout structurally hard to hit (a code-review blocker where the bucket over-refilled after a wait was caught and fixed pre-completion). 21/21 must-haves verified. Next: `/gsd-complete-milestone` to close out v2.0/v2.x, or triage the 3 open code-review findings from Phase 8 first.*
