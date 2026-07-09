@@ -4,16 +4,16 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 09
 status: verifying
-stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-07-09T10:13:37.854Z"
+stopped_at: Phase 10 context gathered
+last_updated: "2026-07-09T12:22:44.423Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 09 complete
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
   total_plans: 13
   completed_plans: 13
-  percent: 100
+  percent: 83
 current_phase_name: proactive-write-rate-limiter-geo-guard
 ---
 
@@ -137,9 +137,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T09:30:15.848Z
-Stopped at: Completed 08-03-PLAN.md
-Resume file: None
+Last session: 2026-07-09T12:22:44.413Z
+Stopped at: Phase 10 context gathered
+Resume file: .planning/phases/10-hide-instead-of-delete-sync-mode/10-CONTEXT.md
 
 ## Operator Next Steps
 
