@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -107,7 +107,14 @@ class WriteBudget:
             sleep(step)
             remaining -= step
 
-        self.tokens = self.capacity  # fully refilled by definition of having waited wait_seconds
+        # Waiting `wait_seconds` accrues exactly the deficit (`n - tokens`)
+        # tokens -- reaching `n`, NOT `capacity` (wait_seconds was derived so
+        # the deficit closes exactly). Resetting to `capacity` here would
+        # over-grant `capacity - n` tokens on every wait and defeat the
+        # anti-burst rate limit. Advance `updated_at` by the waited interval
+        # so the next acquire() does not re-count it as fresh elapsed time.
+        self.tokens = min(self.capacity, self.tokens + self.refill_per_min * wait_seconds / 60.0)
+        self.updated_at = self.updated_at + timedelta(seconds=wait_seconds)
         self.tokens -= n
 
     def reconcile_tripped(self, now) -> None:

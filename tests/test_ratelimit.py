@@ -129,7 +129,8 @@ def test_acquire_wait_mode_sleeps_in_1s_steps_calls_on_wait_then_consumes(tmp_pa
 
     assert sleep.calls == [1.0, 1.0, 1.0]
     assert waits.calls == [3.0, 2.0, 1.0]
-    assert budget.tokens == 27.0  # fully refilled to capacity(30) by definition, then -3
+    # Waiting accrues exactly the 3-token deficit -> tokens == 3, then -3 -> 0.
+    assert budget.tokens == 0.0
 
 
 def test_acquire_wait_mode_works_without_on_wait_callback(tmp_path):
@@ -140,7 +141,7 @@ def test_acquire_wait_mode_works_without_on_wait_callback(tmp_path):
     budget.acquire(3, wait=True, max_wait=10, now=T0, sleep=sleep)  # no on_wait kwarg
 
     assert sleep.calls == [1.0, 1.0, 1.0]
-    assert budget.tokens == 27.0
+    assert budget.tokens == 0.0
 
 
 def test_acquire_stop_mode_raises_budget_exhausted_when_wait_false(tmp_path):
