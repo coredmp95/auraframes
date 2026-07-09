@@ -23,6 +23,7 @@ token (see the phase's threat register, T-09-02).
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -130,25 +131,43 @@ class WriteBudget:
         `self.path`, creating parent directories as needed. No path
         argument -- always writes to the field set at construction, so
         callers can call a bare `budget.save()`. Persists no credential
-        material (T-09-02)."""
+        material (T-09-02).
+
+        WR-02: the write is atomic (temp file in the same dir + `os.replace`)
+        so an interrupted write (Ctrl-C, disk full, crash mid-write) can never
+        leave a truncated JSON file that would brick every subsequent run."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({
+        payload = json.dumps({
             'tokens': self.tokens,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-        }))
+        })
+        tmp_path = self.path.with_name(self.path.name + '.tmp')
+        tmp_path.write_text(payload)
+        os.replace(tmp_path, self.path)
 
     @classmethod
     def load(cls, path: Path, *, capacity: float, refill_per_min: float) -> 'WriteBudget':
         """Reconstruct a `WriteBudget` from `path`. If `path` does not
         exist, returns a fresh bucket (tokens=0, updated_at=None) without
-        raising -- the common case for a first-ever run."""
+        raising -- the common case for a first-ever run.
+
+        WR-02: a corrupt/truncated state file (bad JSON, missing keys, or an
+        unparseable `updated_at`) also falls back to a fresh bucket with a
+        warning rather than raising -- a single bad file must never brick every
+        subsequent `push` / `sync --apply`."""
         if not path.exists():
             return cls(capacity=capacity, refill_per_min=refill_per_min, path=path)
-        data = json.loads(path.read_text())
+        try:
+            data = json.loads(path.read_text())
+            tokens = data['tokens']
+            updated_at = datetime.fromisoformat(data['updated_at']) if data['updated_at'] else None
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            logger.warning(f'Corrupt write-budget state at {path}; starting fresh.')
+            return cls(capacity=capacity, refill_per_min=refill_per_min, path=path)
         return cls(
             capacity=capacity, refill_per_min=refill_per_min, path=path,
-            tokens=data['tokens'],
-            updated_at=datetime.fromisoformat(data['updated_at']) if data['updated_at'] else None,
+            tokens=tokens,
+            updated_at=updated_at,
         )
 
 
