@@ -6,11 +6,15 @@ write-lockout structurally hard to hit: callers must `acquire()` tokens
 before issuing a batch of write network calls, either waiting for enough
 tokens to refill or stopping cleanly before ever making the call.
 
+`check_geo` is a pre-flight guard comparing the caller's current exit-IP
+country against the account's expected country -- root-cause mitigation for
+the VPN-geo-mismatch write-lockout this phase's research identified.
+
 This module touches no existing source and has no side effects at import
 time -- it never calls `datetime.utcnow()`, `time.sleep()`, or `httpx`
-directly during any *tested* path. `now` and `sleep` are injected by the
-caller (mirroring the `sleep=time.sleep` seam already used by
-`auraframes.sync.execute_plan`), so this module is 100% offline-testable.
+directly during any *tested* path. `now`, `sleep`, and `resolver` are all
+injected by the caller (mirroring the `sleep=time.sleep` seam already used
+by `auraframes.sync.execute_plan`), so this module is 100% offline-testable.
 
 `WriteBudget.save()`/`load()` persist ONLY `tokens` + `updated_at` to a
 per-account JSON state file -- never the email, password, or any auth
@@ -22,6 +26,9 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+import httpx
+from loguru import logger
 
 
 class BudgetExhausted(Exception):
@@ -35,6 +42,20 @@ class BudgetExhausted(Exception):
         super().__init__(
             f'Write budget exhausted; would need to wait {wait_seconds:.1f}s '
             'for enough tokens to refill.'
+        )
+
+
+class GeoMismatchError(Exception):
+    """Raised by `check_geo()` when the resolved exit-IP country does not
+    match the account's expected country. Carries `found` + `expected` so
+    the CLI (Plan 09-02) can print an actionable "switch your VPN" message."""
+
+    def __init__(self, found: str, expected: str):
+        self.found = found
+        self.expected = expected
+        super().__init__(
+            f'VPN/exit IP in {found}, account expects {expected} -- '
+            'switch your VPN and retry.'
         )
 
 
@@ -122,3 +143,47 @@ class WriteBudget:
             tokens=data['tokens'],
             updated_at=datetime.fromisoformat(data['updated_at']) if data['updated_at'] else None,
         )
+
+
+def _default_resolver() -> str:
+    """Production default resolver for `check_geo`: a bare, short-timeout
+    `httpx.get` to ipinfo.io's unauthenticated legacy endpoint. Deliberately
+    NOT routed through `auraframes.client.Client` -- that abstraction is
+    Pushd-specific (base URL, headers, 429/475 classification) and would be
+    misused here. No retry/backoff (YAGNI) -- `check_geo`'s fail-open
+    default is the correct mitigation for a resolver hiccup.
+
+    Never invoked by this module's own test suite (would violate the
+    100%-offline test requirement) -- tests always inject a fake `resolver`.
+    """
+    response = httpx.get('https://ipinfo.io/json', timeout=4.0)
+    response.raise_for_status()
+    return response.json()['country']
+
+
+def check_geo(expected_country, *, resolver=_default_resolver, fail_open: bool = True):
+    """Pre-flight guard comparing the caller's current exit-IP country
+    (via `resolver()`) against `expected_country`. Raises `GeoMismatchError`
+    on a mismatch; returns None (no-op) on a match or when `expected_country`
+    is falsy (feature disabled/unconfigured -- resolver is not even called).
+
+    Fails OPEN by default (`fail_open=True`): a resolver exception (network
+    error, ipinfo.io outage/throttle) logs a warning and returns None rather
+    than blocking a legitimate write -- mirroring this codebase's existing
+    "best-effort/observational, never gates the primary operation" precedent
+    (`execute_plan`'s SQS poll, `auraframes/sync.py:460-461`). Pass
+    `fail_open=False` to fail CLOSED instead (the resolver's exception
+    propagates).
+    """
+    if not expected_country:
+        return None
+    try:
+        found = resolver()
+    except Exception as e:
+        if fail_open:
+            logger.warning(f'Geo pre-flight resolver failed ({e}); proceeding (fail-open).')
+            return None
+        raise
+    if found.upper() != expected_country.upper():
+        raise GeoMismatchError(found, expected_country)
+    return None
