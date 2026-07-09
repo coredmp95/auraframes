@@ -307,7 +307,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  progress=lambda *args: None,
                  batch_size: int = WRITE_BATCH_SIZE,
                  chunk_delay_seconds: float = WRITE_CHUNK_DELAY_SECONDS,
-                 on_wait=lambda *args: None) -> ExecutionResult:
+                 on_wait=lambda *args: None,
+                 budget=None, geo_check=None, wait_on_budget: bool = True,
+                 max_wait_seconds: float = 3600.0, clock=get_utc_now) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10), batched (quick task
     260708-fyr) to collapse ~3N Pushd write calls to ~2 per chunk.
@@ -376,6 +378,31 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     :param on_wait: Optional callback invoked once per second during an
         inter-chunk pause as `on_wait(remaining_seconds)`, so a CLI can render
         a live countdown instead of a frozen bar. Defaults to a no-op.
+    :param budget: Optional `auraframes.ratelimit.WriteBudget` (Phase 09,
+        ANTI-03/04) gating each write chunk with a client-side token-bucket
+        request budget -- a proactive defense making the anti-abuse
+        write-lockout structurally hard to hit. When `None` (the default),
+        every budget-related touch point below is skipped entirely: this is
+        a true byte-for-byte no-op, matching this function's pre-Phase-09
+        behavior exactly.
+    :param geo_check: Optional zero-arg callable (Phase 09, ANTI-03) invoked
+        exactly once, before any write (including for a delete-only plan),
+        raising `auraframes.ratelimit.GeoMismatchError` on a VPN/exit-IP
+        country mismatch. When `None` (the default), skipped entirely.
+    :param wait_on_budget: Forwarded to `budget.acquire(..., wait=...)` --
+        when True (the default), a chunk waits for enough tokens to refill
+        rather than raising `BudgetExhausted` immediately. Ignored when
+        `budget` is `None`.
+    :param max_wait_seconds: Forwarded to `budget.acquire(..., max_wait=...)`
+        -- the longest a chunk will wait for tokens before raising
+        `BudgetExhausted` anyway (default 3600s/1hr). Ignored when `budget`
+        is `None`.
+    :param clock: Zero-arg function returning the current instant (Phase 09),
+        injected so tests can control time deterministically -- mirrors the
+        `sleep` seam. Its return VALUE is passed as `budget.acquire(...,
+        now=clock())` and `budget.reconcile_tripped(clock())`; defaults to
+        `auraframes.utils.dt.get_utc_now`. Only ever called when `budget` is
+        not `None` (or `geo_check`, which never touches `clock`).
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
 
     Raises `RateLimitError` (from the client layer) WITHOUT catching it:
@@ -395,6 +422,14 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     (so the reporter-call count still equals the attempted-and-resolved item
     count); items after the abort are never attempted.
     """
+    # Geo pre-flight (Phase 09, ANTI-03) -- the VERY FIRST executable
+    # statement of the body, before ExecutionResult is even constructed, so
+    # a delete-only plan is gated too: no S3 upload, no select_asset, no
+    # remove_asset call has happened yet at this point regardless of the
+    # plan's shape.
+    if geo_check is not None:
+        geo_check()
+
     result = ExecutionResult()
     consecutive_failures = 0
 
@@ -412,6 +447,14 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         nonlocal consecutive_failures
         consecutive_failures += 1
         if 0 < max_consecutive_failures <= consecutive_failures:
+            if budget is not None:
+                # Phase 09 ANTI-04: a systemic cut-off just tripped (the
+                # backstop for the plain-401 form of the anti-abuse lockout
+                # that RateLimitError's 429/475 branch can't catch) -- force
+                # the local budget to reflect reality even though it wasn't
+                # what ran the bucket dry.
+                budget.reconcile_tripped(clock())
+                budget.save()
             raise ConsecutiveWriteFailureError(consecutive_failures, last_error, result)
 
     first_write_chunk = True
@@ -439,6 +482,12 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
 
     for chunk in _chunked(sorted(plan.to_upload), batch_size):
         interchunk_pause()
+        if budget is not None:
+            # 2 requests per upload chunk (select_asset + batch_update) --
+            # acquired BEFORE the per-file S3-prep loop so a BudgetExhausted
+            # stop never wastes an S3 upload on a chunk that won't be written.
+            budget.acquire(2, wait=wait_on_budget, max_wait=max_wait_seconds,
+                            now=clock(), sleep=sleep, on_wait=on_wait)
         prepped: list = []  # list[tuple[Path, local_identifier, AssetPartial]]
         for path in chunk:
             try:
@@ -479,6 +528,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         except RateLimitError:
             # Anti-abuse throttle/lockout: abort the whole batch (do not
             # mask it as one per-item failure and keep hammering).
+            if budget is not None:
+                budget.reconcile_tripped(clock())
+                budget.save()
             raise
         except ConsecutiveWriteFailureError:
             # note_failure() above can raise this from WITHIN the per-file
@@ -486,7 +538,8 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
             # appended/reported there) -- it must propagate as-is, NOT be
             # re-caught by the generic Exception branch below, which would
             # otherwise mistake the abort for a whole-chunk Pushd failure and
-            # double-attribute every prepped file a second time.
+            # double-attribute every prepped file a second time. (Reconcile
+            # already happened inside note_failure() before this raised.)
             raise
         except Exception as e:
             # A whole-chunk Pushd failure (select_asset or batch_update
@@ -497,8 +550,20 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                 progress('upload', path, False)
                 note_failure(str(e))
 
+        if budget is not None:
+            # Save after every chunk that returns normally (success OR
+            # ordinary caught failure, Phase 09 ANTI-04) -- acquire() already
+            # decremented tokens in-memory for the attempted requests
+            # regardless of per-item outcome, so this keeps the on-disk
+            # estimate from drifting optimistic after an interrupt.
+            budget.save()
+
     for chunk in _chunked(plan.to_delete, batch_size):
         interchunk_pause()
+        if budget is not None:
+            # 1 request per delete chunk (remove_asset).
+            budget.acquire(1, wait=wait_on_budget, max_wait=max_wait_seconds,
+                            now=clock(), sleep=sleep, on_wait=on_wait)
         try:
             throttle()
             aura.frame_api.remove_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
@@ -507,6 +572,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                 consecutive_failures = 0
                 progress('delete', asset.id, True)
         except RateLimitError:
+            if budget is not None:
+                budget.reconcile_tripped(clock())
+                budget.save()
             raise
         except Exception as e:
             # remove_asset returns only a count, never per-item -- a raised
@@ -516,5 +584,8 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                 result.delete_failures.append((asset.id, str(e)))
                 progress('delete', asset.id, False)
                 note_failure(str(e))
+
+        if budget is not None:
+            budget.save()
 
     return result
