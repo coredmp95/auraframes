@@ -29,6 +29,21 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
 - [x] **SYNC-03**: `sync ... --apply` (or `--yes`) executes the computed plan for real: uploads new local files, removes frame photos no longer present locally (via `remove_asset`, the safer of the two delete primitives)
 - [x] **SYNC-04**: Sync plan output clearly lists planned upload/delete/unchanged counts and the CLI exits non-zero on any execution failure
 
+### Anti-Abuse Hardening (v2.x)
+
+<!-- Minted 2026-07-09 (Phase 9: proactive-write-rate-limiter-geo-guard). Root cause reframed
+     this session: the persistent 401 write-lockout was largely a VPN geo mismatch
+     (Belgium≠France), on top of a real but generous request-rate limit (~42 write
+     requests / ~40 min recovery, measured live). -->
+
+- [x] **ANTI-01**: `WriteBudget` token-bucket core (acquire/refill/reconcile_tripped/load/save), fully offline-tested with an injected clock — makes the anti-abuse write-lockout structurally hard to hit by gating write chunks on a client-side request budget
+- [x] **ANTI-02**: `check_geo` pre-flight guard (skip/match/mismatch/fail-open/fail-closed) with an injected resolver — root-cause mitigation for the VPN-geo-mismatch write-lockout
+- [x] **ANTI-03**: `execute_plan` integration — new `budget`/`geo_check`/`wait_on_budget`/`max_wait_seconds`/`clock` params, each guarded so `budget is None`/`geo_check is None` is a true no-op vs. today's behavior
+- [x] **ANTI-04**: Reconcile-on-trip wiring — `budget.reconcile_tripped()` + `save()` fire on both the `RateLimitError` branches and the `ConsecutiveWriteFailureError` raise-site, so the on-disk budget estimate reflects a real anti-abuse trip even though the local bucket didn't run dry
+- [x] **ANTI-05**: `settings.py` env config (`AURA_WRITE_BUDGET_*`, `AURA_COUNTRY`, `AURA_GEO_FAIL_OPEN`, `AURA_STATE_DIR`) parsed defensively at import time via a new `_bool_env` helper
+- [x] **ANTI-06**: `push` CLI flags (`--max-wait`/`--no-wait`/`--country`/`--ignore-budget`) + `run_sync` construction of `budget`/`geo_check` for both `push --apply` and `sync --apply` by default + `GeoMismatchError`/`BudgetExhausted` exception branches surfacing clean CLI messages with exit code 1
+- [x] **ANTI-07**: 100%-offline test coverage across `WriteBudget`, `check_geo`, and the `execute_plan`/CLI integration — zero real network calls, zero real `~/.config` disk access
+
 ## v2 Requirements
 
 Deferred to a future release. Tracked but not in the current roadmap.
@@ -78,13 +93,21 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WRITE-03 | Phase 8 | Complete |
 | WRITE-04 | Phase 8 | Complete |
 | WRITE-05 | Phase 8 | Complete |
+| ANTI-01 | Phase 9 (Plan 09-01) | Complete |
+| ANTI-02 | Phase 9 (Plan 09-01) | Complete |
+| ANTI-03 | Phase 9 (Plan 09-02) | Complete |
+| ANTI-04 | Phase 9 (Plan 09-02) | Complete |
+| ANTI-05 | Phase 9 (Plan 09-02) | Complete |
+| ANTI-06 | Phase 9 (Plan 09-02) | Complete |
+| ANTI-07 | Phase 9 (Plans 09-01, 09-02) | Complete |
 
 **Coverage:**
 
 - v1 requirements: 13 total
 - Mapped to phases: 13 ✓
-- Unmapped: 0 ✓ (100% coverage — every v1 requirement maps to exactly one phase)
+- Anti-abuse hardening requirements (v2.x, Phase 9): 7 total (ANTI-01..ANTI-07) — all mapped
+- Unmapped: 0 ✓ (100% coverage — every requirement maps to at least one phase)
 
 ---
 *Requirements defined: 2026-07-05*
-*Last updated: 2026-07-05 after roadmap creation — all 13 v1 requirements mapped to Phases 5-8*
+*Last updated: 2026-07-09 after Phase 9 (proactive-write-rate-limiter-geo-guard) — ANTI-01..ANTI-07 minted and traced (ANTI-01/02/07 → Plan 09-01, ANTI-03/04/05/06/07 → Plan 09-02)*
