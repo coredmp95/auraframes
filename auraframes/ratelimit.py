@@ -96,6 +96,13 @@ class WriteBudget:
             self.tokens -= n
             return
 
+        # WR-03: a non-positive refill rate (e.g. AURA_WRITE_BUDGET_REFILL_PER_MIN=0
+        # to "pause" writes) can never satisfy the deficit -- the wait would be
+        # infinite -- and dividing by it below would raise ZeroDivisionError.
+        # Treat it as an immediate, clean stop instead.
+        if self.refill_per_min <= 0:
+            raise BudgetExhausted(float('inf'))
+
         wait_seconds = (n - self.tokens) / self.refill_per_min * 60.0
         if not wait or wait_seconds > max_wait:
             raise BudgetExhausted(wait_seconds)
