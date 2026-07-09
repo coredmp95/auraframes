@@ -1,20 +1,24 @@
 """Offline unit tests for `auraframes.ratelimit` -- the standalone,
-injectable write-rate-budget (`WriteBudget` token bucket) introduced in
-Phase 09 (ANTI-01, ANTI-07).
+injectable write-rate-budget (`WriteBudget` token bucket) and geo
+pre-flight guard (`check_geo`) introduced in Phase 09
+(ANTI-01, ANTI-02, ANTI-07).
 
 Everything here is 100% offline: every `acquire()`/`reconcile_tripped()`
 call is given a fixed `now` datetime VALUE (the module never calls
 `datetime.utcnow()` internally), `sleep` is always an injected fake (never
-real `time.sleep()`), and all file I/O goes through pytest's `tmp_path`
-fixture (never a real `~/.config` path).
+real `time.sleep()`), the geo `resolver` is always an injected fake (never
+a real network call -- `_default_resolver` is never invoked in this suite),
+and all file I/O goes through pytest's `tmp_path` fixture (never a real
+`~/.config` path).
 """
 import json
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from loguru import logger
 
-from auraframes.ratelimit import BudgetExhausted, WriteBudget
+from auraframes.ratelimit import BudgetExhausted, GeoMismatchError, WriteBudget, check_geo
 
 
 @pytest.fixture(autouse=True)
@@ -214,3 +218,47 @@ def test_save_writes_no_credential_material_only_tokens_and_updated_at(tmp_path)
     body = path.read_text()
     assert 'password' not in body.lower()
     assert '@' not in body  # no email ever ends up in the body
+
+
+# ---------------------------------------------------------------------------
+# check_geo
+# ---------------------------------------------------------------------------
+
+def test_check_geo_skips_and_does_not_call_resolver_when_expected_country_falsy():
+    called = []
+
+    def resolver():
+        called.append(1)
+        return 'FR'
+
+    assert check_geo('', resolver=resolver) is None
+    assert check_geo(None, resolver=resolver) is None
+    assert called == []
+
+
+def test_check_geo_returns_none_on_case_insensitive_match():
+    assert check_geo('FR', resolver=lambda: 'fr') is None
+    assert check_geo('fr', resolver=lambda: 'FR') is None
+
+
+def test_check_geo_raises_geo_mismatch_error_on_country_mismatch():
+    with pytest.raises(GeoMismatchError) as exc_info:
+        check_geo('FR', resolver=lambda: 'BE')
+
+    assert exc_info.value.found == 'BE'
+    assert exc_info.value.expected == 'FR'
+
+
+def test_check_geo_fails_open_by_default_when_resolver_raises():
+    def resolver():
+        raise httpx.TimeoutException('timeout')
+
+    assert check_geo('FR', resolver=resolver) is None
+
+
+def test_check_geo_fails_closed_when_fail_open_false():
+    def resolver():
+        raise httpx.TimeoutException('timeout')
+
+    with pytest.raises(httpx.TimeoutException):
+        check_geo('FR', resolver=resolver, fail_open=False)
