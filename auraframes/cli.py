@@ -19,10 +19,20 @@ from auraframes.sync import scan_directory, compute_plan, execute_plan, Consecut
 from auraframes.utils.settings import (
     AURA_WRITE_BUDGET_CAPACITY,
     AURA_WRITE_BUDGET_REFILL_PER_MIN,
+    AURA_WRITE_BUDGET_WAIT,
+    AURA_WRITE_BUDGET_MAX_WAIT,
     AURA_COUNTRY,
     AURA_GEO_FAIL_OPEN,
     AURA_STATE_DIR,
 )
+
+# execute_plan's own defaults for the two budget-wait knobs (auraframes/sync.py:
+# wait_on_budget=True, max_wait_seconds=3600.0). Used below to forward the
+# AURA_WRITE_BUDGET_WAIT / AURA_WRITE_BUDGET_MAX_WAIT env values only when they
+# would actually change execute_plan's behavior, preserving the Phase 08
+# "defaults don't override execute_plan defaults" contract.
+_EXECUTE_PLAN_DEFAULT_WAIT = True
+_EXECUTE_PLAN_DEFAULT_MAX_WAIT = 3600.0
 
 # First-N photos printed by default before truncating with a "+K more"
 # summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
@@ -469,10 +479,19 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
                 exec_kwargs['budget'] = write_budget
             if geo_check is not None:
                 exec_kwargs['geo_check'] = geo_check
-            if no_wait:
-                exec_kwargs['wait_on_budget'] = False
-            if max_wait is not None:
-                exec_kwargs['max_wait_seconds'] = max_wait
+            # WR-01: wire the AURA_WRITE_BUDGET_WAIT / AURA_WRITE_BUDGET_MAX_WAIT
+            # env defaults into the guard so a user who configures them gets an
+            # effect, with the per-run --no-wait / --max-wait flags taking
+            # precedence over the env. Each kwarg is forwarded ONLY when it would
+            # actually change execute_plan's own default (True / 3600.0) -- so a
+            # run with neither an override flag nor a non-default env var still
+            # forwards nothing, preserving the Phase 08 no-override contract.
+            effective_wait = False if no_wait else AURA_WRITE_BUDGET_WAIT
+            if effective_wait != _EXECUTE_PLAN_DEFAULT_WAIT:
+                exec_kwargs['wait_on_budget'] = effective_wait
+            effective_max_wait = max_wait if max_wait is not None else AURA_WRITE_BUDGET_MAX_WAIT
+            if effective_max_wait != _EXECUTE_PLAN_DEFAULT_MAX_WAIT:
+                exec_kwargs['max_wait_seconds'] = effective_max_wait
 
             result = execute_plan(
                 plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client,
