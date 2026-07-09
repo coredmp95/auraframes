@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import os
 import sys
 from dataclasses import dataclass, field
@@ -13,7 +14,15 @@ from auraframes.aws.s3client import S3Client
 from auraframes.aws.sqsclient import SQSClient
 from auraframes.client import RateLimitError
 from auraframes.models.frame import Frame
+from auraframes.ratelimit import WriteBudget, check_geo, _default_resolver, GeoMismatchError, BudgetExhausted
 from auraframes.sync import scan_directory, compute_plan, execute_plan, ConsecutiveWriteFailureError
+from auraframes.utils.settings import (
+    AURA_WRITE_BUDGET_CAPACITY,
+    AURA_WRITE_BUDGET_REFILL_PER_MIN,
+    AURA_COUNTRY,
+    AURA_GEO_FAIL_OPEN,
+    AURA_STATE_DIR,
+)
 
 # First-N photos printed by default before truncating with a "+K more"
 # summary line (D-06). Claude's discretion per 06-CONTEXT.md; real frames
@@ -63,6 +72,14 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument('--limit', type=int, default=None, help='Upload at most N photos this run (for controlled anti-abuse budget probing)')
     push_parser.add_argument('--batch-size', type=int, default=None, dest='batch_size', help='Assets per select_asset/batch_update call (default 50)')
     push_parser.add_argument('--chunk-delay', type=float, default=None, dest='chunk_delay', help='Seconds to pause between write chunks (default 5)')
+    # Proactive write-rate-budget + geo pre-flight guard overrides (Phase 09,
+    # ANTI-06). `sync` deliberately does NOT expose these -- `sync --apply`
+    # still gets the budget/geo guard by default (built from AURA_* env vars
+    # in run_sync), just without per-run override flags this phase.
+    push_parser.add_argument('--max-wait', type=float, default=None, dest='max_wait', help='Max seconds to wait for write budget before stopping (default 3600)')
+    push_parser.add_argument('--no-wait', action='store_true', default=False, help='Stop immediately instead of waiting when the write budget is exhausted')
+    push_parser.add_argument('--country', default=None, help='Override the expected account country for the geo pre-flight guard (default from AURA_COUNTRY)')
+    push_parser.add_argument('--ignore-budget', action='store_true', default=False, dest='ignore_budget', help='Escape hatch: bypass the write budget entirely for this run')
     return parser
 
 
@@ -238,9 +255,41 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
     return 0
 
 
+def _build_write_budget(email: str, ignore_budget: bool) -> 'WriteBudget | None':
+    """Factory (Phase 09, ANTI-06) constructing the per-account `WriteBudget`
+    at the CLI boundary, mirroring the S3Client()/SQSClient() construction
+    site (`execute_plan` itself never constructs one). Returns `None` when
+    `ignore_budget` is set (the `--ignore-budget` escape hatch) -- omitting
+    `budget` entirely from `exec_kwargs` bypasses the guard.
+
+    Only `sha1(email)[:12]` (a non-cryptographic filename-uniqueness hash,
+    not a security boundary) is used for the state-file name -- the email
+    itself is never persisted in the file body (T-09-02).
+    """
+    if ignore_budget:
+        return None
+    state_path = AURA_STATE_DIR / f'budget-{hashlib.sha1(email.encode()).hexdigest()[:12]}.json'
+    return WriteBudget.load(
+        state_path, capacity=AURA_WRITE_BUDGET_CAPACITY, refill_per_min=AURA_WRITE_BUDGET_REFILL_PER_MIN,
+    )
+
+
+def _build_geo_check(country_override: str | None):
+    """Factory (Phase 09, ANTI-06) constructing the zero-arg `geo_check`
+    closure at the CLI boundary. `country_override` (the `--country` flag)
+    takes precedence over `AURA_COUNTRY`; when neither is set (falsy),
+    returns `None` -- the geo guard is skipped entirely, per `check_geo`'s
+    own falsy-`expected_country` contract."""
+    country = country_override or AURA_COUNTRY
+    if not country:
+        return None
+    return lambda: check_geo(country, resolver=_default_resolver, fail_open=AURA_GEO_FAIL_OPEN)
+
+
 def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = False, aura=None, debug: bool = False,
              no_delete: bool = False, limit: int = None, batch_size: int = None, chunk_delay: float = None,
-             verb: str = 'sync') -> int:
+             verb: str = 'sync', max_wait: float = None, no_wait: bool = False,
+             country: str = None, ignore_budget: bool = False) -> int:
     """Sync command handler (SYNC-01/SYNC-03/SYNC-04). Resolves the target
     frame, scans `dir_arg` locally, computes the upload/delete/unchanged plan
     via `auraframes.sync`, and prints a full (untruncated) report.
@@ -377,6 +426,15 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         s3_client = S3Client()
         sqs_client = SQSClient()
 
+        # Proactive write-rate-budget + geo pre-flight guard (Phase 09,
+        # ANTI-06) -- built here for BOTH verbs (push and sync both hit the
+        # exact same anti-abuse surface), so `sync --apply` also gets
+        # protection by default with zero new flags. Only `--ignore-budget`
+        # (push-only) omits `budget`; `write_budget`/`geo_check` being
+        # `None` is exec_kwargs's signal to omit the corresponding kwarg.
+        write_budget = _build_write_budget(os.getenv('AURA_EMAIL'), ignore_budget)
+        geo_check = _build_geo_check(country)
+
         total = len(plan.to_upload) + len(plan.to_delete)
         # tqdm writes to stderr, so stdout-based test assertions (D-10's
         # summary, printed after the bar closes below) are unaffected.
@@ -399,6 +457,22 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
                 exec_kwargs['batch_size'] = batch_size
             if chunk_delay is not None:
                 exec_kwargs['chunk_delay_seconds'] = chunk_delay
+            # budget/geo_check forwarded whenever built (both verbs, by
+            # default) -- omitted only when None (--ignore-budget, or no
+            # AURA_COUNTRY/--country configured), preserving
+            # execute_plan's own None defaults in that case. wait_on_budget/
+            # max_wait_seconds forwarded ONLY when their override flag was
+            # explicitly supplied, so a classic `sync --apply`/`push --apply`
+            # with no new flags forwards nothing beyond the default guard
+            # objects themselves (test_sync_defaults_do_not_override_execute_plan_defaults's guarantee).
+            if write_budget is not None:
+                exec_kwargs['budget'] = write_budget
+            if geo_check is not None:
+                exec_kwargs['geo_check'] = geo_check
+            if no_wait:
+                exec_kwargs['wait_on_budget'] = False
+            if max_wait is not None:
+                exec_kwargs['max_wait_seconds'] = max_wait
 
             result = execute_plan(
                 plan, aura, frame.id, s3_client=s3_client, sqs_client=sqs_client,
@@ -431,6 +505,19 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
               f'deletes succeeded before the run of failures.')
         print(str(e))
         return 1
+    except GeoMismatchError as e:
+        # Root-cause mitigation for the VPN-geo-mismatch write-lockout
+        # (Phase 09) -- execute_plan's geo pre-flight aborted before any
+        # write happened.
+        print(f'VPN/exit IP in {e.found}, account expects {e.expected} — switch your VPN and retry.')
+        return 1
+    except BudgetExhausted as e:
+        # The proactive client-side write budget ran dry and either
+        # --no-wait was passed or the computed wait exceeded --max-wait
+        # (Phase 09) -- surface how long a retry would need to wait.
+        minutes = e.wait_seconds / 60
+        print(f'Write budget exhausted, come back in ~{minutes:.0f} min (or pass --no-wait / raise --max-wait).')
+        return 1
     except Exception as e:
         # WR-01 fail-loud (D-05): surface post-login API drift instead of a
         # raw traceback.
@@ -453,6 +540,8 @@ def main(argv=None) -> int:
             args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug,
             no_delete=True, limit=args.limit, batch_size=args.batch_size,
             chunk_delay=args.chunk_delay, verb='push',
+            max_wait=args.max_wait, no_wait=args.no_wait,
+            country=args.country, ignore_budget=args.ignore_budget,
         )
     raise ValueError(f'Unhandled command: {args.command}')
 

@@ -88,7 +88,11 @@ def _patch_execute_plan(monkeypatch, result=None):
     calls = []
 
     def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None,
-                          batch_size=None, chunk_delay_seconds=None):
+                          batch_size=None, chunk_delay_seconds=None, **kwargs):
+        # **kwargs absorbs Phase 09's budget/geo_check/wait_on_budget/
+        # max_wait_seconds -- run_sync forwards these by default now
+        # (ANTI-06), but this pre-existing fake's callers don't assert on
+        # them, so they're accepted-and-ignored rather than tracked.
         calls.append({
             'plan': plan,
             'aura': aura,
@@ -229,7 +233,7 @@ def test_apply_rate_limited_batch_aborts_with_single_backoff_message(tmp_path, m
     _env(monkeypatch)
     _patch_aws_clients(monkeypatch)
 
-    def rate_limited_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None):
+    def rate_limited_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None, **kwargs):
         raise RateLimitError(429, retry_after=60, server_message='too many')
 
     monkeypatch.setattr(cli, 'execute_plan', rate_limited_execute_plan)
@@ -256,7 +260,7 @@ def test_apply_consecutive_failures_aborts_with_distinct_message(tmp_path, monke
     _env(monkeypatch)
     _patch_aws_clients(monkeypatch)
 
-    def failing_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None):
+    def failing_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None, **kwargs):
         raise ConsecutiveWriteFailureError(
             5,
             "Client error '401 Unauthorized' for url '.../select_asset.json'",
