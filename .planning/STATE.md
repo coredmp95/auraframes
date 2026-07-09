@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 09
 current_phase_name: proactive-write-rate-limiter-geo-guard
-status: executing
+status: verifying
 stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-07-09T09:15:04.972Z"
+last_updated: "2026-07-09T09:30:15.854Z"
 last_activity: 2026-07-09
 last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 13
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 
 Phase: 09 (proactive-write-rate-limiter-geo-guard) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-09 — Phase 09 execution started
 
 Progress: [█████████░] 91% (10/11 plans complete)
@@ -64,6 +64,7 @@ Progress: [█████████░] 91% (10/11 plans complete)
 | Phase 08 P01 | 11min | 3 tasks | 6 files |
 | Phase 08 P03 | 10min | 2 tasks | 2 files |
 | Phase 09 P01 | 12m | 2 tasks | 2 files |
+| Phase 09 P02 | 12min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 09-01]: check_geo's resolver keyword defaults to _default_resolver so production wiring needs no explicit resolver, while every test injects a fake explicitly
 - [Phase 09-01]: WriteBudget.save() takes no path argument -- it always writes to self.path set at construction, so 09-02's execute_plan integration can call a bare budget.save()
 - [Phase 09-01]: TDD gate applied per task (not per plan): Task 1 (WriteBudget) got its own RED/GREEN commit pair, then Task 2 (check_geo) got a second RED/GREEN pair on top
+- [Phase 09-02]: settings.py uses bare float(os.getenv(...)) for the four numeric budget settings (no helper needed); only AURA_WRITE_BUDGET_WAIT/AURA_GEO_FAIL_OPEN need the new _bool_env helper since Python's bool('false') is True
+- [Phase 09-02]: budget/geo_check are constructed and forwarded for BOTH push --apply and sync --apply by default (built in run_sync from settings env) -- sync gets the same anti-abuse protection as push with zero new sync-only flags
+- [Phase 09-02]: execute_plan's budget.save() runs after every normally-returning chunk (success OR ordinary caught failure), but not the upload loop's 'if not prepped: continue' early-exit; reconcile_tripped()+save() fires from 3 sites (2 RateLimitError branches + inside note_failure()'s ConsecutiveWriteFailureError raise)
 
 ### Pending Todos
 
@@ -132,7 +136,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-09T09:14:56.146Z
+Last session: 2026-07-09T09:30:15.848Z
 Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 

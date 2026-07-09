@@ -36,7 +36,7 @@ Safety-first, read-before-write: every phase before Phase 8 touches only already
 - [x] **Phase 6: Inspect + Frame Resolution** — `inspect --frame <name|id>` lists a frame's photos + metadata, resolves frames by name or ID, and answers the live `md5_hash`-on-read question that shapes Phase 7 (zero write risk) (completed 2026-07-07)
 - [x] **Phase 7: Sync-Diffing Engine (Dry-Run Only)** — `sync <dir> --frame <name|id>` computes and prints an upload/delete/unchanged plan from content-hash diffing, executing nothing (no destructive path exists yet) (completed 2026-07-07)
 - [x] **Phase 8: Destructive Execution (Upload + Delete Verification)** — `sync ... --apply`/`--yes` runs the plan for real, proving the upload and delete write paths live for the first time (completed 2026-07-08)
-- [ ] **Phase 9: Proactive Write Rate-Limiter & Geo Guard** — a proactive, configurable client-side request budget (token bucket, persisted + reconciled per account) + geo pre-flight guard that make the anti-abuse write-lockout structurally impossible to hit
+- [x] **Phase 9: Proactive Write Rate-Limiter & Geo Guard** — a proactive, configurable client-side request budget (token bucket, persisted + reconciled per account) + geo pre-flight guard that make the anti-abuse write-lockout structurally impossible to hit (completed 2026-07-09)
 
 ## Phase Details
 
@@ -157,7 +157,7 @@ _No items currently in backlog._
 **Design spec:** docs/superpowers/specs/2026-07-09-write-rate-limiter-design.md (approved)
 **Requirements**: ANTI-01, ANTI-02, ANTI-03, ANTI-04, ANTI-05, ANTI-06, ANTI-07 (minted this phase; back-filled into REQUIREMENTS.md)
 **Depends on:** Phase 8
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 **Wave 1**
 
@@ -165,4 +165,4 @@ _No items currently in backlog._
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 09-02-PLAN.md — Integration: `settings.py` env config + `_bool_env`, `execute_plan` budget/geo params (backward-compatible no-op), `run_sync` budget/geo_check construction for both `push`/`sync --apply`, `push` override flags + new CLI exception branches, REQUIREMENTS.md back-fill (ANTI-03/04/05/06/07)
+- [x] 09-02-PLAN.md — Integration: `settings.py` env config + `_bool_env`, `execute_plan` budget/geo params (backward-compatible no-op), `run_sync` budget/geo_check construction for both `push`/`sync --apply`, `push` override flags + new CLI exception branches, REQUIREMENTS.md back-fill (ANTI-03/04/05/06/07)
