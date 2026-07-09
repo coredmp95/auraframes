@@ -157,11 +157,11 @@ _No items currently in backlog._
 **Design spec:** docs/superpowers/specs/2026-07-09-write-rate-limiter-design.md (approved)
 **Requirements**: ANTI-01, ANTI-02, ANTI-03, ANTI-04, ANTI-05, ANTI-06, ANTI-07 (minted this phase; back-filled into REQUIREMENTS.md)
 **Depends on:** Phase 8
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 **Wave 1**
 
-- [ ] 09-01-PLAN.md — Standalone `auraframes/ratelimit.py` (`WriteBudget` token bucket + persistence, `check_geo` pre-flight guard, `GeoMismatchError`/`BudgetExhausted`) + 100%-offline unit tests; zero touch to existing code (ANTI-01/02/07)
+- [x] 09-01-PLAN.md — Standalone `auraframes/ratelimit.py` (`WriteBudget` token bucket + persistence, `check_geo` pre-flight guard, `GeoMismatchError`/`BudgetExhausted`) + 100%-offline unit tests; zero touch to existing code (ANTI-01/02/07)
 
 **Wave 2** *(blocked on Wave 1)*
 

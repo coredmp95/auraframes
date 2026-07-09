@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 08
-status: verifying
+current_phase: 09
+current_phase_name: proactive-write-rate-limiter-geo-guard
+status: executing
 stopped_at: Completed 08-03-PLAN.md
-last_updated: "2026-07-08T05:17:01.758Z"
-last_activity: 2026-07-08
-last_activity_desc: Phase 08 complete
+last_updated: "2026-07-09T09:15:04.972Z"
+last_activity: 2026-07-09
+last_activity_desc: Phase 09 execution started
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
-current_phase_name: Destructive Execution (Upload + Delete Verification
+  total_plans: 13
+  completed_plans: 12
+  percent: 80
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: Destructive Execution (Upload + Delete Verification
 See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 08 — Destructive Execution (Upload + Delete Verification)
+**Current focus:** Phase 09 — proactive-write-rate-limiter-geo-guard
 
 ## Current Position
 
-Phase: 08
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-07-08 - Completed quick task 260708-fyr: Batch refactor of sync --apply write path (batched select_asset/batch_update chunked at 50, per-file attribution via successes)
+Phase: 09 (proactive-write-rate-limiter-geo-guard) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-07-09 — Phase 09 execution started
 
 Progress: [█████████░] 91% (10/11 plans complete)
 
@@ -63,8 +63,13 @@ Progress: [█████████░] 91% (10/11 plans complete)
 | Phase 07 P03 | 3min | 1 tasks | 2 files |
 | Phase 08 P01 | 11min | 3 tasks | 6 files |
 | Phase 08 P03 | 10min | 2 tasks | 2 files |
+| Phase 09 P01 | 12m | 2 tasks | 2 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 9 added (2026-07-09): Proactive Write Rate-Limiter & Geo Guard — proactive client-side request budget (token bucket, persisted + reconciled) + geo pre-flight guard to make the anti-abuse write-lockout structurally unreachable. Root cause reframed this session: the persistent 401 write-lockout was largely a VPN geo mismatch (Belgium≠France), on top of a real but generous request-rate limit (~42 write requests / ~40 min recovery, measured live). Design spec: docs/superpowers/specs/2026-07-09-write-rate-limiter-design.md
 
 ### Decisions
 
@@ -91,6 +96,9 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - [Phase 08-02]: Partial-failure tests monkeypatch aura.asset_api.batch_update/aura.frame_api.remove_asset directly rather than relying on httpx.MockTransport per-payload discrimination, since MockTransport routes only by path
 - [Phase 08-03]: Real S3Client()/SQSClient() are constructed at the CLI boundary only, on confirmed --apply; execute_plan() itself never constructs AWS clients, extending Plan 02's offline-testability seam to the CLI
 - [Phase 08-03]: A single confirmation gate covers the whole plan (uploads + deletes together, D-02); apply/confirm/execute logic lives inside run_sync's existing try/except so an execute_plan failure surfaces through the same fail-loud catch as the dry-run path
+- [Phase 09-01]: check_geo's resolver keyword defaults to _default_resolver so production wiring needs no explicit resolver, while every test injects a fake explicitly
+- [Phase 09-01]: WriteBudget.save() takes no path argument -- it always writes to self.path set at construction, so 09-02's execute_plan integration can call a bare budget.save()
+- [Phase 09-01]: TDD gate applied per task (not per plan): Task 1 (WriteBudget) got its own RED/GREEN commit pair, then Task 2 (check_geo) got a second RED/GREEN pair on top
 
 ### Pending Todos
 
@@ -124,7 +132,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-07T17:02:44.810Z
+Last session: 2026-07-09T09:14:56.146Z
 Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
