@@ -171,10 +171,30 @@ _No items currently in backlog._
 ### Phase 10: Hide-instead-of-delete sync mode
 
 **Goal:** Make `sync --apply`'s removal path default to *hiding* photos (marking them invisible on the frame) instead of deleting/removing them. Rationale: the frame has no photo-count limit, so preserving photos is the safer default — a mistaken sync should never destroy photos. Provide an explicit opt-in flag (e.g. `--delete`/`--hard-delete`) to fall back to the current real-removal behavior. Open question for planning/research: which API mechanism backs the app's "make invisible" action (a per-asset visibility/hidden flag vs. a playlist/selection toggle) and how it maps onto the existing `remove_asset`/`delete_asset`/`batch_update` write path.
-**Requirements**: TBD (to be minted during planning)
+**Requirements**: HIDE-01, HIDE-02, HIDE-03, HIDE-04, HIDE-05, HIDE-06, HIDE-07, HIDE-08
 **Depends on:** Phase 9
-**Plans:** 0 plans
+**Success Criteria** (what must be TRUE):
 
-Plans:
+  1. `sync --apply` with no removal flag HIDES gone-local photos (off the slideshow, kept on the frame) instead of removing them — the safe, reversible default (D-01)
+  2. `--delete` removes via `remove_asset` and `--hard-delete` irreversibly destroys via `delete_asset`; the two flags are mutually exclusive (D-03)
+  3. A hidden frame photo whose file is still present locally is re-shown (un-hidden) via `select_asset` on plain `--apply`, and hidden photos are never re-uploaded (D-05/D-06)
+  4. Plan and summary label the verb per mode (To hide/delete/hard-delete + To re-show; Hidden/Removed/Hard-deleted + Re-shown); `--hard-delete` requires a distinct exact-count confirmation (D-04/D-07/D-08)
+  5. The hide/re-show mechanism and `delete_asset`'s blast radius are confirmed live against disposable assets before the code path ships (HIDE-01/HIDE-07)
 
-- [ ] TBD (run /gsd-plan-phase 10 to break down)
+**Plans:** 4 plans
+
+**Wave 1** *(gates the whole phase — live confirmation)*
+
+- [ ] 10-01-PLAN.md — Live spike (checkpoint): confirm `exclude_asset` hides (`selected`→false, stays in `filter=all`), `select_asset` re-shows, and re-verify `delete_asset` blast radius (HIDE-01/HIDE-07)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 10-02-PLAN.md — Read side: `get_assets` passes `filter='all'`; `compute_plan` 4-way classification keyed on `asset.selected`; `SyncPlan` gains `to_reshow`/`already_hidden` + offline tests (HIDE-02/HIDE-08)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 10-03-PLAN.md — Engine: widen `exclude_asset` to batch; `execute_plan` `removal_mode` param + always-runs `select_asset` re-show loop; `ExecutionResult` reshow fields + offline tests (HIDE-03/HIDE-04/HIDE-08)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 10-04-PLAN.md — CLI: mutually-exclusive `--delete`/`--hard-delete` flags, verb-per-mode plan/summary wording, escalated `--hard-delete` gate, push stays additive + offline tests (HIDE-05/HIDE-06/HIDE-08)
