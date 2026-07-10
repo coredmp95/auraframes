@@ -4,6 +4,72 @@
 **Domain:** Reverse-engineered Aura/Pushd cloud API — per-asset visibility ("hide from slideshow, keep on frame") write/read mechanism, threaded into the existing `compute_plan`/`execute_plan` sync engine
 **Confidence:** MEDIUM — every code-level claim below is a direct read of this repository (HIGH); the actual live behavior of `exclude_asset` and its inverse is **completely unverified** (no test, no prior live checkpoint, no public documentation exists) and is the single open question this whole phase depends on. This research narrows the mechanism to a ranked, evidence-backed recommendation and specifies exactly what a live spike must confirm — it does not and cannot resolve the mechanism itself, per CONTEXT.md's own framing.
 
+> **⚠️ READ THIS FIRST — APK Ground-Truth Addendum (2026-07-10) supersedes several claims below.**
+> After this research was written, the official Aura Android app (`com.pushd.client`, base.apk) was
+> decompiled with jadx and its retrofit interface + models read directly. This is **primary, HIGH-confidence
+> evidence** that overturns two load-bearing assumptions in the body of this document. See the
+> **"APK Ground-Truth Addendum"** section immediately below for the corrected mechanism. Where the addendum and
+> the original body disagree, **the addendum wins.** The net effect is a materially *simpler, lower-risk* phase.
+
+## APK Ground-Truth Addendum (2026-07-10) — Mechanism CONFIRMED from the official app
+
+Source: `base.apk` (`com.pushd.client`, v5 API) decompiled with jadx 1.5.1; primary reads of
+`com/pushd/client/api/FrameAPI.java`, `com/pushd/client/api/model/FilterParam.java`,
+`com/pushd/frame/model/Asset.java`, `com/pushd/frame/model/FrameAssetSetting.java`, and the
+`com/pushd/client/service/asset_list/*` call sites. This is the live-app ground truth the original
+body could only rank-guess at.
+
+### The visibility model is `selected` (three-state filter), and BOTH primitives already exist
+
+The app's `FrameAPI` retrofit interface (verbatim):
+```java
+// GET /v5/frames/{frameID}/assets.json?filter={all|selected|unselected}&user_id=&limit=&cursor=&count=
+//   default filter = FilterParam.selected   (assets$default -> FilterParam.selected)
+@l84("/v5/frames/{frameID}/assets.json") Object assets(..., @j78("filter") FilterParam filter, ...);
+
+@me7("/v5/frames/{frameID}/exclude_asset")  Object excludeAsset(..., @wk0 AssetListParam body, ...); // HIDE  (no .json)
+@me7("/v5/frames/{frameID}/select_asset")   Object selectAsset (..., @wk0 AssetListParam body, ...); // RE-SHOW (.json optional; app omits it here too — but our select_asset.json works)
+@me7("/v5/frames/{frameID}/remove_asset")   Object removeAsset (..., @wk0 AssetListParam body, ...); // --delete
+```
+- **`FilterParam` enum = `{ all, selected, unselected }`** (`FilterParam.java`). "In the slideshow" == `selected=true`; "hidden" == `selected=false` (a.k.a. `unselected`). There is no separate `hidden` state on the frame-asset endpoint — hide/show is the `selected` boolean.
+- **HIDE = `exclude_asset`** — confirmed the real hide gesture; the service layer method is `AssetList.excludeAssets` (plural/batch). The **no-`.json` suffix is CORRECT**, not a bug — the app itself POSTs `/exclude_asset` with no suffix. Pitfall 1 / Open Question 1 in the body are **resolved: keep the current no-suffix path.**
+- **RE-SHOW = `select_asset` (the EXISTING method), NOT a new `include_asset`.** ⛔ The body's central recommendation to invent `FrameApi.include_asset` is **wrong** — there is no `include_asset` endpoint in the app, and none is needed. The inverse of `exclude_asset` is the already-implemented, already-`.json`-suffixed, already-batch-capable, **already-live-verified** `select_asset` (Phase 8 exercises it in the upload path). This removes the only "genuinely new API surface" the body identified.
+
+### Read-side signal = `Asset.selected` (ALREADY parsed) — the only real read change is the query filter
+
+- The app's `Asset` model declares `@a39("selected") public boolean mSelected` **inline on every asset** in the frame listing (`Asset.java:190`). Our Python `Asset` model **already has `selected: bool`** (`auraframes/models/asset.py:89`). ⛔ The body's "Pattern 2 / Candidate A vs B" (add a `hidden` field, or merge a parallel `asset_settings` array) is **unnecessary** — the visibility signal is `asset.selected`, which we already parse. No model change, no `AssetSetting` merge.
+- **The single real read-side change:** `FrameApi.get_assets` (`frameApi.py:48`) sends `query_params={'limit', 'cursor'}` with **no `filter`**, so the server applies its default `filter=selected` and **hidden (unselected) assets are omitted from the response entirely today.** To classify visibility, `get_assets` must send **`filter=all`** so both selected and unselected assets come back, then `compute_plan` keys on `asset.selected`. (`FrameAssetSetting` in the app does carry a separate `hidden` JSON key, but that is the activity/asset-setting surface, not the frame `assets.json` listing — ignore it for this phase; `Asset.selected` is the signal.)
+
+### Batch body shape — confirmed exact
+
+All three primitives (`exclude`/`select`/`remove`) take the same `AssetListParam` body. `AssetParam` serializes as
+`@a39("asset_id")` (`LocalAsset.ASSET_ID = "asset_id"`), so the wire body is:
+```json
+{ "assets": [ { "asset_id": "<uuid>" }, { "asset_id": "<uuid>" } ] }
+```
+`exclude_asset` **is batch-capable in the app** (`excludeAssets` plural). So widening our single-item `exclude_asset`
+to `AssetPartialId | list[...]` (mirroring `remove_asset`) matches the app — Pitfall 4's "single-item-only fallback"
+is a low risk, not the expected case. (Still worth a one-shot batch confirmation in the spike, but no longer a design fork.)
+
+### What this does to the plan (net effect)
+
+| Body claim (now corrected) | Ground truth from APK | Consequence |
+|---|---|---|
+| Re-show needs a **new** `FrameApi.include_asset` | Re-show = existing **`select_asset`** (batch, `.json`, live-verified) | Delete the "add include_asset" work; wire re-show to `select_asset`. Removes the only net-new endpoint + its unknowns. |
+| Read signal unknown (inline `hidden`? parallel `asset_settings`?) | Read signal = **`Asset.selected`** (already parsed) | Delete Pattern 2 Candidate A/B. Only change: `get_assets` must pass `filter=all`. |
+| `exclude_asset` missing `.json` may be a bug | App uses `/exclude_asset` **with no suffix** — correct as-is | Keep the current path; don't "fix" it. |
+| `exclude_asset` batch support unknown (Pitfall 4 = design fork) | App batches it (`excludeAssets`) | Widen to list like `remove_asset`; treat as expected, not a fork. |
+
+**Live spike (HIDE-01) is still worth doing but its scope shrinks to CONFIRMATION, not DISCOVERY:** confirm
+`exclude_asset` flips `selected→false` on a disposable asset while it *remains* in `get_assets?filter=all`; confirm
+`select_asset` flips it back; re-verify `delete_asset` blast radius (HIDE-07, unchanged). The re-show mechanism and the
+read signal are now KNOWN. The STOP-and-report tripwires in the body still apply to `exclude_asset` specifically.
+Proposed requirement IDs (HIDE-01..HIDE-08) stay valid; HIDE-02's read change is now "pass `filter=all`, classify on
+`asset.selected`" and HIDE-04's re-show primitive is `select_asset` (drop the `include_asset` task).
+
+---
+
+
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
 
