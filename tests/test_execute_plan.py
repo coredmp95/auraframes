@@ -26,6 +26,8 @@ from tests.offline import offline_aura
 FRAME_ID = 'frame-fake-0001'
 SELECT_ASSET_PATH = f'/v5/frames/{FRAME_ID}/select_asset.json'
 REMOVE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/remove_asset.json'
+# No `.json` suffix -- deliberate, matches the app and is live-confirmed.
+EXCLUDE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/exclude_asset'
 BATCH_UPDATE_PATH = '/v5/assets/batch_update.json'
 
 
@@ -57,6 +59,7 @@ def _default_overrides():
     return {
         SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
         REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
+        EXCLUDE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
         BATCH_UPDATE_PATH: httpx.Response(200, json={
             'ids': ['local-id'],
             'successes': [{'id': 'new-asset-id', 'local_identifier': 'local-id'}],
@@ -261,6 +264,9 @@ def test_execute_plan_delete_chunk_failure_records_whole_chunk(monkeypatch):
     result = execute_plan(
         plan, aura, FRAME_ID,
         s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(), sleep=lambda *_: None,
+        # Pinned to the mode whose primitive this test fakes; the coarse
+        # per-chunk attribution it asserts is mode-agnostic.
+        removal_mode='delete',
     )
 
     assert result.delete_succeeded == 0
@@ -339,7 +345,8 @@ def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(aura.frame_api, 'remove_asset', _recording_remove_asset)
 
-    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None)
+    result = execute_plan(plan, aura, FRAME_ID, s3_client=s3, sqs_client=sqs, sleep=lambda *_: None,
+                          removal_mode='delete')  # pinned: this test records remove_asset
 
     assert result.upload_succeeded == 1
     assert result.delete_succeeded == 2

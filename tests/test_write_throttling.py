@@ -233,6 +233,7 @@ def test_rate_limited_delete_aborts_and_does_not_record_per_item(monkeypatch):
             plan, offline_aura(overrides=overrides), FRAME_ID,
             s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
             throttle_seconds=0, sleep=lambda *_: None,
+            removal_mode='delete',  # pinned: this test rate-limits remove_asset
         )
 
     assert exc_info.value.status_code == 429

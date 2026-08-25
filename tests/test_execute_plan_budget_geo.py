@@ -21,6 +21,8 @@ from tests.offline import offline_aura
 FRAME_ID = 'frame-fake-0001'
 SELECT_ASSET_PATH = f'/v5/frames/{FRAME_ID}/select_asset.json'
 REMOVE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/remove_asset.json'
+# No `.json` suffix -- deliberate, matches the app and is live-confirmed.
+EXCLUDE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/exclude_asset'
 BATCH_UPDATE_PATH = '/v5/assets/batch_update.json'
 
 
@@ -43,6 +45,7 @@ def _default_overrides():
     return {
         SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
         REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
+        EXCLUDE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
         BATCH_UPDATE_PATH: httpx.Response(200, json={
             'ids': ['local-id'],
             'successes': [{'id': 'new-asset-id', 'local_identifier': 'local-id'}],
@@ -241,6 +244,7 @@ def test_rate_limit_error_delete_chunk_reconciles_and_saves_before_raising(monke
         execute_plan(
             plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
             sleep=lambda *_: None, budget=budget, clock=lambda: 'tripped-now',
+            removal_mode='delete',  # pinned: this test fakes remove_asset
         )
 
     assert budget.reconcile_calls == ['tripped-now']
@@ -267,6 +271,7 @@ def test_consecutive_write_failure_reconciles_and_saves_before_raising(monkeypat
         execute_plan(
             plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
             sleep=lambda *_: None, batch_size=1, budget=budget, clock=lambda: 'tripped-now',
+            removal_mode='delete',  # pinned: this test fakes remove_asset
         )
 
     # The reconcile+save happens exactly once, from inside note_failure() at

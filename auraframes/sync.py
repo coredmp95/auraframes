@@ -301,8 +301,39 @@ def compute_plan(local_hashes: dict[str, list[Path]], frame_assets: list, skippe
 class ExecutionResult:
     upload_succeeded: int = 0
     delete_succeeded: int = 0
+    reshow_succeeded: int = 0
     upload_failures: list = field(default_factory=list)  # list[tuple[Path, str]]
     delete_failures: list = field(default_factory=list)  # list[tuple[str, str]]
+    reshow_failures: list = field(default_factory=list)  # list[tuple[str, str]]
+
+
+# The three tiers of "this photo is no longer wanted locally" (D-01/D-03).
+# execute_plan applies exactly ONE of these per run, chosen by `removal_mode`,
+# so the destructive primitive is unreachable unless a caller names it:
+#
+#   hide        exclude_asset  reversible, non-destructive -- the DEFAULT
+#   delete      remove_asset   disassociates from this frame only
+#   hard_delete delete_asset   irreversible, destroys the asset account-wide
+#
+# `hide` and `delete` are native batch endpoints (one request per chunk);
+# `hard_delete` is asset-scoped with no batch form, hence the per-asset loop
+# -- which is also why it is charged the budget per asset (Pitfall 3).
+_REMOVAL_PRIMITIVE = {
+    'hide': lambda aura, frame_id, assets: aura.frame_api.exclude_asset(
+        frame_id, [AssetPartialId(id=asset.id) for asset in assets]),
+    'delete': lambda aura, frame_id, assets: aura.frame_api.remove_asset(
+        frame_id, [AssetPartialId(id=asset.id) for asset in assets]),
+    'hard_delete': lambda aura, frame_id, assets: [
+        aura.asset_api.delete_asset(asset) for asset in assets],
+}
+
+# Requests a removal chunk actually costs, per mode -- batch endpoints are one
+# call regardless of chunk size; hard_delete is one call per asset.
+_REMOVAL_REQUEST_COST = {
+    'hide': lambda chunk: 1,
+    'delete': lambda chunk: 1,
+    'hard_delete': lambda chunk: len(chunk),
+}
 
 
 def _chunked(items: list, size: int):
@@ -354,7 +385,8 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  chunk_delay_seconds: float = WRITE_CHUNK_DELAY_SECONDS,
                  on_wait=lambda *args: None,
                  budget=None, geo_check=None, wait_on_budget: bool = True,
-                 max_wait_seconds: float = 3600.0, clock=get_utc_now) -> ExecutionResult:
+                 max_wait_seconds: float = 3600.0, clock=get_utc_now,
+                 removal_mode: str = 'hide') -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10), batched (quick task
     260708-fyr) to collapse ~3N Pushd write calls to ~2 per chunk.
@@ -373,14 +405,26 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     (coarser than upload attribution -- documented tradeoff, T-fyr-01). All
     uploads are attempted before any delete is attempted (D-09) -- on
     interruption mid-run this leaves the safer partial state (content added,
-    nothing removed). The delete loop calls `remove_asset` exclusively --
-    the module's grep-verified absence of any reference to the other, hard
-    Asset-removal primitive is what enforces D-06's structural isolation.
+    nothing removed).
+
+    Work runs least-destructive-first: uploads, then re-shows, then removals.
+    The re-show loop calls `select_asset` on `plan.to_reshow` and ALWAYS runs,
+    whatever `removal_mode` is -- bringing back a photo the user restored
+    locally is not a removal concern (D-05).
+
+    The removal loop applies exactly ONE primitive, chosen by `removal_mode`
+    from `_REMOVAL_PRIMITIVE` (D-01/D-03). It defaults to `'hide'`, so the
+    destructive tiers are unreachable unless a caller names one.
 
     `s3_client`/`sqs_client` are injected by the caller (never constructed
     in this module) so this function is offline-testable with fakes --
     no AWS client construction call appears here at all.
 
+    :param removal_mode: Which primitive acts on `plan.to_delete` -- `'hide'`
+        (default, reversible `exclude_asset`), `'delete'` (`remove_asset`,
+        frame-scoped) or `'hard_delete'` (`delete_asset`, irreversible and
+        account-wide). Preservation is the default because a mistaken sync
+        must never destroy photos (D-01/D-03).
     :param plan: The `SyncPlan` (from `compute_plan`) to execute.
     :param aura: An authenticated `Aura` instance.
     :param frame_id: The frame to upload to / delete from.
@@ -603,15 +647,49 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
             # estimate from drifting optimistic after an interrupt.
             budget.save()
 
-    for chunk in _chunked(plan.to_delete, batch_size):
+    for chunk in _chunked(plan.to_reshow, batch_size):
         interchunk_pause()
         if budget is not None:
-            # 1 request per delete chunk (remove_asset).
+            # 1 request per chunk (select_asset is a batch endpoint).
             budget.acquire(1, wait=wait_on_budget, max_wait=max_wait_seconds,
                             now=clock(), sleep=sleep, on_wait=on_wait)
         try:
             throttle()
-            aura.frame_api.remove_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
+            aura.frame_api.select_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
+            for asset in chunk:
+                result.reshow_succeeded += 1
+                consecutive_failures = 0
+                progress('reshow', asset.id, True)
+        except RateLimitError:
+            if budget is not None:
+                budget.reconcile_tripped(clock())
+                budget.save()
+            raise
+        except Exception as e:
+            # select_asset returns only a count, never per-item -- a raised
+            # chunk-level failure attributes ALL re-shows in this chunk, the
+            # same coarser attribution the removal loop documents.
+            for asset in chunk:
+                result.reshow_failures.append((asset.id, str(e)))
+                progress('reshow', asset.id, False)
+                note_failure(str(e))
+
+        if budget is not None:
+            budget.save()
+
+    for chunk in _chunked(plan.to_delete, batch_size):
+        interchunk_pause()
+        if budget is not None:
+            # 1 request per chunk for the batch endpoints; one per asset for
+            # hard_delete, which has no batch form (Pitfall 3) -- charging it
+            # 1 would let a hard delete run the budget dry unnoticed and
+            # re-trip the anti-abuse lockout.
+            budget.acquire(_REMOVAL_REQUEST_COST[removal_mode](chunk),
+                            wait=wait_on_budget, max_wait=max_wait_seconds,
+                            now=clock(), sleep=sleep, on_wait=on_wait)
+        try:
+            throttle()
+            _REMOVAL_PRIMITIVE[removal_mode](aura, frame_id, chunk)
             for asset in chunk:
                 result.delete_succeeded += 1
                 consecutive_failures = 0
