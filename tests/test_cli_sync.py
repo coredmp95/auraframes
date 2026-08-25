@@ -13,6 +13,7 @@ import pytest
 from loguru import logger
 
 from auraframes.aws.s3client import get_md5
+from auraframes import cli
 from auraframes.cli import run_sync
 from tests.offline import FIXTURES_DIR, offline_aura
 
@@ -74,7 +75,7 @@ def test_sync_classifies_upload_and_unchanged_by_hash(tmp_path, monkeypatch, cap
     assert rc == 0
     out = capsys.readouterr().out
     assert 'To upload: 1' in out
-    assert 'To delete: 0' in out
+    assert 'To hide: 0' in out
     assert 'Unchanged: 1' in out
     assert 'new.jpg' in out
     assert 'existing.jpg' not in out
@@ -95,7 +96,7 @@ def test_sync_delete_candidate_shows_id_and_date_no_filename(tmp_path, monkeypat
 
     assert rc == 0
     out = capsys.readouterr().out
-    assert 'To delete: 1' in out
+    assert 'To hide: 1' in out
     assert 'asset-to-delete' in out
     assert '2024-03-11' in out
     assert 'secret-name-should-not-appear.jpg' not in out
@@ -144,7 +145,7 @@ def test_sync_hashless_frame_asset_not_deleted(tmp_path, monkeypatch, capsys):
 
     assert rc == 0
     out = capsys.readouterr().out
-    assert 'To delete: 0' in out
+    assert 'To hide: 0' in out
     assert 'asset-video-no-hash' not in out
     assert '1 frame assets without a content hash' in out
 
@@ -196,3 +197,29 @@ def test_sync_login_failure_returns_1(tmp_path, monkeypatch, capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert 'Login failed' in out
+
+
+# --- removal-mode flags (HIDE-05, D-02/D-03) --------------------------------
+
+def test_delete_and_hard_delete_are_mutually_exclusive():
+    """Passing both would make the run's destructiveness ambiguous, so
+    argparse rejects it at parse time (V5) rather than picking a winner."""
+    parser = cli.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(['sync', '.', '--frame', 'Fake', '--delete', '--hard-delete'])
+
+
+def test_sync_defaults_to_hide_with_neither_flag():
+    args = cli.build_parser().parse_args(['sync', '.', '--frame', 'Fake'])
+
+    assert args.delete is False
+    assert args.hard_delete is False
+
+
+def test_push_has_no_removal_flags():
+    """push is upload-only, so the removal tiers are not offered there."""
+    parser = cli.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(['push', '.', '--frame', 'Fake', '--delete'])

@@ -77,7 +77,7 @@ def _patch_execute_plan(monkeypatch, result=None, raises=None):
 
     def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None,
                           batch_size=None, chunk_delay_seconds=None, budget=None, geo_check=None,
-                          wait_on_budget=None, max_wait_seconds=None):
+                          wait_on_budget=None, max_wait_seconds=None, removal_mode=None):
         calls.append({
             'plan': plan,
             'frame_id': frame_id,
@@ -268,7 +268,7 @@ def test_state_file_path_derives_from_sha1_email_and_body_has_no_email(tmp_path,
     # state file lands on disk under the monkeypatched AURA_STATE_DIR.
     def fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None, on_wait=None,
                           batch_size=None, chunk_delay_seconds=None, budget=None, geo_check=None,
-                          wait_on_budget=None, max_wait_seconds=None):
+                          wait_on_budget=None, max_wait_seconds=None, removal_mode=None):
         if budget is not None:
             budget.save()
         return ExecutionResult()

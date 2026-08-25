@@ -66,6 +66,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
     sync_parser.add_argument('--apply', action='store_true', default=False, help='Execute the plan (upload + delete) instead of only printing it')
     sync_parser.add_argument('--yes', action='store_true', default=False, help='Skip the confirmation prompt (required for --apply when running non-interactively)')
+    # The three tiers of "no longer in the local directory" (D-02/D-03).
+    # Hiding is the default because the frame has no photo-count limit, so a
+    # mistaken sync should cost visibility, never photos. argparse enforces
+    # the mutual exclusion at parse time (V5).
+    removal_group = sync_parser.add_mutually_exclusive_group()
+    removal_group.add_argument('--delete', action='store_true', default=False,
+                               help='Remove gone-local photos from the frame instead of hiding them (frame-scoped; the photo leaves this frame)')
+    removal_group.add_argument('--hard-delete', action='store_true', default=False, dest='hard_delete',
+                               help='IRREVERSIBLY destroy gone-local photos instead of hiding them (account-wide; requires typing the exact count to confirm)')
 
     # `push` = purely additive upload from a supply ("buffet") directory. Unlike
     # `sync`, the frame is NOT diffed-to-match the directory: nothing is ever
@@ -265,6 +274,13 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
     return 0
 
 
+# How each removal mode is named in the plan and in the run summary. The
+# wording tracks the primitive that actually runs, so a report can never say
+# "delete" on a run that hid, or vice versa (D-07).
+_REMOVAL_VERB_PRESENT = {'hide': 'hide', 'delete': 'delete', 'hard_delete': 'hard-delete'}
+_REMOVAL_VERB_PAST = {'hide': 'Hidden', 'delete': 'Removed', 'hard_delete': 'Hard-deleted'}
+
+
 def _build_write_budget(email: str, ignore_budget: bool) -> 'WriteBudget | None':
     """Factory (Phase 09, ANTI-06) constructing the per-account `WriteBudget`
     at the CLI boundary, mirroring the S3Client()/SQSClient() construction
@@ -299,7 +315,8 @@ def _build_geo_check(country_override: str | None):
 def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = False, aura=None, debug: bool = False,
              no_delete: bool = False, limit: int = None, batch_size: int = None, chunk_delay: float = None,
              verb: str = 'sync', max_wait: float = None, no_wait: bool = False,
-             country: str = None, ignore_budget: bool = False) -> int:
+             country: str = None, ignore_budget: bool = False,
+             removal_mode: str = 'hide') -> int:
     """Sync command handler (SYNC-01/SYNC-03/SYNC-04). Resolves the target
     frame, scans `dir_arg` locally, computes the upload/delete/unchanged plan
     via `auraframes.sync`, and prints a full (untruncated) report.
@@ -324,6 +341,9 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
     # Must run after Aura() construction (which registers the noisy sinks)
     # and before login/get_frames (the HTTP calls that trigger them).
     _configure_cli_logging(debug)
+
+    verb_present = _REMOVAL_VERB_PRESENT[removal_mode]
+    verb_past = _REMOVAL_VERB_PAST[removal_mode]
 
     try:
         aura.login()
@@ -380,7 +400,11 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         # probing. Both are applied BEFORE the plan is printed so the report
         # reflects exactly what will run.
         if no_delete:
+            # `push` is upload-only: it must not hide, remove, OR re-show
+            # anything. A re-show is still a visibility mutation of existing
+            # frame photos, so it is cleared alongside the removals.
             plan.to_delete = []
+            plan.to_reshow = []
         if limit is not None:
             plan.to_upload = sorted(plan.to_upload)[:limit]
 
@@ -392,8 +416,15 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         if no_delete:
             print('To delete: 0 (additive mode — existing frame photos left untouched)')
         else:
-            print(f'To delete: {len(plan.to_delete)}')
+            # Name the verb that will actually run, so the plan can never read
+            # "delete" on a run that hides (or vice versa) -- D-07.
+            print(f'To {verb_present}: {len(plan.to_delete)}')
+            # Re-shows get their own line rather than folding into unchanged:
+            # they are a write, and the user should see it coming (D-08).
+            print(f'To re-show: {len(plan.to_reshow)}')
         print(f'Unchanged: {plan.unchanged}')
+        if plan.already_hidden:
+            print(f'Already hidden: {plan.already_hidden} (no action needed)')
 
         # WR-03: local_hashes (and to_upload built from it) is populated in
         # filesystem-traversal order, which is OS/filesystem dependent and
@@ -404,6 +435,9 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
 
         for asset in plan.to_delete:
             print(f'  - {asset.id} (taken {asset.taken_at_dt})')
+
+        for asset in plan.to_reshow:
+            print(f'  ~ {asset.id} (taken {asset.taken_at_dt}) — re-show')
 
         if plan.skipped_non_image > 0:
             print(f'{plan.skipped_non_image} non-photo files skipped')
@@ -425,10 +459,22 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         # id so a substring --frame match can't silently apply to the wrong
         # frame.
         if not yes:
-            answer = input(f'About to apply this plan to "{frame.name}" (id: {frame.id}). Proceed? [y/N] ')
-            if answer.strip().lower() not in ('y', 'yes'):
-                print('Aborted.')
-                return 0
+            if removal_mode == 'hard_delete':
+                # A reworded y/N is too easy to answer reflexively for an
+                # irreversible, account-wide destruction. Re-typing the exact
+                # count forces the user to look at the number first (D-04).
+                count = len(plan.to_delete)
+                print(f'IRREVERSIBLE: {count} photo(s) will be permanently destroyed '
+                      f'account-wide, not just removed from this frame. This cannot be undone.')
+                answer = input(f'To confirm, type the number of photos to hard-delete ({count}): ')
+                if answer.strip() != str(count):
+                    print('Aborted.')
+                    return 0
+            else:
+                answer = input(f'About to apply this plan to "{frame.name}" (id: {frame.id}). Proceed? [y/N] ')
+                if answer.strip().lower() not in ('y', 'yes'):
+                    print('Aborted.')
+                    return 0
 
         # Real AWS clients are constructed here only, on confirmed apply --
         # execute_plan() itself never constructs them (offline-testable seam
@@ -463,6 +509,10 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
             # execute_plan keeps its own defaults (WRITE_BATCH_SIZE /
             # WRITE_CHUNK_DELAY_SECONDS) otherwise -- no hardcoded values here.
             exec_kwargs = {}
+            # execute_plan defaults to 'hide' too, so forwarding is always
+            # safe -- but forward explicitly so the CLI's choice is the one
+            # that runs, not a default that happens to agree.
+            exec_kwargs['removal_mode'] = removal_mode
             if batch_size is not None:
                 exec_kwargs['batch_size'] = batch_size
             if chunk_delay is not None:
@@ -502,11 +552,15 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         print(f'Uploads: {result.upload_succeeded} succeeded, {len(result.upload_failures)} failed')
         for path, err in result.upload_failures:
             print(f'  ! {path}: {err}')
-        print(f'Deletes: {result.delete_succeeded} succeeded, {len(result.delete_failures)} failed')
+        print(f'{verb_past}: {result.delete_succeeded} succeeded, {len(result.delete_failures)} failed')
         for asset_id, err in result.delete_failures:
             print(f'  ! {asset_id}: {err}')
+        print(f'Re-shown: {result.reshow_succeeded} succeeded, {len(result.reshow_failures)} failed')
+        for asset_id, err in result.reshow_failures:
+            print(f'  ! {asset_id}: {err}')
 
-        return 1 if (result.upload_failures or result.delete_failures) else 0
+        return 1 if (result.upload_failures or result.delete_failures
+                     or result.reshow_failures) else 0
     except RateLimitError as e:
         # The API is throttling/locking out this account mid-apply (HTTP
         # 429/475). execute_plan aborted the batch rather than emitting N
@@ -553,7 +607,9 @@ def main(argv=None) -> int:
     if args.command == 'inspect':
         return run_inspect(args.frame, debug=args.debug)
     if args.command == 'sync':
-        return run_sync(args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug)
+        removal_mode = 'hard_delete' if args.hard_delete else ('delete' if args.delete else 'hide')
+        return run_sync(args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug,
+                        removal_mode=removal_mode)
     if args.command == 'push':
         return run_sync(
             args.dir, args.frame, apply=args.apply, yes=args.yes, debug=args.debug,

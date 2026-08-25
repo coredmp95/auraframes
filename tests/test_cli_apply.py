@@ -101,6 +101,7 @@ def _patch_execute_plan(monkeypatch, result=None):
             'sqs_client': sqs_client,
             'batch_size': batch_size,
             'chunk_delay_seconds': chunk_delay_seconds,
+            'removal_mode': kwargs.get('removal_mode'),
         })
         return result if result is not None else ExecutionResult()
 
@@ -142,7 +143,7 @@ def test_apply_yes_executes_without_prompt(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert 'Proceed?' not in out
     assert 'Uploads: 1 succeeded, 0 failed' in out
-    assert 'Deletes: 0 succeeded, 0 failed' in out
+    assert 'Hidden: 0 succeeded, 0 failed' in out
 
 
 def test_apply_non_tty_without_yes_fails_closed(tmp_path, monkeypatch, capsys):
@@ -381,3 +382,162 @@ def test_sync_defaults_do_not_override_execute_plan_defaults(tmp_path, monkeypat
 
     assert calls[0]['batch_size'] is None
     assert calls[0]['chunk_delay_seconds'] is None
+
+
+# --- removal modes, wording and the irreversible gate (HIDE-05/HIDE-06) -----
+
+def _assets_response_with_settings(*assets):
+    """Like `_assets_response`, but also carries the parallel `asset_settings`
+    array the live API sends -- that is where per-frame visibility lives, so a
+    test needs it to make an asset read as hidden."""
+    return httpx.Response(200, json={
+        'assets': list(assets),
+        'asset_settings': [
+            {'asset_id': a['id'], 'selected': a.get('selected', True),
+             'hidden': not a.get('selected', True)}
+            for a in assets
+        ],
+        'next_page_cursor': None,
+    })
+
+
+def _removal_candidate(**overrides):
+    """A frame asset with no local counterpart -- i.e. a removal candidate."""
+    return _frame_asset(id='asset-gone-local', md5_hash=get_md5(b'not-in-local-dir'),
+                        **overrides)
+
+
+def _run_apply(tmp_path, monkeypatch, assets_response, **kwargs):
+    _env(monkeypatch)
+    _patch_aws_clients(monkeypatch)
+    calls = _patch_execute_plan(monkeypatch, result=kwargs.pop('result', None))
+    aura = offline_aura(overrides={ASSETS_PATH: assets_response})
+    rc = cli.run_sync(str(tmp_path), 'Fake', apply=True, aura=aura, **kwargs)
+    return rc, calls
+
+
+def test_default_mode_is_hide_and_says_so(tmp_path, monkeypatch, capsys):
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()), yes=True)
+
+    assert rc == 0
+    assert calls[0]['removal_mode'] == 'hide'
+    out = capsys.readouterr().out
+    assert 'To hide: 1' in out
+    assert 'Hidden: 0 succeeded, 0 failed' in out
+    assert 'To delete' not in out
+
+
+def test_delete_flag_selects_delete_mode_and_wording(tmp_path, monkeypatch, capsys):
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()),
+                           yes=True, removal_mode='delete')
+
+    assert rc == 0
+    assert calls[0]['removal_mode'] == 'delete'
+    out = capsys.readouterr().out
+    assert 'To delete: 1' in out
+    assert 'Removed: 0 succeeded, 0 failed' in out
+
+
+def test_hard_delete_wording(tmp_path, monkeypatch, capsys):
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()),
+                           yes=True, removal_mode='hard_delete')
+
+    assert rc == 0
+    assert calls[0]['removal_mode'] == 'hard_delete'
+    out = capsys.readouterr().out
+    assert 'To hard-delete: 1' in out
+    assert 'Hard-deleted: 0 succeeded, 0 failed' in out
+
+
+def test_hard_delete_requires_typing_the_exact_count(tmp_path, monkeypatch, capsys):
+    """A reworded y/N is too easy to answer reflexively for an irreversible,
+    account-wide destruction -- the count must be re-typed."""
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda *_: 'y')  # would pass the normal gate
+
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()),
+                           yes=False, removal_mode='hard_delete')
+
+    assert rc == 0
+    assert calls == [], "a wrong confirmation must abort before any write"
+    out = capsys.readouterr().out
+    assert 'IRREVERSIBLE' in out
+    assert 'Aborted.' in out
+
+
+def test_hard_delete_proceeds_when_the_exact_count_is_typed(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.sys.stdin, 'isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda *_: '1')  # exactly one removal candidate
+
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()),
+                           yes=False, removal_mode='hard_delete')
+
+    assert rc == 0
+    assert len(calls) == 1
+    assert calls[0]['removal_mode'] == 'hard_delete'
+
+
+def test_hard_delete_with_yes_skips_the_gate(tmp_path, monkeypatch, capsys):
+    def _no_input(*_):
+        raise AssertionError('--yes must skip every gate, including the hard-delete one')
+
+    monkeypatch.setattr('builtins.input', _no_input)
+
+    rc, calls = _run_apply(tmp_path, monkeypatch,
+                           _assets_response_with_settings(_removal_candidate()),
+                           yes=True, removal_mode='hard_delete')
+
+    assert rc == 0
+    assert len(calls) == 1
+
+
+def test_reshow_is_reported_in_plan_and_summary(tmp_path, monkeypatch, capsys):
+    """A photo present locally but hidden on the frame is a re-show, and gets
+    its own line rather than being folded into unchanged (D-08)."""
+    (tmp_path / 'restored.jpg').write_bytes(b'restored-photo-bytes')
+    hidden = _frame_asset(id='asset-hidden', md5_hash=get_md5(b'restored-photo-bytes'),
+                          selected=False)
+
+    rc, calls = _run_apply(tmp_path, monkeypatch, _assets_response_with_settings(hidden),
+                           yes=True,
+                           result=ExecutionResult(reshow_succeeded=1))
+
+    assert rc == 0
+    assert [a.id for a in calls[0]['plan'].to_reshow] == ['asset-hidden']
+    assert calls[0]['plan'].to_upload == [], "a hidden photo must be re-shown, not re-uploaded"
+    out = capsys.readouterr().out
+    assert 'To re-show: 1' in out
+    assert 'Re-shown: 1 succeeded, 0 failed' in out
+
+
+def test_reshow_failures_make_the_run_exit_nonzero(tmp_path, monkeypatch, capsys):
+    (tmp_path / 'restored.jpg').write_bytes(b'restored-photo-bytes')
+    hidden = _frame_asset(id='asset-hidden', md5_hash=get_md5(b'restored-photo-bytes'),
+                          selected=False)
+
+    rc, _ = _run_apply(tmp_path, monkeypatch, _assets_response_with_settings(hidden),
+                       yes=True,
+                       result=ExecutionResult(reshow_failures=[('asset-hidden', 'boom')]))
+
+    assert rc == 1
+    assert 'boom' in capsys.readouterr().out
+
+
+def test_push_never_reshows_even_with_reshow_candidates(tmp_path, monkeypatch):
+    """`push` is upload-only: a re-show is still a visibility mutation of an
+    existing frame photo, so it must not happen under push."""
+    (tmp_path / 'restored.jpg').write_bytes(b'restored-photo-bytes')
+    hidden = _frame_asset(id='asset-hidden', md5_hash=get_md5(b'restored-photo-bytes'),
+                          selected=False)
+
+    rc, calls = _run_apply(tmp_path, monkeypatch, _assets_response_with_settings(hidden),
+                           yes=True, no_delete=True, verb='push')
+
+    assert rc == 0
+    assert calls[0]['plan'].to_reshow == []
+    assert calls[0]['plan'].to_delete == []
