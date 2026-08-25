@@ -4,17 +4,17 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 10
 current_phase_name: hide-instead-of-delete-sync-mode
-status: executing
-stopped_at: Phase 10 context gathered
-last_updated: "2026-07-10T17:10:25.600Z"
-last_activity: 2026-07-10
-last_activity_desc: Phase 10 execution started
+status: phase-complete
+stopped_at: Phase 10 plans 10-01..10-04 complete
+last_updated: "2026-08-25T08:05:00.000Z"
+last_activity: 2026-08-25
+last_activity_desc: Phase 10 complete (hide-instead-of-delete shipped, HIDE-01..08)
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 17
-  completed_plans: 13
-  percent: 76
+  completed_plans: 17
+  percent: 100
 ---
 
 # Project State
@@ -28,12 +28,12 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 
 ## Current Position
 
-Phase: 10 (hide-instead-of-delete-sync-mode) — EXECUTING
-Plan: 1 of 4
-Status: Executing Phase 10
-Last activity: 2026-07-10 — Phase 10 execution started
+Phase: 10 (hide-instead-of-delete-sync-mode) — COMPLETE
+Plan: 4 of 4
+Status: Phase 10 complete — all 4 plans executed, HIDE-01..HIDE-08 satisfied
+Last activity: 2026-08-25 — Phase 10 complete (hide default shipped end-to-end)
 
-Progress: [█████████░] 91% (10/11 plans complete)
+Progress: [██████████] 100% (4/4 plans complete)
 
 ## Performance Metrics
 
@@ -65,6 +65,10 @@ Progress: [█████████░] 91% (10/11 plans complete)
 | Phase 08 P03 | 10min | 2 tasks | 2 files |
 | Phase 09 P01 | 12m | 2 tasks | 2 files |
 | Phase 09 P02 | 12min | 3 tasks | 8 files |
+| Phase 10 P01 | 55min | 2 tasks | 3 files |
+| Phase 10 P02 | 20min | 3 tasks | 4 files |
+| Phase 10 P03 | 25min | 3 tasks | 5 files |
+| Phase 10 P04 | 30min | 3 tasks | 4 files |
 
 ## Accumulated Context
 

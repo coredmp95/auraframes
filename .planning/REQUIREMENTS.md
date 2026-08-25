@@ -52,14 +52,14 @@ Requirements for milestone v2.0 (Directory-to-Frame Sync). Each maps to roadmap 
      FrameApi.select_asset; read signal = Asset.selected via get_assets?filter=all. Safe
      default = hide (the frame has no photo-count limit, so preservation is safest). -->
 
-- [ ] **HIDE-01**: Live spike confirms — against a disposable test asset — that `exclude_asset` flips `Asset.selected`→false while the asset remains in `get_assets?filter=all`, and the existing `select_asset` flips it back; `checkpoint:human-verify`, gates every other HIDE-* task (STOP-and-report if any tripwire fires, per Claude's Discretion)
-- [ ] **HIDE-02**: Read side is visibility-aware — `FrameApi.get_assets` passes `filter='all'` (hidden assets no longer omitted) and `compute_plan` produces the 4-way classification keyed on `asset.selected` (re-show / unchanged / removal-candidate / already-hidden), with hidden matches counting as present for dedup (D-05/D-06)
-- [ ] **HIDE-03**: `execute_plan` gains a `removal_mode` parameter (`hide`/`delete`/`hard_delete`) selecting a single write primitive (`exclude_asset`/`remove_asset`/`delete_asset`) per run; `exclude_asset` widened to batch (D-01/D-03)
-- [ ] **HIDE-04**: Re-show wired — an always-runs loop calls the existing `select_asset` on `plan.to_reshow` to un-hide present-local hidden photos, independent of `removal_mode` (D-05)
-- [ ] **HIDE-05**: CLI gains mutually-exclusive `--delete`/`--hard-delete` flags on `sync` (default = hide); dry-run plan and end-of-run summary label the verb per mode plus a re-show line (D-02/D-03/D-07/D-08)
-- [ ] **HIDE-06**: Confirmation gate escalates by destructiveness — `--hard-delete` requires a distinct, stronger confirmation (exact removal-count re-type); `--yes` still skips all gates; one gate covers the whole plan (D-04)
-- [ ] **HIDE-07**: `delete_asset`'s blast radius is re-verified live (fresh disposable asset) before `--hard-delete` is wired to a reachable path — supersedes Phase 8 D-06's "no reachable path" constraint (D-04b)
-- [ ] **HIDE-08**: 100%-offline test coverage for the 4-way classification, the 3-tier removal, and the re-show execution paths, matching the existing injected-fake conventions
+- [x] **HIDE-01**: Live spike confirms — against a disposable test asset — that `exclude_asset` flips `Asset.selected`→false while the asset remains in `get_assets?filter=all`, and the existing `select_asset` flips it back; `checkpoint:human-verify`, gates every other HIDE-* task (STOP-and-report if any tripwire fires, per Claude's Discretion) — **live outcome PASS with one correction: the flag is `asset_settings[asset_id].selected`/`.hidden`, NOT `Asset.selected`, which never changes; `FrameApi.get_assets` now joins it onto `Asset.selected` at the boundary. See `10-LIVE-FINDINGS.md`.**
+- [x] **HIDE-02**: Read side is visibility-aware — `FrameApi.get_assets` passes `filter='all'` (hidden assets no longer omitted) and `compute_plan` produces the 4-way classification keyed on `asset.selected` (re-show / unchanged / removal-candidate / already-hidden), with hidden matches counting as present for dedup (D-05/D-06)
+- [x] **HIDE-03**: `execute_plan` gains a `removal_mode` parameter (`hide`/`delete`/`hard_delete`) selecting a single write primitive (`exclude_asset`/`remove_asset`/`delete_asset`) per run; `exclude_asset` widened to batch (D-01/D-03)
+- [x] **HIDE-04**: Re-show wired — an always-runs loop calls the existing `select_asset` on `plan.to_reshow` to un-hide present-local hidden photos, independent of `removal_mode` (D-05)
+- [x] **HIDE-05**: CLI gains mutually-exclusive `--delete`/`--hard-delete` flags on `sync` (default = hide); dry-run plan and end-of-run summary label the verb per mode plus a re-show line (D-02/D-03/D-07/D-08)
+- [x] **HIDE-06**: Confirmation gate escalates by destructiveness — `--hard-delete` requires a distinct, stronger confirmation (exact removal-count re-type); `--yes` still skips all gates; one gate covers the whole plan (D-04)
+- [x] **HIDE-07**: `delete_asset`'s blast radius is re-verified live (fresh disposable asset) before `--hard-delete` is wired to a reachable path — supersedes Phase 8 D-06's "no reachable path" constraint (D-04b)
+- [x] **HIDE-08**: 100%-offline test coverage for the 4-way classification, the 3-tier removal, and the re-show execution paths, matching the existing injected-fake conventions
 
 ## v2 Requirements
 
@@ -117,14 +117,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANTI-05 | Phase 9 (Plan 09-02) | Complete |
 | ANTI-06 | Phase 9 (Plan 09-02) | Complete |
 | ANTI-07 | Phase 9 (Plans 09-01, 09-02) | Complete |
-| HIDE-01 | Phase 10 (Plan 10-01) | Pending |
-| HIDE-02 | Phase 10 (Plan 10-02) | Pending |
-| HIDE-03 | Phase 10 (Plan 10-03) | Pending |
-| HIDE-04 | Phase 10 (Plan 10-03) | Pending |
-| HIDE-05 | Phase 10 (Plan 10-04) | Pending |
-| HIDE-06 | Phase 10 (Plan 10-04) | Pending |
-| HIDE-07 | Phase 10 (Plan 10-01) | Pending |
-| HIDE-08 | Phase 10 (Plans 10-02, 10-03, 10-04) | Pending |
+| HIDE-01 | Phase 10 (Plan 10-01) | Complete |
+| HIDE-02 | Phase 10 (Plan 10-02) | Complete |
+| HIDE-03 | Phase 10 (Plan 10-03) | Complete |
+| HIDE-04 | Phase 10 (Plan 10-03) | Complete |
+| HIDE-05 | Phase 10 (Plan 10-04) | Complete |
+| HIDE-06 | Phase 10 (Plan 10-04) | Complete |
+| HIDE-07 | Phase 10 (Plan 10-01) | Complete |
+| HIDE-08 | Phase 10 (Plans 10-02, 10-03, 10-04) | Complete |
 
 **Coverage:**
 
@@ -136,4 +136,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-07-05*
-*Last updated: 2026-07-10 after Phase 10 planning (hide-instead-of-delete-sync-mode) — HIDE-01..HIDE-08 minted and traced (HIDE-01/07 → Plan 10-01, HIDE-02 → Plan 10-02, HIDE-03/04 → Plan 10-03, HIDE-05/06 → Plan 10-04, HIDE-08 → Plans 10-02/03/04)*
+*Last updated: 2026-08-25 after Phase 10 execution (HIDE-01..HIDE-08 all Complete). Previously 2026-07-10 after Phase 10 planning (hide-instead-of-delete-sync-mode) — HIDE-01..HIDE-08 minted and traced (HIDE-01/07 → Plan 10-01, HIDE-02 → Plan 10-02, HIDE-03/04 → Plan 10-03, HIDE-05/06 → Plan 10-04, HIDE-08 → Plans 10-02/03/04)*
