@@ -4,11 +4,11 @@ milestone: v2.0
 milestone_name: Directory-to-Frame Sync
 current_phase: 10
 current_phase_name: hide-instead-of-delete-sync-mode
-status: phase-complete
-stopped_at: Phase 10 UAT complete (20/20 pass, 2 open defects logged)
+status: shipped
+stopped_at: Phase 10 shipped — PR #1 (milestone v2.0)
 last_updated: "2026-08-25T08:05:00.000Z"
 last_activity: 2026-08-25
-last_activity_desc: Phase 10 UAT complete — all write paths verified end-to-end; 2 defects logged
+last_activity_desc: Phase 10 shipped — PR #1 opens milestone v2.0 (phases 5-10) against master
 progress:
   total_phases: 6
   completed_phases: 6
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-06)
 
 Phase: 10 (hide-instead-of-delete-sync-mode) — COMPLETE
 Plan: 4 of 4
-Status: Phase 10 complete — all 4 plans executed, HIDE-01..HIDE-08 satisfied
+Status: Phase 10 shipped — PR #1 (https://github.com/coredmp95/auraframes/pull/1) carries the whole v2.0 milestone
 Last activity: 2026-08-25 — Phase 10 complete (hide default shipped end-to-end)
 
 Progress: [██████████] 100% (4/4 plans complete)
