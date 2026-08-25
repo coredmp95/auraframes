@@ -10,9 +10,10 @@ tests/test_read_path.py and tests/conftest.py are untouched.
 import httpx
 import pytest
 
+from auraframes.api.frameApi import FrameApi
 from auraframes.client import Client
 from auraframes.models.frame import Frame
-from tests.offline import offline_aura
+from tests.offline import _load as _load_fixture, offline_aura
 
 
 def test_offline_login_sets_auth_headers():
@@ -76,3 +77,83 @@ def test_offline_http_status_error_raises():
 
     with pytest.raises(httpx.HTTPStatusError):
         client.get("/missing.json")
+
+
+def test_offline_get_assets_requests_filter_all():
+    """get_assets must send `filter=all` (HIDE-02, D-06).
+
+    The server defaults to `filter=selected` when the param is omitted and
+    silently drops every hidden asset from the page, which would make a hidden
+    photo look absent and get re-uploaded on the next sync.
+    """
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/assets.json"):
+            seen["filter"] = request.url.params.get("filter")
+            return httpx.Response(200, json={"assets": [], "next_page_cursor": None})
+        return httpx.Response(404, json={"error": "not_found"})
+
+    client = Client(transport=httpx.MockTransport(handler))
+    FrameApi(client).get_assets("frame-fake-0001")
+
+    assert seen["filter"] == "all", f"expected filter=all, got {seen['filter']!r}"
+
+
+def _assets_body(rows, asset_settings=None):
+    """Build an assets.json response body from the fixture asset, cloned once
+    per (id, selected) pair in `rows`, so the Asset model hydrates against a
+    realistic full payload rather than a hand-rolled partial one."""
+    template = _load_fixture("assets_page1.json")["assets"][0]
+    assets = []
+    for asset_id, selected in rows:
+        clone = dict(template)
+        clone["id"] = asset_id
+        clone["selected"] = selected
+        assets.append(clone)
+    body = {"assets": assets, "next_page_cursor": None}
+    if asset_settings is not None:
+        body["asset_settings"] = asset_settings
+    return body
+
+
+def test_offline_get_assets_joins_per_frame_visibility_from_asset_settings():
+    """`Asset.selected` must carry THIS FRAME's visibility, joined from the
+    response's parallel `asset_settings` array (D-01/D-05).
+
+    Live-confirmed in Phase 10: after `exclude_asset` hid a photo its
+    `asset_settings.selected` flipped to false while the asset-level
+    `selected` stayed true. Reading the asset-level field would classify every
+    photo as visible forever and silently never hide anything, so the boundary
+    overwrites it.
+    """
+    body = _assets_body(
+        # The API still reports selected=true for all three...
+        [("asset-hidden", True), ("asset-visible", True), ("asset-no-settings-row", True)],
+        # ...but this frame's settings say one of them is hidden.
+        asset_settings=[
+            {"asset_id": "asset-hidden", "selected": False, "hidden": True},
+            {"asset_id": "asset-visible", "selected": True, "hidden": False},
+        ],
+    )
+    client = Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
+
+    assets, _ = FrameApi(client).get_assets("frame-fake-0001")
+    by_id = {a.id: a for a in assets}
+
+    assert by_id["asset-hidden"].selected is False, \
+        "hidden asset must read selected=False after the asset_settings join"
+    assert by_id["asset-visible"].selected is True
+    # No settings row => no per-frame override to apply; keep what the API sent.
+    assert by_id["asset-no-settings-row"].selected is True
+
+
+def test_offline_get_assets_survives_missing_asset_settings():
+    """A response with no `asset_settings` array must not raise — the assets
+    simply keep whatever `selected` the API sent."""
+    body = _assets_body([("asset-1", True)])
+    client = Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=body)))
+
+    assets, _ = FrameApi(client).get_assets("frame-fake-0001")
+
+    assert assets[0].selected is True

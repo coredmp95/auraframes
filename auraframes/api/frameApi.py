@@ -8,6 +8,35 @@ from auraframes.models.frame import Frame, FramePartial
 from auraframes.utils.dt import get_utc_now, format_dt_to_aura
 
 
+def _apply_asset_settings(assets: list[Asset], asset_settings) -> None:
+    """Overwrite each asset's `selected` with this frame's visibility, taken
+    from the `asset_settings` array that rides alongside `assets` in the
+    /frames/{id}/assets.json response.
+
+    Visibility is per-frame state, so it lives in `asset_settings` (keyed by
+    `asset_id`, carrying `selected` and its mirror `hidden`), NOT on the asset
+    itself. Live-confirmed in Phase 10: after `exclude_asset` hid a photo, its
+    `asset_settings.selected` flipped to `false` while the asset-level
+    `selected` stayed `true`. Reading the asset-level field would classify
+    every photo as visible forever and silently never hide anything, so the
+    join happens once here at the API boundary rather than in each caller.
+
+    An asset with no matching settings row keeps whatever `selected` the API
+    sent (it has no per-frame override to apply). Mutates `assets` in place.
+    """
+    if not asset_settings:
+        return
+
+    visibility = {
+        row['asset_id']: row['selected']
+        for row in asset_settings
+        if row.get('asset_id') is not None and row.get('selected') is not None
+    }
+    for asset in assets:
+        if asset.id in visibility:
+            asset.selected = visibility[asset.id]
+
+
 class FrameApi(BaseApi):
 
     def get_frames(self) -> list[Frame]:
@@ -40,13 +69,29 @@ class FrameApi(BaseApi):
         Gets assets for a `frame_id`. The results are paginated with `limit` results per page. To obtain the next set
         of pages, pass in the cursor from the response.
 
+        Returns BOTH visible and hidden assets: the request sends `filter=all`
+        because the server otherwise defaults to `filter=selected` and silently
+        drops every hidden asset from the page (live-confirmed Phase 10 --
+        omitting the filter returned 154 assets where `filter=all` returned
+        157). Hidden assets must stay in the listing so a hidden photo still
+        counts as present for md5 dedup and is never re-uploaded (D-06).
+
+        Each returned `Asset.selected` carries THIS FRAME's visibility, joined
+        from the response's parallel `asset_settings` array (see
+        `_apply_asset_settings`). The asset-level `selected` field the API
+        sends is NOT per-frame visibility -- live probing showed it stays
+        `true` even while the photo is hidden on the frame -- so it is
+        overwritten here, at the boundary, and every downstream consumer can
+        read `asset.selected` as the real signal (D-01/D-05).
+
         :param frame_id: Frame ID to retrieve assets
         :param limit: Maximum number of assets per page / callout.
         :param cursor: The cursor from the previous page.
-        :return: List of all the assets, and the next page's cursor (will be `None` if there are no more pages)
+        :return: List of all the assets (visible and hidden), and the next page's cursor
+            (will be `None` if there are no more pages)
         """
         json_response = self._client.get(f'/frames/{frame_id}/assets.json',
-                                         query_params={'limit': limit, 'cursor': cursor})
+                                         query_params={'limit': limit, 'cursor': cursor, 'filter': 'all'})
         if json_response.get('error'):
             # Surface API drift instead of silently swallowing it (D-06):
             # a drifted/failed asset page must not be processed as success.
@@ -55,6 +100,7 @@ class FrameApi(BaseApi):
                 f"{json_response.get('message') or json_response.get('error')}"
             )
         assets = [Asset(**asset_data) for asset_data in json_response.get('assets')]
+        _apply_asset_settings(assets, json_response.get('asset_settings'))
         return assets, json_response.get('next_page_cursor')
 
     def get_activities(self, frame_id: str, cursor: str = None):
