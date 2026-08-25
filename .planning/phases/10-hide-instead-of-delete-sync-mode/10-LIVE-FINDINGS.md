@@ -127,3 +127,66 @@ Frame asset total: **149 at session start → 157 at session end** (+4 uploads �
 ## Verdict
 
 **PASS.** The hide mechanism is confirmed live, non-destructive, reversible, batchable, and observable. Plans 10-02, 10-03 and 10-04 may proceed, with the read-signal correction above (`asset_settings`, not `Asset.selected`) folded into Plan 10-02's classification design.
+
+---
+
+# Addendum — end-to-end CLI verification (2026-08-25, UAT session)
+
+The user confirmed "Cadre de Fabrice" is a test frame and authorised running anything on it, which closed the "removal modes never exercised end-to-end" gap. To scope the tests safely, a **mirror directory** was built by hardlinking every local file in `buffet/` and `data/` whose md5 already matched a frame asset (95 files). Syncing that mirror produces an empty removal set, so each test could add or remove exactly one asset from scope rather than putting 96 real photos at risk.
+
+## All four write paths confirmed end-to-end through the CLI
+
+| Path | Command | Result |
+|---|---|---|
+| Hide (default) | `sync mirror --apply --yes` | `Hidden: 1 succeeded, 0 failed` |
+| Re-show | mirror + the hidden photo's local file | `To re-show: 1` → `Re-shown: 1 succeeded`, **`To upload: 0`** |
+| `--delete` | `sync mirror --apply --yes --delete` | `Removed: 1 succeeded, 0 failed` (on retry) |
+| `--hard-delete` | `sync mirror --apply --hard-delete` | frame 157 → 156, target gone; later 2 more in one batch |
+
+The re-show row is the important one: **`To upload: 0`** proves the D-06 dedup guarantee end-to-end — a hidden photo still counts as present, so it is re-shown rather than uploaded a second time. Until now that was only asserted in unit tests.
+
+## The exact-count gate, driven on a real TTY
+
+A pipe makes stdin a non-TTY, so the CLI correctly refused (`--apply requires --yes when running non-interactively`) — the fail-closed path, confirmed live. Driving it through a real pty instead:
+
+```
+To hard-delete: 1
+IRREVERSIBLE: 1 photo(s) will be permanently destroyed account-wide, not just removed from this frame. This cannot be undone.
+To confirm, type the number of photos to hard-delete (1): y
+Aborted.
+```
+
+Typing `y` — the reflex answer that would satisfy any ordinary y/N prompt — **aborted**, and the asset was verified still present afterwards. Typing `1` proceeded and destroyed it. The gate does the job it was designed for.
+
+## NEW DEFECT — writes intermittently 401 on the first attempt (severity: major)
+
+Roughly **4 of ~10 CLI write runs failed with HTTP 401 and succeeded on an immediate re-run**, with no change to config, geo (FR throughout) or credentials:
+
+| Run | First attempt | Retry |
+|---|---|---|
+| `push` 4 disposables (first write of the session) | 401 on `select_asset.json` | ✅ |
+| `sync --apply --delete` | 401 on `remove_asset.json` | ✅ |
+| `sync --apply --hard-delete` | 401 on `assets/{id}.json` | ✅ |
+| `sync --apply` (re-show ×2) | 401 on `select_asset.json` | ✅ |
+
+It is **not endpoint-specific** (select, remove and delete all hit it) and not the geofence. The client has no retry, so a user sees a spurious failure report and a non-zero exit and must re-run by hand. This is the concrete, user-visible cost of the transient-401 behaviour first noted above — and it is frequent enough to matter in normal use.
+
+**Recommended fix (future phase):** retry once on a 401 with a fresh login inside `execute_plan`, before attributing the item as failed.
+
+## NEW DEFECT — placeholder rows are unremovable (severity: minor)
+
+The 5 placeholder rows this session created (via diagnostic `select_asset` calls carrying an unknown `asset_local_identifier`) **cannot be deleted by any wrapped primitive**:
+
+- `DELETE /assets/{id}.json` → **HTTP 200, and the asset remains** (a silent no-op — worse than an error, since it reports success).
+- `POST /frames/{id}/remove_asset.json` → **HTTP 404 `{"error":true,"message":"Not found"}`**.
+
+These rows have no `uploaded_at`, `file_name` or `md5_hash`, never display on the frame, and are invisible to sync (counted as `frame_no_hash`). This explains the **58 accumulated placeholders** on the live frame and is very likely the cause of the `num_assets` (171) vs drained-pages (154) mismatch that fails `test_read_03_pagination`.
+
+**Operational lesson:** calling `select_asset` with a local_identifier you do not intend to upload permanently pollutes the frame. Diagnostics must not do this.
+
+## Frame left in this state
+
+- **154 assets** (149 at session start + 5 permanent placeholder rows).
+- All 4 uploaded disposables destroyed; nothing of the user's was lost.
+- The one real photo hidden to scope the tests (`7321c22e…`) was **restored** — `hidden=False, selected=True`.
+- Net permanent residue: **5 undeletable placeholder rows**, which do not display.

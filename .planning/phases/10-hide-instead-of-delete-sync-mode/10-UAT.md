@@ -1,22 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 10-hide-instead-of-delete-sync-mode
 source: [10-01-SUMMARY.md, 10-02-SUMMARY.md, 10-03-SUMMARY.md, 10-04-SUMMARY.md]
 started: 2026-08-25T08:15:11Z
-updated: 2026-08-25T08:15:11Z
+updated: 2026-08-25T08:35:00Z
 ---
 
 ## Current Test
 
-number: 13
-name: Confirm the auto-covered deliverables and the residual gaps
-expected: |
-  All 12 coverage entries across the four plan summaries are automatically
-  covered by passing tests or recorded live probes, so none is presented as a
-  manual checkpoint. What needs a human is confirming that the auto-pass is
-  trustworthy and accepting (or rejecting) the three residual gaps listed in
-  Tests 13-15 below.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -111,7 +103,13 @@ expected: |
   delete_asset) were live-verified in Plans 10-01/Phase 8 — but no one has run
   `sync --apply --delete` or `--hard-delete` through the CLI against a real
   frame. Accept as known, or ask for a live disposable-asset test.
-result: [pending]
+result: pass
+reported: "accept all, and the current frame is a test one, so you can run what you want on it"
+note: |
+  Accepted AND then closed. The user's authorization allowed running the real
+  thing, so all three removal modes plus re-show were exercised end-to-end
+  through the CLI against "Cadre de Fabrice" — see tests 16-20. The gap no
+  longer exists.
 
 ### 14. Residual gap — probe residue left on "Cadre de Fabrice"
 expected: |
@@ -119,7 +117,14 @@ expected: |
   the frame from Plan 10-01's probe. All are hidden or non-displaying, so the
   frame looks correct. Bulk deletion was refused by the environment's
   permission classifier and was not worked around. Accept, or request cleanup.
-result: [pending]
+result: pass
+reported: "accept all, and the current frame is a test one, so you can run what you want on it"
+note: |
+  Accepted, then cleaned up as far as the API allows. All 4 uploaded
+  disposables destroyed and the one real photo hidden for testing was
+  restored (hidden=False, selected=True). The 5 placeholder rows could NOT be
+  removed — see the new gap below: they are unremovable through the API.
+  Frame is 154 assets vs 149 at session start = the 5 permanent placeholders.
 
 ### 15. Residual gap — one pre-existing test failure (num_assets vs drained pages)
 expected: |
@@ -128,17 +133,74 @@ expected: |
   placeholder rows with no image, created by select_asset calls whose upload
   never completed. Pre-existing, unrelated to Phase 10, logged in STATE.md.
   Accept as out-of-scope, or request investigation before shipping.
-result: [pending]
+result: pass
+reported: "accept all, and the current frame is a test one, so you can run what you want on it"
+note: |
+  Accepted as out of scope. Partially explained as a side effect of this
+  session: placeholder rows cannot be deleted (delete_asset returns 200 and
+  does nothing; remove_asset returns 404), so they accumulate permanently.
+  That is very likely why 58 exist and why num_assets disagrees with the
+  drained page count.
+
+### 16. Hide path end-to-end through `sync --apply` (default mode)
+expected: Default `sync --apply` hides gone-local photos and reports "Hidden: N succeeded"
+result: pass
+note: "Hidden: 1 succeeded, 0 failed" against the live frame; asset stayed in filter=all
+
+### 17. Re-show path end-to-end through `sync --apply`
+expected: A locally-restored photo that is hidden on the frame is re-shown, not re-uploaded
+result: pass
+note: |
+  "To re-show: 1 / Re-shown: 1 succeeded" with "To upload: 0" — the D-06 dedup
+  guarantee holding end-to-end, not just in unit tests.
+
+### 18. `--delete` end-to-end (remove_asset)
+expected: `sync --apply --delete` removes the gone-local asset and reports "Removed: N succeeded"
+result: pass
+note: First attempt failed with a transient 401; the retry reported "Removed: 1 succeeded, 0 failed". See gap 1.
+
+### 19. `--hard-delete` exact-count gate on a real TTY
+expected: Typing anything other than the exact count aborts before any write; the correct count proceeds
+result: pass
+note: |
+  Driven through a real pty. Typing "y" — the answer a normal y/N gate would
+  accept — printed "IRREVERSIBLE: 1 photo(s) will be permanently destroyed
+  account-wide" then "Aborted."; the asset was verified still present
+  afterwards. Typing "1" proceeded. Also confirmed the non-interactive path
+  still fails closed ("--apply requires --yes when running non-interactively").
+
+### 20. `--hard-delete` irreversibly destroys, end-to-end
+expected: The asset is permanently gone from the frame
+result: pass
+note: Frame 157 -> 156, target absent on re-read. A later run destroyed 2 more in one batch. First attempt failed 401; retry succeeded. See gap 1.
 
 ## Summary
 
-total: 15
-passed: 12
-issues: 0
-pending: 3
+total: 20
+passed: 20
+issues: 2
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-[none yet]
+- truth: "A write issued by `sync --apply` succeeds on the first attempt"
+  status: failed
+  reason: "Observed live: roughly 4 of ~10 CLI write runs failed with a transient HTTP 401 and succeeded on an immediate re-run, with no config, geo or credential change. Seen on select_asset, remove_asset and delete_asset alike, so it is not endpoint-specific. The client has no retry, so the user sees a spurious failure and a non-zero exit and must re-run by hand."
+  severity: major
+  test: 18
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
+
+- truth: "An asset created on a frame can be removed from it again"
+  status: failed
+  reason: "Placeholder rows — assets created by a select_asset call whose upload never completed (no uploaded_at, no file_name, no md5) — cannot be removed by any wrapped primitive. delete_asset returns HTTP 200 and removes nothing; remove_asset returns 404 Not found. 58 such rows have accumulated on the live frame and are permanently stuck, which also explains the num_assets (171) vs drained-pages (154) mismatch in test 15."
+  severity: minor
+  test: 14
+  root_cause: ""
+  artifacts: []
+  missing: []
+  debug_session: ""
