@@ -95,8 +95,8 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: batch exclude_asset** — `65f9b0e` (feat)
-2. **Task 2/3: removal_mode + re-show** — `4c8f5b8` (test, RED) → `6c62338` (feat, GREEN)
+1. **Task 1: batch exclude_asset** — `adf1f87` (feat)
+2. **Task 2/3: removal_mode + re-show** — `66f569e` (test, RED) → `6c62338` (feat, GREEN)
 
 ## Decisions Made
 
