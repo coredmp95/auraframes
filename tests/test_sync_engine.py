@@ -9,8 +9,11 @@ from auraframes.models.asset import Asset
 from auraframes.sync import compute_plan, scan_directory
 
 
-def _asset(id_, md5_hash, taken_at="2024-03-11T12:00:00.000Z"):
-    return Asset.model_construct(id=id_, md5_hash=md5_hash, taken_at=taken_at)
+def _asset(id_, md5_hash, taken_at="2024-03-11T12:00:00.000Z", selected=True):
+    """`selected` is THIS FRAME's visibility, as joined from `asset_settings`
+    by FrameApi.get_assets -- False means the photo is hidden on the frame."""
+    return Asset.model_construct(id=id_, md5_hash=md5_hash, taken_at=taken_at,
+                                 selected=selected)
 
 
 def _write(path, data: bytes):
@@ -139,3 +142,90 @@ def test_compute_plan_carries_skipped_non_image_onto_returned_plan():
     plan = compute_plan(local_hashes={}, frame_assets=[], skipped_non_image=7)
 
     assert plan.skipped_non_image == 7
+
+
+# --- 4-way visibility classification (HIDE-02, HIDE-08; D-05/D-06) ----------
+#
+# compute_plan classifies every frame asset on (present-local x selected):
+#   present + hidden  -> to_reshow        present + visible -> unchanged
+#   gone    + visible -> to_delete        gone    + hidden  -> already_hidden
+
+def test_compute_plan_present_local_hidden_asset_is_a_reshow_candidate(tmp_path):
+    _write(tmp_path / "kept.jpg", b"kept-bytes")
+    scan = scan_directory(tmp_path)
+    (local_hash,) = scan.local_hashes.keys()
+    hidden = _asset("asset-hidden", local_hash, selected=False)
+
+    plan = compute_plan(scan.local_hashes, [hidden])
+
+    assert plan.to_reshow == [hidden], "a hidden photo still wanted locally must be re-shown"
+    assert plan.to_delete == []
+    assert plan.unchanged == 0
+
+
+def test_compute_plan_present_local_visible_asset_is_unchanged(tmp_path):
+    _write(tmp_path / "kept.jpg", b"kept-bytes")
+    scan = scan_directory(tmp_path)
+    (local_hash,) = scan.local_hashes.keys()
+
+    plan = compute_plan(scan.local_hashes, [_asset("asset-visible", local_hash, selected=True)])
+
+    assert plan.unchanged == 1
+    assert plan.to_reshow == []
+    assert plan.to_delete == []
+
+
+def test_compute_plan_gone_local_visible_asset_is_a_removal_candidate(tmp_path):
+    scan = scan_directory(tmp_path)  # empty dir -- nothing wanted locally
+    visible = _asset("asset-visible", "hash-not-local", selected=True)
+
+    plan = compute_plan(scan.local_hashes, [visible])
+
+    assert plan.to_delete == [visible]
+    assert plan.already_hidden == 0
+
+
+def test_compute_plan_gone_local_hidden_asset_is_a_noop(tmp_path):
+    """Already hidden and no longer wanted locally: nothing left to do. It must
+    NOT be re-removed on every run (D-06)."""
+    scan = scan_directory(tmp_path)
+    hidden = _asset("asset-hidden", "hash-not-local", selected=False)
+
+    plan = compute_plan(scan.local_hashes, [hidden])
+
+    assert plan.already_hidden == 1
+    assert plan.to_delete == [], "an already-hidden asset must never be a removal candidate"
+    assert plan.to_reshow == []
+
+
+def test_compute_plan_hidden_match_consumes_demand_and_is_never_reuploaded(tmp_path):
+    """D-06 dedup: a hidden frame asset still counts as present, so its local
+    counterpart must not be uploaded a second time."""
+    _write(tmp_path / "kept.jpg", b"kept-bytes")
+    scan = scan_directory(tmp_path)
+    (local_hash,) = scan.local_hashes.keys()
+
+    plan = compute_plan(scan.local_hashes, [_asset("asset-hidden", local_hash, selected=False)])
+
+    assert plan.to_upload == [], "a hidden photo already on the frame must not be re-uploaded"
+    assert plan.to_reshow, "it should be re-shown instead"
+
+
+def test_compute_plan_classifies_a_mixed_frame_four_ways(tmp_path):
+    _write(tmp_path / "a.jpg", b"a-bytes")
+    _write(tmp_path / "b.jpg", b"b-bytes")
+    scan = scan_directory(tmp_path)
+    by_name = {p.name: h for h, paths in scan.local_hashes.items() for p in paths}
+
+    reshow = _asset("a-hidden", by_name["a.jpg"], selected=False)
+    unchanged = _asset("b-visible", by_name["b.jpg"], selected=True)
+    removal = _asset("c-visible-gone", "hash-gone-visible", selected=True)
+    noop = _asset("d-hidden-gone", "hash-gone-hidden", selected=False)
+
+    plan = compute_plan(scan.local_hashes, [reshow, unchanged, removal, noop])
+
+    assert plan.to_reshow == [reshow]
+    assert plan.unchanged == 1
+    assert plan.to_delete == [removal]
+    assert plan.already_hidden == 1
+    assert plan.to_upload == []
