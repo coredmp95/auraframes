@@ -190,3 +190,19 @@ These rows have no `uploaded_at`, `file_name` or `md5_hash`, never display on th
 - All 4 uploaded disposables destroyed; nothing of the user's was lost.
 - The one real photo hidden to scope the tests (`7321c22e…`) was **restored** — `hidden=False, selected=True`.
 - Net permanent residue: **5 undeletable placeholder rows**, which do not display.
+
+## Follow-up — the `num_assets` mismatch is a placeholder-row artefact
+
+Measured directly, comparing one big call against the paginated drain of the same frame:
+
+```
+single call limit=1000 : 154
+drained limit=50       : 149   (5 missing)
+drained limit=100      : 149   (5 missing)
+```
+
+The 5 assets present in the single call but **absent from every paginated drain** are exactly the 5 placeholder rows created today — each with `uploaded_at=None` and `md5_hash=None`. The 53 older placeholders *are* returned by the drain.
+
+So the server's cursor pagination silently omits the newest placeholder rows while a single unpaginated call includes them. This is **server-side inconsistency, not a client bug** — the same `filter=all` request differs only in paging — and it is what makes `test_read_03_pagination` fail: the test asserts `drained == num_assets`, comparing two counts the server itself does not keep consistent (`num_assets` has read 171, then 172, while the drain reads 149).
+
+**Practical impact today is low:** `get_all_assets` defaults to `limit=1000`, so a frame under 1000 assets is fetched in a single page and never hits the omission. It would matter for a frame large enough to paginate.
