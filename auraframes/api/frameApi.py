@@ -179,18 +179,37 @@ class FrameApi(BaseApi):
 
         return number_failed
 
-    def exclude_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+    def exclude_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Excludes an asset from displaying in the frame's slideshow. The asset will still show in the app.
+        Hides one or more assets on the frame: they stop displaying in the slideshow but are
+        NOT deleted -- they remain in `get_assets(filter='all')` and still show in the app.
+        Live-confirmed in Phase 10 (the frame's asset total was unchanged across a hide, and
+        the asset's `asset_settings.selected` flipped to false / `hidden` to true).
+
+        `select_asset` is the exact inverse -- it un-hides. There is no `include_asset`
+        endpoint and none is needed.
+
+        This is a native Pushd BATCH endpoint (service method `excludeAssets`): the official
+        app sends the whole collection in a single `{"assets": [...]}` call rather than one
+        call per asset, live-confirmed in Phase 10 by hiding two assets in one request. A
+        single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list).
+
+        The URL deliberately has NO `.json` suffix -- unlike every sibling endpoint here.
+        That matches what the decompiled app posts and is live-confirmed working; it is not
+        a bug, so do not "fix" it.
 
         :param frame_id: Frame id
-        :param asset_partial_id: The asset identifier to remove from the slideshow.
-        :return: The number of assets that failed to be excluded from the frame.
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to hide on
+            the frame in one call.
+        :return: The number of assets that failed to be hidden. NOTE: this is a count only --
+            in batch mode there is no per-item signal in this response, so a caller cannot
+            learn WHICH item(s) failed from exclude_asset alone.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/exclude_asset',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
         if json_response.get('error'):
             raise RuntimeError(f"exclude_asset failed for frame {frame_id}: {json_response.get('error')}")
 
