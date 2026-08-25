@@ -5,9 +5,16 @@ Implements most of the AuraFrames APIs in Python.
 Any advice or issues are welcome.
 
 > **Read path: VERIFIED end-to-end** against `api.pushd.com/v5` (login → list → fetch →
-> download). See [`VERIFICATION-REPORT.md`](VERIFICATION-REPORT.md) for the per-step status,
-> the live API drift repaired, and what is **not** verified. The upload / device flow below
-> is **documented from code, NOT verified in this revive milestone.**
+> download). See [`VERIFICATION-REPORT.md`](VERIFICATION-REPORT.md) for the per-step status
+> and the live API drift repaired.
+>
+> **Write path: VERIFIED end-to-end** against a live frame — upload, hide, re-show, remove,
+> and irreversible delete have each been exercised through the CLI, including the
+> confirmation gates. See [`docs/CLI.md`](docs/CLI.md) for the commands and the known issues.
+>
+> The **device** upload/download flows described near the end of this README remain
+> **documented from code, not verified** — they describe what the official app does, not a
+> path this client exercises.
 
 ## Requirements
 
@@ -65,44 +72,194 @@ precedence.
 - `AURA_DEVICE_IDENTIFIER`: The unique identifier of the device to mimic. (Default: `0000000000000000`)
   - Ideally this should be set to your unique identifier, though it accepts others.
 
+**Optional — write budget & geo guard** (used by `sync --apply` and `push`; see
+[*Write Path*](#write-path-upload--status--anti-abuse-budget) below):
+- `AURA_COUNTRY`: Expected account country for the geo pre-flight check, e.g. `FR`.
+  **Unset disables the check entirely.**
+- `AURA_GEO_FAIL_OPEN`: Continue if the country lookup itself fails. (Default: `true`)
+- `AURA_WRITE_BUDGET_CAPACITY`: Token-bucket capacity, in requests. (Default: `30`)
+- `AURA_WRITE_BUDGET_REFILL_PER_MIN`: Refill rate per minute. (Default: `0.75`)
+- `AURA_WRITE_BUDGET_WAIT`: Wait for a refill rather than stopping. (Default: `true`)
+- `AURA_WRITE_BUDGET_MAX_WAIT`: Max seconds to wait. (Default: `3600`)
+- `AURA_STATE_DIR`: Where the persisted budget lives. (Default: `~/.config/auraframes`)
+
+Boolean variables accept `1`, `true`, `yes`, `on` (case-insensitive); anything else is false.
+
 ## CLI Usage (`aura-cli`)
 
-A small CLI wraps the library (installed as the `aura-cli` entry point by `uv sync`):
+A CLI wraps the library (installed as the `aura-cli` entry point by `uv sync`). There are
+four commands:
+
+| Command | What it does | Writes? |
+|---------|--------------|---------|
+| `status` | Check credentials, log in, list your frames | No |
+| `inspect` | Show one frame's photos and metadata | No |
+| `sync` | Make a frame **match** a local directory | Yes, with `--apply` |
+| `push` | Upload from a supply directory — **never** removes | Yes, with `--apply` |
+
+**→ Full reference with every flag, real output, and known issues: [`docs/CLI.md`](docs/CLI.md)**
+
+### Start here
 
 ```bash
-# Health check: config/auth + list your account's frames.
+# Health check: are credentials set, does login work, which frames exist?
 uv run aura-cli status
+```
 
-# Inspect a frame's photos and metadata (read-only). --frame takes a name substring or id.
-uv run aura-cli inspect --frame "Living Room"
+```
+AURA_EMAIL: set
+AURA_PASSWORD: set
+Logged in as you@example.com
+1 frames:
+  - Living Room (id: 00000000-0000-0000-0000-000000000000)
+```
 
-# Diff a local directory against a frame (DRY RUN by default -- prints the plan, changes nothing).
+`--frame` takes a **case-insensitive substring of the frame name**, or an exact id. An
+ambiguous substring stops the run and lists the matches rather than guessing:
+
+```bash
+uv run aura-cli inspect --frame "living"
+```
+
+### `sync` — match a directory (dry run by default)
+
+Nothing changes without `--apply`:
+
+```bash
 uv run aura-cli sync ./photos/ --frame "Living Room"
+```
 
-# Actually apply the sync (uploads new files AND deletes frame photos absent locally).
-# Requires --yes to run non-interactively.
+```
+Sync plan for Living Room (id: 00000000-...) — DRY RUN, nothing will be changed
+To upload: 12
+To hide: 3
+To re-show: 1
+Unchanged: 84
+Already hidden: 2 (no action needed)
+```
+
+Photos are matched by **md5 content hash**, not filename — renaming a file locally does not
+cause a re-upload.
+
+```bash
+# Apply it. One confirmation covers the whole plan and echoes the frame name + id.
+uv run aura-cli sync ./photos/ --frame "Living Room" --apply
+
+# Non-interactive (CI, scripts) — --yes is required, otherwise it fails closed.
+uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes
+```
+
+### Removed photos are hidden, not deleted
+
+A photo that leaves your directory is **hidden** by default: it stops displaying but stays in
+your account, and comes straight back if you restore the file. The frame has no photo-count
+limit, so preservation is the safe default — a mistaken sync should cost visibility, never
+photos.
+
+```bash
+# Default: hide. Reversible.
 uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes
 
-# ADDITIVE upload from a supply ("buffet") directory -- NEVER deletes anything on the frame.
-# Photos already on the frame are skipped by md5; only new files upload.
+# Remove from this frame (the asset survives in your account).
+uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes --delete
+
+# Destroy account-wide. IRREVERSIBLE.
+uv run aura-cli sync ./photos/ --frame "Living Room" --apply --hard-delete
+```
+
+| Flag | Effect | Reversible |
+|------|--------|------------|
+| *(none)* | Hidden — stops displaying, stays on the frame | **Yes** |
+| `--delete` | Removed from this frame | Must re-upload |
+| `--hard-delete` | Destroyed account-wide | **No** |
+
+`--delete` and `--hard-delete` are mutually exclusive (argparse rejects both together).
+
+`--hard-delete` does **not** accept a y/N answer. It makes you re-type the exact count, so you
+have to read the number first:
+
+```
+To hard-delete: 12
+IRREVERSIBLE: 12 photo(s) will be permanently destroyed account-wide, not just removed from
+this frame. This cannot be undone.
+To confirm, type the number of photos to hard-delete (12): y
+Aborted.
+```
+
+Only `12` proceeds. Note that `--yes` skips this gate like any other, so
+`sync --apply --yes --hard-delete` destroys without prompting — use it deliberately.
+
+### Restoring a hidden photo
+
+Because hiding is reversible and hidden photos still count as present for deduplication, the
+round trip is just moving the file back:
+
+```bash
+mv ./photos/sunset.jpg /tmp/ && uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes
+# -> To hide: 1
+
+mv /tmp/sunset.jpg ./photos/ && uv run aura-cli sync ./photos/ --frame "Living Room" --apply --yes
+# -> To re-show: 1   (and "To upload: 0" -- it is un-hidden, not uploaded again)
+```
+
+### `push` — upload only, never removes
+
+`push` is structurally additive: its removal list is forced empty, so it cannot hide, remove,
+or re-show anything. Use it when you want to *add* from a supply directory without the frame
+being diffed to match it.
+
+```bash
+# Dry run, then apply. Photos already on the frame are skipped by md5.
+uv run aura-cli push ./buffet/ --frame "Living Room"
 uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes
 
-# Probe flags on `push` (for the anti-abuse write budget -- see below):
+# Pacing flags for the anti-abuse write budget (see below):
 #   --limit N         upload at most N photos this run
 #   --batch-size N    assets per select_asset/batch_update call (default 50)
 #   --chunk-delay S   seconds to pause between write chunks (default 5)
-uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes --limit 40 --batch-size 5
+uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes --limit 40
+
+# Budget / geo overrides:
+#   --max-wait S      cap the wait for budget refill (default 3600)
+#   --no-wait         stop instead of waiting when the budget is dry
+#   --country XX      expected account country for the geo pre-flight guard
+#   --ignore-budget   bypass the budget entirely (escape hatch)
 ```
 
-Add `--debug` before the subcommand for verbose request/response logging.
+**If you are unsure which to use, use `push`** — it cannot take anything away.
+
+### Exit codes and logging
+
+`0` on success (a dry run and an aborted confirmation both count as success); `1` on missing
+credentials, login failure, an unresolvable `--frame`, any per-item failure, a rate-limit
+abort, a geo mismatch, or an exhausted budget.
+
+Add `--debug` **before** the subcommand for verbose request/response logging on stderr
+(`aura-cli --debug status`, not `aura-cli status --debug`). Every run also writes a full log
+to `logs/file_{timestamp}.log`.
+
+### Known issue: writes sometimes 401 on the first try
+
+Roughly 4 in 10 live write runs have been seen failing with `401 Unauthorized` and succeeding
+on an immediate re-run, with no change to credentials or network. There is **no automatic
+retry yet** — if an apply reports 401 failures, just run it again. Repeating is safe: uploads
+dedupe by md5 and hides are idempotent. See [`docs/CLI.md`](docs/CLI.md#known-issues) for the
+other known quirks (asset-count mismatch, undeletable placeholder rows).
 
 ## Write Path (upload) — status & anti-abuse budget
 
-> **Partially live-exercised (v2.0), with an important caveat.** Uploads DO work: the
-> batched write path successfully registered assets against a live frame. But a large
-> first-time bulk import hits an **undocumented server-side anti-abuse write budget**.
+> **Live-verified (v2.0).** Upload, hide, re-show, remove and hard-delete have each been run
+> end-to-end against a real frame. The caveats below are about *volume and reliability*, not
+> about whether the path works.
 
 Key findings (from live runs + decompiling the official Android app):
+
+- **Writes intermittently return a bare `401` and succeed on retry** — roughly 4 in 10
+  observed runs, independent of endpoint, credentials, or exit-IP country. The client has no
+  automatic retry yet, so a failed apply should simply be re-run. This is distinct from the
+  budget trip below: it clears immediately rather than after a cooldown.
+- **A write `401` is therefore not proof of a lockout.** Retry with a fresh login first, then
+  check the geo guard, then suspect the budget.
 
 - `select_asset` and `batch_update` are **native batch endpoints** — the client now sends a
   whole chunk of assets per call (`WRITE_BATCH_SIZE`, default 50) instead of one call per
@@ -114,8 +271,11 @@ Key findings (from live runs + decompiling the official Android app):
   `JobScheduler` queue over time (gated on charging + WiFi), retrying failures across runs.
 - Consequence for bulk imports: use `push --limit` in **small waves spaced over time** rather
   than one big burst. `sync`/`push` are resumable — the md5 diff means re-running only
-  attempts what is still missing. Full live end-to-end verification of a large import is still
-  pending a rested account.
+  attempts what is still missing. A large first-time import has still not been driven to
+  completion in one sitting.
+- A client-side **token-bucket budget and geo pre-flight guard** now run before every write
+  (see the `AURA_WRITE_BUDGET_*` / `AURA_COUNTRY` variables above), so the server-side
+  lockout is hard to reach by accident.
 
 ## iOS/Android Device's Upload Image Flow
 
