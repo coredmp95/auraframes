@@ -203,8 +203,18 @@ def scan_directory(root: Path) -> ScanResult:
 @dataclass
 class SyncPlan:
     to_upload: list[Path] = field(default_factory=list)
+    # Mode-agnostic REMOVAL-CANDIDATE list (D-07): frame assets no longer
+    # wanted locally. It deliberately keeps the name `to_delete` -- which
+    # primitive actually acts on it (hide vs. hard delete) is the executor's
+    # choice, not the diff's.
     to_delete: list = field(default_factory=list)
+    # Frame assets that ARE wanted locally but are currently hidden on the
+    # frame -- the re-show candidates (D-05).
+    to_reshow: list = field(default_factory=list)
     unchanged: int = 0
+    # Frame assets no longer wanted locally that are ALREADY hidden: nothing
+    # left to do, so they must never re-enter to_delete on later runs (D-06).
+    already_hidden: int = 0
     skipped_non_image: int = 0
     frame_no_hash: int = 0
 
@@ -224,10 +234,32 @@ def compute_plan(local_hashes: dict[str, list[Path]], frame_assets: list, skippe
     demand become delete candidates, they are NOT deduped as a group.
     Hashless frame assets (e.g. videos) are excluded from both unchanged
     and delete, and counted separately in `frame_no_hash`.
+
+    Every hash-bearing frame asset is classified two ways at once -- whether
+    the local directory still wants it, and whether it is currently visible on
+    the frame (`asset.selected`, which `FrameApi.get_assets` joins from
+    `asset_settings` so it means THIS FRAME's visibility):
+
+    | local     | visible | outcome                                  |
+    |-----------|---------|------------------------------------------|
+    | present   | hidden  | `to_reshow` -- bring it back (D-05)      |
+    | present   | visible | `unchanged`                              |
+    | gone      | visible | `to_delete` -- removal candidate         |
+    | gone      | hidden  | `already_hidden` -- no-op (D-06)         |
+
+    A hidden asset consumes local demand exactly like a visible one, so a
+    photo that is merely hidden is re-shown rather than uploaded a second
+    time (D-06).
+
+    This function stays PURE and MODE-AGNOSTIC: it never consults the removal
+    mode. It reports what each asset's state *is*; choosing hide-vs-delete for
+    `to_delete` belongs to the executor.
     """
     demand = {h: 1 for h in local_hashes}
     to_delete: list = []
+    to_reshow: list = []
     unchanged = 0
+    already_hidden = 0
     frame_no_hash = 0
 
     for asset in frame_assets:
@@ -236,17 +268,30 @@ def compute_plan(local_hashes: dict[str, list[Path]], frame_assets: list, skippe
             continue
 
         if demand.get(asset.md5_hash, 0) > 0:
+            # Wanted locally. Consume the demand either way (D-06 dedup) --
+            # a hidden copy still counts as present, so it is never
+            # re-uploaded, only re-shown.
             demand[asset.md5_hash] -= 1
-            unchanged += 1
+            if asset.selected:
+                unchanged += 1
+            else:
+                to_reshow.append(asset)
         else:
-            to_delete.append(asset)
+            # No longer wanted locally. Already hidden means there is nothing
+            # left to do; re-listing it would re-issue the same hide forever.
+            if asset.selected:
+                to_delete.append(asset)
+            else:
+                already_hidden += 1
 
     to_upload = [local_hashes[h][0] for h, remaining in demand.items() if remaining > 0]
 
     return SyncPlan(
         to_upload=to_upload,
         to_delete=to_delete,
+        to_reshow=to_reshow,
         unchanged=unchanged,
+        already_hidden=already_hidden,
         skipped_non_image=skipped_non_image,
         frame_no_hash=frame_no_hash,
     )
