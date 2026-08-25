@@ -299,3 +299,55 @@ def test_backward_compat_no_budget_no_geo_check_touches_nothing_new(tmp_path):
     assert result.delete_succeeded == 1
     assert result.upload_failures == []
     assert result.delete_failures == []
+
+
+# --- removal-mode budget accounting (HIDE-03, Pitfall 3) --------------------
+
+def _install_removal_spies(aura):
+    aura.frame_api.exclude_asset = lambda frame_id, ids: 0
+    aura.frame_api.remove_asset = lambda frame_id, ids: 0
+    aura.frame_api.select_asset = lambda frame_id, ids: 0
+    aura.asset_api.delete_asset = lambda asset: None
+
+
+@pytest.mark.parametrize('removal_mode', ['hide', 'delete'])
+def test_batch_removal_modes_acquire_one_token_per_chunk(removal_mode):
+    """hide and delete are batch endpoints -- one request per chunk."""
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2')])
+    aura = offline_aura(overrides=_default_overrides())
+    _install_removal_spies(aura)
+    budget = _FakeBudget()
+
+    execute_plan(plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+                 sleep=lambda *_: None, budget=budget, clock=lambda: 'fixed-now',
+                 removal_mode=removal_mode)
+
+    assert [c['n'] for c in budget.acquire_calls] == [1]
+
+
+def test_hard_delete_acquires_one_token_per_asset_not_per_chunk():
+    """delete_asset has no batch form, so a 2-asset chunk really is 2 requests.
+    Charging the budget 1 would let a hard delete run it dry unnoticed and
+    re-trip the anti-abuse lockout (Pitfall 3)."""
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2'), _asset('a3')])
+    aura = offline_aura(overrides=_default_overrides())
+    _install_removal_spies(aura)
+    budget = _FakeBudget()
+
+    execute_plan(plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+                 sleep=lambda *_: None, budget=budget, clock=lambda: 'fixed-now',
+                 removal_mode='hard_delete')
+
+    assert [c['n'] for c in budget.acquire_calls] == [3]
+
+
+def test_reshow_chunk_acquires_one_token():
+    plan = SyncPlan(to_upload=[], to_delete=[], to_reshow=[_asset('r1'), _asset('r2')])
+    aura = offline_aura(overrides=_default_overrides())
+    _install_removal_spies(aura)
+    budget = _FakeBudget()
+
+    execute_plan(plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+                 sleep=lambda *_: None, budget=budget, clock=lambda: 'fixed-now')
+
+    assert [c['n'] for c in budget.acquire_calls] == [1]

@@ -346,3 +346,127 @@ def test_execute_plan_all_uploads_precede_all_deletes(tmp_path, monkeypatch):
     # Both deletes are chunked into a SINGLE remove_asset call, so 'delete'
     # appears exactly once in call_order -- after the single 'upload'.
     assert call_order == ['upload', 'delete']
+
+
+# --- 3-tier removal + always-runs re-show (HIDE-03/HIDE-04, D-01/D-03/D-05) --
+
+class _RecordingPrimitives:
+    """Replaces every mutating primitive execute_plan can reach for removal or
+    re-show, recording the asset ids each was called with. Lets a test assert
+    which single primitive a removal_mode selected -- and, just as important,
+    which ones it left alone."""
+
+    def __init__(self, aura, fail=None):
+        self.exclude, self.remove, self.select, self.hard_delete = [], [], [], []
+        self._fail = fail or set()
+        aura.frame_api.exclude_asset = self._record('exclude', self.exclude)
+        aura.frame_api.remove_asset = self._record('remove', self.remove)
+        aura.frame_api.select_asset = self._record('select', self.select)
+
+        def _delete_asset(asset):
+            if 'hard_delete' in self._fail:
+                raise RuntimeError('fake hard_delete failure')
+            self.hard_delete.append(asset.id)
+
+        aura.asset_api.delete_asset = _delete_asset
+
+    def _record(self, name, sink):
+        def call(frame_id, asset_partial_ids):
+            if name in self._fail:
+                raise RuntimeError(f'fake {name} failure')
+            items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
+            sink.append([item.id for item in items])
+            return 0
+        return call
+
+
+def _run(plan, aura, **kwargs):
+    return execute_plan(plan, aura, FRAME_ID, s3_client=_FakeS3Client(),
+                        sqs_client=_FakeSQSClient(), sleep=lambda *_: None, **kwargs)
+
+
+def test_hide_mode_excludes_and_never_removes_or_deletes():
+    """The default mode must reach ONLY the non-destructive primitive."""
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2')])
+    aura = offline_aura(overrides=_default_overrides())
+    spy = _RecordingPrimitives(aura)
+
+    result = _run(plan, aura)  # removal_mode defaults to 'hide'
+
+    assert spy.exclude == [['a1', 'a2']], "hide must batch both ids into one exclude_asset call"
+    assert spy.remove == [] and spy.hard_delete == []
+    assert result.delete_succeeded == 2
+
+
+def test_delete_mode_uses_remove_asset():
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1')])
+    aura = offline_aura(overrides=_default_overrides())
+    spy = _RecordingPrimitives(aura)
+
+    _run(plan, aura, removal_mode='delete')
+
+    assert spy.remove == [['a1']]
+    assert spy.exclude == [] and spy.hard_delete == []
+
+
+def test_hard_delete_mode_calls_delete_asset_once_per_asset():
+    """delete_asset is asset-scoped -- there is no batch form, so it is one
+    call per asset (Pitfall 3)."""
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2')])
+    aura = offline_aura(overrides=_default_overrides())
+    spy = _RecordingPrimitives(aura)
+
+    _run(plan, aura, removal_mode='hard_delete')
+
+    assert spy.hard_delete == ['a1', 'a2']
+    assert spy.exclude == [] and spy.remove == []
+
+
+@pytest.mark.parametrize('removal_mode', ['hide', 'delete', 'hard_delete'])
+def test_reshow_loop_runs_under_every_removal_mode(removal_mode):
+    """Re-showing is not a removal concern -- a photo the user brought back
+    must be un-hidden regardless of how removals are being handled (D-05)."""
+    plan = SyncPlan(to_upload=[], to_delete=[], to_reshow=[_asset('r1'), _asset('r2')])
+    aura = offline_aura(overrides=_default_overrides())
+    spy = _RecordingPrimitives(aura)
+
+    result = _run(plan, aura, removal_mode=removal_mode)
+
+    assert spy.select == [['r1', 'r2']]
+    assert result.reshow_succeeded == 2
+    assert result.reshow_failures == []
+
+
+def test_reshow_failure_is_attributed_to_every_asset_in_the_chunk():
+    plan = SyncPlan(to_upload=[], to_delete=[], to_reshow=[_asset('r1'), _asset('r2')])
+    aura = offline_aura(overrides=_default_overrides())
+    _RecordingPrimitives(aura, fail={'select'})
+
+    result = _run(plan, aura)
+
+    assert result.reshow_succeeded == 0
+    assert [aid for aid, _ in result.reshow_failures] == ['r1', 'r2']
+    assert all('fake select failure' in err for _, err in result.reshow_failures)
+
+
+def test_reshow_precedes_removal():
+    """Non-destructive work first: a budget or lockout that stops the run
+    part-way should have already restored the photos the user wants back."""
+    order = []
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1')], to_reshow=[_asset('r1')])
+    aura = offline_aura(overrides=_default_overrides())
+
+    def _select(frame_id, ids):
+        order.append('reshow')
+        return 0
+
+    def _exclude(frame_id, ids):
+        order.append('removal')
+        return 0
+
+    aura.frame_api.select_asset = _select
+    aura.frame_api.exclude_asset = _exclude
+
+    _run(plan, aura)
+
+    assert order == ['reshow', 'removal']
