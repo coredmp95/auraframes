@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 09
+current_phase: 10
+current_phase_name: hide-instead-of-delete-sync-mode
 status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-07-10T15:04:26.211Z"
-last_activity: 2026-07-09
-last_activity_desc: Phase 09 complete
+last_updated: "2026-07-10T17:10:25.600Z"
+last_activity: 2026-07-10
+last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 13
+  total_plans: 17
   completed_plans: 13
-  percent: 83
-current_phase_name: proactive-write-rate-limiter-geo-guard
+  percent: 76
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: proactive-write-rate-limiter-geo-guard
 See: .planning/PROJECT.md (updated 2026-07-06)
 
 **Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 09 — proactive-write-rate-limiter-geo-guard
+**Current focus:** Phase 10 — hide-instead-of-delete-sync-mode
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-09 — Phase 09 complete
+Phase: 10 (hide-instead-of-delete-sync-mode) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 10
+Last activity: 2026-07-10 — Phase 10 execution started
 
 Progress: [█████████░] 91% (10/11 plans complete)
 
@@ -115,6 +115,10 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 - **Hash-format mismatch risk (Phase 7) — RESOLVED 2026-07-07:** confirmed live via METHOD A (`aura-cli sync ./data/ --frame "Cadre de Fabrice"`, frame id `c063b384-38fa-4324-aaf8-319d17a5867a`) — dry-run reported "Unchanged: 1" for a directory containing one file with an original that already existed on the frame and one file that did not; the matching file was classified unchanged (not upload), confirming local `get_md5(original_bytes)` equalled that frame asset's `md5_hash` byte-for-byte (SYNC-02 success criterion 3 satisfied), while the other, non-matching file correctly fell into "To upload" — proving the hashing/matching logic discriminates rather than trivially matching everything. Caveat: per D-08's minimal-disclosure convention, the dry-run report only lists upload/delete items in full and reports unchanged as a count, so the specific matched asset's id is not available to cite — the confirmation is the "Unchanged: 1" count itself, corroborated by the other file's correct "To upload" classification in the same run.
 - **Delete-primitive ambiguity (Phase 8) — RESOLVED 2026-07-07:** confirmed live against "Cadre de Fabrice" — `remove_asset` disassociates an asset from the target frame only (72 real deletes succeeded live with no side effects observed outside the frame); `delete_asset`, probed directly (never via `--apply`) against a dedicated disposable throwaway image, hit the asset-scoped `DELETE /assets/{id}.json` endpoint (not frame-scoped) and made the asset vanish entirely — confirming it is broader than `remove_asset`, matching (not exceeding) its docstring's suspected worst case. `remove_asset` is reaffirmed as `--apply`'s safe default (D-06); `delete_asset` remains completely unwired. See `08-LIVE-FINDINGS.md`.
 - **Hardcoded SQS frame ID (Phase 8, WRITE-04) — RESOLVED 2026-07-07:** `Aura.get_sqs(frame_id)` parameterized and confirmed live — the upload round-trip correctly targeted "Cadre de Fabrice"'s own queue, not the original hardcoded test-frame id. See `08-LIVE-FINDINGS.md`.
+- **Phase 10 hide-mechanism live gate (blocked Plans 10-02..04) — RESOLVED 2026-08-25:** the 8-step live probe ran end-to-end against "Cadre de Fabrice" with disposable 8x8 throwaways. **Verdict PASS, no STOP tripwire.** `exclude_asset` hides non-destructively (asset REMAINS in `get_assets?filter=all`, D-06 holds), `select_asset` re-shows it, both accept the batch shape `{"assets":[{"asset_id":...},...]}`, and `delete_asset` re-confirmed asset-scoped (before/after inventory diff: exactly 1 of 158 removed, no drift since Phase 8, HIDE-07 satisfied). **Correction gating Plan 10-02:** the visibility flag is `asset_settings[asset_id].selected`/`.hidden` (a parallel array in the same response), NOT `Asset.selected` — `asset.selected` stayed `true` through every hide/re-show cycle. See `10-LIVE-FINDINGS.md`.
+- **Write "geofence" lockout (paused Phase 10 on 2026-07-10) — RESOLVED/REFRAMED 2026-08-25:** writes are NOT geo-locked. From a French residential IP the first `push --apply` still 401'd on `select_asset.json`, then the identical call succeeded minutes later and 11 subsequent live writes all returned HTTP 200. The 401 is **transient auth-token expiry** (same signature as the Phase 8 mid-batch incident) — remedy is retry with a fresh login, not changing VPN country. Future hardening candidate: token refresh / retry-once-on-401.
+- **Live API drift — `Frame.smart_adds` (Phase 10) — FIXED 2026-08-25:** the live API stopped returning `smart_adds`, a required field on the `Frame` model, breaking pydantic hydration and therefore EVERY CLI verb (`status`/`inspect`/`sync`/`push`). Patched to `Field(default_factory=list)` per the Phase 2 drift convention. It was the only missing required field; 7 other new keys are additive.
+- **`num_assets` vs drained pages mismatch (found Phase 10, NOT investigated):** `get_frame()` reports `num_assets: 171` while draining all `get_assets` pages returns 149 — `tests/test_read_path.py::test_read_03_pagination` fails on this. 58/158 listed assets are placeholder rows with no `uploaded_at`/`file_name`/`md5_hash`, created by `select_asset` calls whose upload never completed. Out of scope for Phase 10; candidate for a future reconciliation phase.
 - API is undocumented and may have drifted since April 2023; the write path has never been exercised live in three years — as of Phase 8, upload/remove_asset/delete_asset have now all been live-verified at least once.
 
 ### Quick Tasks Completed
