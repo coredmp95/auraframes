@@ -88,7 +88,11 @@ class Frame(BaseModel):
     last_impression: Optional[dict] = None
     last_impression_at: str
     child_albums: list
-    smart_adds: list
+    # The live API stopped returning `smart_adds` on /frames.json and
+    # /frames/{id}.json (live drift, Phase 10). Optional-with-default so an
+    # absent key can't break the whole read path -- same treatment as the
+    # Phase 2 `total_asset_count` -> `num_assets` move.
+    smart_adds: list = pydantic.Field(default_factory=list)
     recent_assets: list
 
     def is_portrait(self):
