@@ -2,38 +2,43 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Directory-to-Frame Sync
-current_phase: 10
-current_phase_name: hide-instead-of-delete-sync-mode
-status: shipped
-stopped_at: Phase 10 shipped — PR #1 (milestone v2.0)
-last_updated: "2026-08-25T08:05:00.000Z"
-last_activity: 2026-08-25
-last_activity_desc: Phase 10 shipped — PR #1 opens milestone v2.0 (phases 5-10) against master
+status: Awaiting next milestone
+stopped_at: v2.0 archived — awaiting /gsd-new-milestone
+last_updated: "2026-09-02T19:16:40.936Z"
+last_activity: 2026-09-02
+last_activity_desc: Milestone v2.0 completed and archived
+state_head: f41f3f5729b747ebf0e007df74573418f79b2419
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 17
   completed_plans: 17
   percent: 100
+current_phase: null
+current_phase_name: null
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-06)
+See: .planning/PROJECT.md (updated 2026-09-02)
 
-**Core value (v2.0):** Prove the write path the same way v1.0/v1.1 proved the read path, and turn that proof into a real usable capability — mirroring a local photo directory to an Aura frame.
-**Current focus:** Phase 10 — hide-instead-of-delete-sync-mode
+**Core value:** The write path is proven live and shipped as a real CLI. The value now
+shifts from *proving* it to making it boringly reliable — absorbing the transient 401s,
+stuck placeholder rows, and server-side pagination inconsistency the live runs surfaced.
+**Current focus:** Planning next milestone — run `/gsd-new-milestone`.
 
 ## Current Position
 
-Phase: 10 (hide-instead-of-delete-sync-mode) — COMPLETE
-Plan: 4 of 4
-Status: Phase 10 shipped — PR #1 (https://github.com/coredmp95/auraframes/pull/1) carries the whole v2.0 milestone
-Last activity: 2026-08-25 — Phase 10 complete (hide default shipped end-to-end)
+Milestone: **v2.0 Directory-to-Frame Sync — SHIPPED 2026-09-02** (verified closeout)
+Phase: none active — all 6 phases (5-10) complete and archived
+Last activity: 2026-09-02 — v2.0 archived; ROADMAP collapsed, REQUIREMENTS reset
 
-Progress: [██████████] 100% (4/4 plans complete)
+Progress: [██████████] 100% (17/17 plans, 28/28 requirements)
+
+Open PR: #1 (https://github.com/coredmp95/auraframes/pull/1) carries the whole milestone
+against `master` — merge there rather than locally.
 
 ## Performance Metrics
 
@@ -115,42 +120,66 @@ Decisions are logged in PROJECT.md Key Decisions table. Recent decisions affecti
 
 ### Blockers/Concerns
 
-- **Phase 6 live spike (hard dependency for Phase 7 design) — RESOLVED 2026-07-06:** confirmed live via `aura-cli --debug inspect` against a real frame (106 paginated assets): `md5_hash` is **populated** (non-null base64) for all 101/101 pre-existing photo (`.jpg`) assets, but **not populated** (null) for all 5/5 video (`.mp4`) assets. Phase 7 consequence: content-hash diffing via `md5_hash` is viable for photos with no fallback needed; a local-manifest/alternate-hash fallback is only required scope if video sync ever enters Phase 7/8 scope.
-- **Hash-format mismatch risk (Phase 7) — RESOLVED 2026-07-07:** confirmed live via METHOD A (`aura-cli sync ./data/ --frame "Cadre de Fabrice"`, frame id `c063b384-38fa-4324-aaf8-319d17a5867a`) — dry-run reported "Unchanged: 1" for a directory containing one file with an original that already existed on the frame and one file that did not; the matching file was classified unchanged (not upload), confirming local `get_md5(original_bytes)` equalled that frame asset's `md5_hash` byte-for-byte (SYNC-02 success criterion 3 satisfied), while the other, non-matching file correctly fell into "To upload" — proving the hashing/matching logic discriminates rather than trivially matching everything. Caveat: per D-08's minimal-disclosure convention, the dry-run report only lists upload/delete items in full and reports unchanged as a count, so the specific matched asset's id is not available to cite — the confirmation is the "Unchanged: 1" count itself, corroborated by the other file's correct "To upload" classification in the same run.
-- **Delete-primitive ambiguity (Phase 8) — RESOLVED 2026-07-07:** confirmed live against "Cadre de Fabrice" — `remove_asset` disassociates an asset from the target frame only (72 real deletes succeeded live with no side effects observed outside the frame); `delete_asset`, probed directly (never via `--apply`) against a dedicated disposable throwaway image, hit the asset-scoped `DELETE /assets/{id}.json` endpoint (not frame-scoped) and made the asset vanish entirely — confirming it is broader than `remove_asset`, matching (not exceeding) its docstring's suspected worst case. `remove_asset` is reaffirmed as `--apply`'s safe default (D-06); `delete_asset` remains completely unwired. See `08-LIVE-FINDINGS.md`.
-- **Hardcoded SQS frame ID (Phase 8, WRITE-04) — RESOLVED 2026-07-07:** `Aura.get_sqs(frame_id)` parameterized and confirmed live — the upload round-trip correctly targeted "Cadre de Fabrice"'s own queue, not the original hardcoded test-frame id. See `08-LIVE-FINDINGS.md`.
-- **Phase 10 hide-mechanism live gate (blocked Plans 10-02..04) — RESOLVED 2026-08-25:** the 8-step live probe ran end-to-end against "Cadre de Fabrice" with disposable 8x8 throwaways. **Verdict PASS, no STOP tripwire.** `exclude_asset` hides non-destructively (asset REMAINS in `get_assets?filter=all`, D-06 holds), `select_asset` re-shows it, both accept the batch shape `{"assets":[{"asset_id":...},...]}`, and `delete_asset` re-confirmed asset-scoped (before/after inventory diff: exactly 1 of 158 removed, no drift since Phase 8, HIDE-07 satisfied). **Correction gating Plan 10-02:** the visibility flag is `asset_settings[asset_id].selected`/`.hidden` (a parallel array in the same response), NOT `Asset.selected` — `asset.selected` stayed `true` through every hide/re-show cycle. See `10-LIVE-FINDINGS.md`.
-- **Write "geofence" lockout (paused Phase 10 on 2026-07-10) — RESOLVED/REFRAMED 2026-08-25:** writes are NOT geo-locked. From a French residential IP the first `push --apply` still 401'd on `select_asset.json`, then the identical call succeeded minutes later and 11 subsequent live writes all returned HTTP 200. The 401 is **transient auth-token expiry** (same signature as the Phase 8 mid-batch incident) — remedy is retry with a fresh login, not changing VPN country. Future hardening candidate: token refresh / retry-once-on-401.
-- **Live API drift — `Frame.smart_adds` (Phase 10) — FIXED 2026-08-25:** the live API stopped returning `smart_adds`, a required field on the `Frame` model, breaking pydantic hydration and therefore EVERY CLI verb (`status`/`inspect`/`sync`/`push`). Patched to `Field(default_factory=list)` per the Phase 2 drift convention. It was the only missing required field; 7 other new keys are additive.
-- **`num_assets` vs drained pages mismatch (found Phase 10, NOT investigated):** `get_frame()` reports `num_assets: 171` while draining all `get_assets` pages returns 149 — `tests/test_read_path.py::test_read_03_pagination` fails on this. 58/158 listed assets are placeholder rows with no `uploaded_at`/`file_name`/`md5_hash`, created by `select_asset` calls whose upload never completed. Out of scope for Phase 10; candidate for a future reconciliation phase. **Update 2026-08-25 (measured):** confirmed to be a placeholder-row artefact. A single `limit=1000` call returns 154 assets; a paginated drain of the same frame returns 149, and the 5 missing rows are exactly the newest placeholders (`uploaded_at=None`, `md5_hash=None`) — server-side pagination inconsistency, not a client bug. Impact is low today since `get_all_assets` defaults to `limit=1000` (single page under 1000 assets). The test asserts `drained == num_assets`, comparing two counts the server does not keep consistent.
-- **Intermittent write 401s (found in Phase 10 UAT, 2026-08-25) — OPEN, severity major:** ~4 of ~10 live `sync --apply` write runs failed with HTTP 401 and succeeded on an immediate re-run, with no config/geo/credential change. Not endpoint-specific (`select_asset`, `remove_asset`, `delete_asset` all hit it) and not the geofence. The client has no retry, so users see spurious failures and a non-zero exit. **Recommended fix: retry once on 401 with a fresh login inside `execute_plan` before attributing an item as failed.** See `10-LIVE-FINDINGS.md` addendum.
-- **Placeholder rows are unremovable (found Phase 10 UAT, 2026-08-25) — OPEN, severity minor:** assets created by a `select_asset` call whose upload never completed (no `uploaded_at`/`file_name`/`md5_hash`) cannot be removed: `delete_asset` returns HTTP 200 and removes nothing (silent no-op), `remove_asset` returns 404. 58 such rows have accumulated on the live frame and are permanently stuck — the likely cause of the `num_assets` vs drained-pages mismatch below. Operational lesson: never call `select_asset` with a local_identifier you do not intend to upload.
-- API is undocumented and may have drifted since April 2023; the write path has never been exercised live in three years — as of Phase 8, upload/remove_asset/delete_asset have now all been live-verified at least once.
+Resolved v2.0 blockers have been cleared at milestone close — their full live-findings
+detail is preserved in [`milestones/v2.0-phases/`](./milestones/v2.0-phases/) (`*-LIVE-FINDINGS.md`,
+`*-VERIFICATION.md`) and summarised in PROJECT.md Context. Still open:
+
+- **Intermittent write 401s — OPEN, severity major (found Phase 10 UAT, 2026-08-25):** ~4 of
+  ~10 live `sync --apply` runs failed with HTTP 401 and succeeded on an immediate re-run, with
+  no config/geo/credential change. Not endpoint-specific (`select_asset`, `remove_asset`,
+  `delete_asset` all hit it) and **not** a geofence — that theory was disproven from a French
+  residential IP. The client has no retry, so users see spurious failures and a non-zero exit.
+  **Recommended fix: retry once on 401 with a fresh login inside `execute_plan` before
+  attributing an item as failed.** Fails loud and safe today — never silently skips work.
+  See `milestones/v2.0-phases/10-*/10-LIVE-FINDINGS.md` addendum.
+- **Placeholder rows are unremovable — OPEN, severity minor (found Phase 10 UAT, 2026-08-25):**
+  assets created by a `select_asset` call whose upload never completed (no `uploaded_at`/
+  `file_name`/`md5_hash`) cannot be removed — `delete_asset` returns 200 and removes nothing,
+  `remove_asset` returns 404. 58 such rows are permanently stuck on the live frame. Fails
+  toward *not* deleting, so the destructive direction is safe. Operational lesson: never call
+  `select_asset` with a `local_identifier` you do not intend to upload.
+- **`num_assets` vs drained-pages mismatch — OPEN, severity minor:** `get_frame()` reports
+  `num_assets: 171` while a paginated drain returns 149; `tests/test_read_path.py::test_read_03_pagination`
+  fails on this (the suite's only failure: 208 passed, 1 failed). **Measured 2026-08-25:** a
+  single `limit=1000` call returns 154 and a paginated drain returns 149, the 5 missing rows
+  being exactly the newest placeholders — a server-side pagination inconsistency, not a client
+  bug. Impact is low today since `get_all_assets` defaults to `limit=1000`. The test asserts
+  equality between two counts the server does not keep consistent.
+- **API drift risk (standing):** the Pushd API is undocumented and may change without notice.
+  Phase 10 hit this live — `Frame.smart_adds` stopped being returned and broke hydration for
+  every CLI verb until patched to `Field(default_factory=list)`.
 
 ### Quick Tasks Completed
 
+v2.0-era quick tasks archived to [`milestones/v2.0-quick/`](./milestones/v2.0-quick/).
+
 | # | Description | Date | Commit |
 |---|-------------|------|--------|
-| 260630-qs8 | main.py loads a local .env at startup so the read-path demo picks up creds without exporting them; python-dotenv promoted to a runtime dep | 2026-06-30 | cd9ab6b |
-| 260708-dt9 | Add progress feedback to aura-cli sync --apply write loop (tqdm-based, injectable reporter in execute_plan) | 2026-07-08 | dd92c9e |
-| 260708-fyr | Batch refactor of sync --apply write path: select_asset/remove_asset/batch_update accept single-or-list, execute_plan chunks at WRITE_BATCH_SIZE=50 (~3N to ~2 Pushd write calls per chunk), per-file attribution via batch_update successes | 2026-07-08 | af344fa, 52eaf80 |
-| (fast) | Add 5s inter-chunk pause (WRITE_CHUNK_DELAY_SECONDS) with visible on_wait countdown to batched sync --apply — human-pacing between chunks after live evidence of cumulative anti-abuse trip | 2026-07-08 | 59b28ca |
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and deferred at milestone close, most recent first:
 
-| Category | Item | Status | Deferred At |
-|----------|------|--------|-------------|
-| Testing | Lift-tests-off-network candidates #2 (authenticated value) + #4 (injected config) → TEST-01 (v2) | Deferred | v1.1 close |
-| Hardening | MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, MOD-04 loguru sink leak | Deferred | v1.1 close |
+| Category | Item | Status | Deferred At | Milestone |
+|----------|------|--------|-------------|-----------|
+| — | _None. v2.0 closed as a **verified closeout**: 0 open artifacts, 0 newly acknowledged, 0 carried forward from a prior close._ | — | 2026-09-02 | v2.0 |
+| Testing | Lift-tests-off-network candidates #2 (authenticated value) + #4 (injected config) → TEST-01 | Deferred | v1.1 close | v1.1 |
+| Hardening | MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, MOD-04 loguru sink leak | Deferred | v1.1 close | v1.1 |
+
+Note: the v1.1 rows above are planning-level carry-forwards recorded before the
+`audit-open acknowledge` mechanism existed; they are tracked in PROJECT.md Active, not
+suppressed audit items. The v2.0 audit itself was clean.
 
 ## Session Continuity
 
-Last session: 2026-07-09T12:22:44.413Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-hide-instead-of-delete-sync-mode/10-CONTEXT.md
+Last session: 2026-09-02
+Stopped at: v2.0 milestone closed and archived
+Resume file: none — start the next cycle with `/gsd-new-milestone`
 
 ## Operator Next Steps
 
-- Phase 5 (CLI Skeleton + Status) is complete — `aura-cli status` is packaged, tested offline, quiet by default with an opt-in `--debug` flag, the UAT gap is closed and live-reconfirmed, and `05-SECURITY.md` shows 0 open threats. Run `/gsd-discuss-phase 6` to begin Phase 6: Inspect + Frame Resolution (or `/gsd-plan-phase 6` to skip discussion).
+- **v2.0 is closed and archived.** Merge PR #1 on GitHub to land the milestone on `master`.
+- Then run `/gsd-new-milestone` to open the next cycle. Strongest candidate, in order:
+  1. Retry-once-on-401-with-fresh-login inside `execute_plan` (~4 in 10 live runs fail spuriously)
+  2. Placeholder-row reconciliation (58 stuck rows; also fixes `test_read_03_pagination`)
+  3. Triage the 3 open Phase 8 code-review findings (`08-REVIEW.md`, now in `milestones/v2.0-phases/`)

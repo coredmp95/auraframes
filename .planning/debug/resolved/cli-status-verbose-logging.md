@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "UAT gap diagnosis for phase 05-cli-skeleton-status, Test 1: `aura-cli status` prints verbose loguru request/response logging (headers, cookies, full bodies) interleaved with the intended concise output. User: 'well .. realy to verbose, maybe add a --debug to get all the answer ..'"
 created: 2026-07-06T13:00:11Z
-updated: 2026-07-06T13:10:00Z
+updated: 2026-09-02T00:00:00Z
 ---
 
 ## Current Focus
@@ -101,6 +101,17 @@ root_cause: |
   separate streams but render interleaved in an interactive terminal.
   tests/test_cli_status.py doesn't catch this because it only asserts
   against `capsys.readouterr().out`, never `.err`.
-fix: "" # not applied - goal is find_root_cause_only
-verification: "" # not applied
-files_changed: []
+fix: |
+  Delivered by plan 05-02 (gap closure), not by this session (goal was
+  find_root_cause_only). `_configure_cli_logging(debug)` in auraframes/cli.py
+  drops every accumulated loguru handler by default and restores a single
+  WARNING-level stderr sink; `--debug` on the root parser is a no-op that
+  leaves `_init_logger()`'s sinks in place. Wired into run_status, run_inspect
+  and run_sync. auraframes/aura.py:_init_logger() left unchanged per D-04.
+verification: |
+  tests/test_cli_status.py::test_status_quiet_by_default_suppresses_verbose_stderr
+  asserts 'request to' is absent from captured stderr (the RED assertion pre-fix).
+  Verified present in the tree at milestone v2.0 close.
+files_changed:
+  - auraframes/cli.py
+  - tests/test_cli_status.py

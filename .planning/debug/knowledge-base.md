@@ -1,3 +1,9 @@
+---
+status: complete
+kind: index
+note: "Not a debug session. This is the durable knowledge-base index of RESOLVED sessions, read by gsd-debugger at Phase-0 recall. The `status` key exists only so scanDebugSessions() does not mis-report this index as an open session at milestone close."
+---
+
 # GSD Debug Knowledge Base
 
 Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypotheses at the start of new investigations.
@@ -21,3 +27,11 @@ Resolved debug sessions. Used by `gsd-debugger` to surface known-pattern hypothe
 - **Files changed:** auraframes/client.py, auraframes/sync.py, auraframes/cli.py, tests/test_client_rate_limit.py, tests/test_write_throttling.py, tests/test_cli_apply.py, tests/test_execute_plan.py
 ---
 
+
+## cli-status-verbose-logging — duplicate loguru stderr sinks leak DEBUG request/response bodies to the CLI
+- **Date:** 2026-07-06 (diagnosed) / 2026-09-02 (closed at v2.0)
+- **Error patterns:** verbose CLI output, loguru, stderr noise, duplicate log lines, request/response bodies leaked, headers in terminal, cookies in terminal, logger.remove, _init_logger, double handler, --debug flag
+- **Root cause:** `Aura._init_logger()` adds a formatted INFO stderr sink on every `Aura()` construction but never removes loguru's auto-registered default stderr handler (`logger.remove()` present but commented out). Two active stderr handlers then coexist: loguru's default (unrestricted level, passes the DEBUG full-body logs from `Client.*`) and the `_init_logger()` one (duplicates every request line and surfaces headers/query_params/data via `{extra}`). Any CLI command constructing a real `Aura()` renders both, interleaved with the CLI's own stdout `print()`s.
+- **Fix:** Delivered by plan 05-02, not by the debug session (goal was find_root_cause_only). `_configure_cli_logging(debug)` in `auraframes/cli.py` drops every accumulated handler by default and restores a single WARNING-level stderr sink; `--debug` on the root parser is a no-op leaving `_init_logger()`'s sinks in place. Wired into `run_status`, `run_inspect`, `run_sync`. `_init_logger()` itself left unchanged per D-04.
+- **Key lesson:** A library that configures loguru at object-construction time stacks a new sink per instance and never removes loguru's default — so log verbosity is a property of the *entry point*, not the library. Fix it at the CLI seam (drop-and-restore) rather than mutating shared library init. Tests asserting only on `capsys.readouterr().out` are blind to this entire class of bug; assert on `.err` too.
+- **Files changed:** auraframes/cli.py, tests/test_cli_status.py
