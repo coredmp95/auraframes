@@ -100,13 +100,14 @@ def _ack_all_batch_update(aura):
     it is sent -- the batched-mode equivalent of the always-succeeds
     MockTransport override, since a real per-payload echo can't be done via
     MockTransport's path-only routing."""
+    from auraframes.api.assetApi import BatchUpdateResult
     from auraframes.models.asset import AssetPartialId
 
     def _fake(assets):
         items = assets if isinstance(assets, list) else [assets]
         ids = [item.local_identifier for item in items]
         successes = [{'id': f'new-{lid}', 'local_identifier': lid} for lid in ids]
-        return ids, [AssetPartialId(**s) for s in successes]
+        return BatchUpdateResult(ids, [AssetPartialId(**s) for s in successes], [])
 
     aura.asset_api.batch_update = _fake
 
@@ -332,6 +333,7 @@ def test_interspersed_failures_do_not_trip_the_backstop(tmp_path, monkeypatch):
     plan = SyncPlan(to_upload=paths, to_delete=[])
     aura = offline_aura(overrides=_ok_overrides())
 
+    from auraframes.api.assetApi import BatchUpdateResult
     from auraframes.models.asset import AssetPartialId
 
     def _flaky_batch_update(assets):
@@ -341,7 +343,11 @@ def test_interspersed_failures_do_not_trip_the_backstop(tmp_path, monkeypatch):
         n = int(item.file_name.split('-')[1].split('.')[0])
         if n % 2 == 1:
             raise RuntimeError('isolated per-item failure')
-        return [item.local_identifier], [AssetPartialId(id=f'new-{n}', local_identifier=item.local_identifier)]
+        return BatchUpdateResult(
+            [item.local_identifier],
+            [AssetPartialId(id=f'new-{n}', local_identifier=item.local_identifier)],
+            [],
+        )
 
     monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
 
@@ -366,6 +372,7 @@ def test_a_success_resets_the_consecutive_run(tmp_path, monkeypatch):
     plan = SyncPlan(to_upload=paths, to_delete=[])
     aura = offline_aura(overrides=_ok_overrides())
 
+    from auraframes.api.assetApi import BatchUpdateResult
     from auraframes.models.asset import AssetPartialId
 
     def _flaky_batch_update(assets):
@@ -375,7 +382,11 @@ def test_a_success_resets_the_consecutive_run(tmp_path, monkeypatch):
         # Uploads 1-4 fail, upload 5 succeeds (reset), uploads 6-9 fail.
         if n != 5:
             raise RuntimeError('per-item failure')
-        return [item.local_identifier], [AssetPartialId(id='new-5', local_identifier=item.local_identifier)]
+        return BatchUpdateResult(
+            [item.local_identifier],
+            [AssetPartialId(id='new-5', local_identifier=item.local_identifier)],
+            [],
+        )
 
     monkeypatch.setattr(aura.asset_api, 'batch_update', _flaky_batch_update)
 
@@ -404,8 +415,10 @@ def test_all_files_unacknowledged_in_one_chunk_aborts_without_double_counting(tm
     aura = offline_aura(overrides=_ok_overrides())
 
     def _no_one_acknowledged(assets):
+        from auraframes.api.assetApi import BatchUpdateResult
         items = assets if isinstance(assets, list) else [assets]
-        return [item.local_identifier for item in items], []
+        ids = [item.local_identifier for item in items]
+        return BatchUpdateResult(ids, [], list(ids))
 
     aura.asset_api.batch_update = _no_one_acknowledged
 

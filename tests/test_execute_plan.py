@@ -107,6 +107,7 @@ def _install_ack_all_batch_update(aura):
     back exactly what was sent) requires monkeypatching the wrapper
     directly rather than a canned httpx.Response.
     """
+    from auraframes.api.assetApi import BatchUpdateResult
     from auraframes.models.asset import AssetPartialId
 
     calls: list = []
@@ -116,7 +117,7 @@ def _install_ack_all_batch_update(aura):
         calls.append(items)
         ids = [item.local_identifier for item in items]
         successes = [{'id': f'new-{lid}', 'local_identifier': lid} for lid in ids]
-        return ids, [AssetPartialId(**s) for s in successes]
+        return BatchUpdateResult(ids, [AssetPartialId(**s) for s in successes], [])
 
     aura.asset_api.batch_update = _fake_batch_update
     return calls
@@ -183,17 +184,20 @@ def test_execute_plan_partial_batch_update_splits_upload_succeeded_and_failures(
     aura = offline_aura(overrides=_default_overrides())
 
     def _partial_batch_update(assets):
+        from auraframes.api.assetApi import BatchUpdateResult
         from auraframes.models.asset import AssetPartialId
         items = assets if isinstance(assets, list) else [assets]
         ids = [item.local_identifier for item in items]
         # Acknowledge only the FIRST and LAST sent local_identifier --
         # sorted(plan.to_upload) processes a, b, c in that order, so this
         # acks a.jpg and c.jpg but drops b.jpg.
+        acked = (ids[0], ids[-1])
         successes = [
             {'id': f'new-{lid}', 'local_identifier': lid}
-            for lid in (ids[0], ids[-1])
+            for lid in acked
         ]
-        return ids, [AssetPartialId(**s) for s in successes]
+        unacknowledged = [lid for lid in ids if lid not in acked]
+        return BatchUpdateResult(ids, [AssetPartialId(**s) for s in successes], unacknowledged)
 
     aura.asset_api.batch_update = _partial_batch_update
 
@@ -285,14 +289,17 @@ def test_execute_plan_reports_progress_per_item(tmp_path):
     aura = offline_aura(overrides=_default_overrides())
 
     def _partial_batch_update(assets):
+        from auraframes.api.assetApi import BatchUpdateResult
         from auraframes.models.asset import AssetPartialId
         items = assets if isinstance(assets, list) else [assets]
         # sorted(plan.to_upload) processes a.jpg first -- ack only b.jpg's
         # local_identifier (the second sent item), dropping a.jpg's.
         acked = items[1].local_identifier
-        return [item.local_identifier for item in items], [
+        ids = [item.local_identifier for item in items]
+        unacknowledged = [lid for lid in ids if lid != acked]
+        return BatchUpdateResult(ids, [
             AssetPartialId(id='new-asset', local_identifier=acked)
-        ]
+        ], unacknowledged)
 
     aura.asset_api.batch_update = _partial_batch_update
 

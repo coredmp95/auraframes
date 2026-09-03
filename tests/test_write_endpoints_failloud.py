@@ -158,11 +158,12 @@ def test_batch_update_succeeds_with_asset_partial():
     aura = offline_aura(overrides=overrides)
     partial = AssetPartial(local_identifier='local-id-1', file_name='photo.jpg')
 
-    ids, successes = aura.asset_api.batch_update(partial)
+    result = aura.asset_api.batch_update(partial)
 
-    assert ids == ['local-id-1']
-    assert len(successes) == 1
-    assert successes[0].id == 'asset-1'
+    assert result.ids == ['local-id-1']
+    assert len(result.successes) == 1
+    assert result.successes[0].id == 'asset-1'
+    assert result.unacknowledged == []
 
 
 def test_batch_update_accepts_a_list_and_does_not_raise_on_partial_successes():
@@ -183,11 +184,12 @@ def test_batch_update_accepts_a_list_and_does_not_raise_on_partial_successes():
         AssetPartial(local_identifier='local-id-3', file_name='c.jpg'),
     ]
 
-    ids, successes = aura.asset_api.batch_update(partials)
+    result = aura.asset_api.batch_update(partials)
 
-    assert ids == ['local-id-1', 'local-id-2', 'local-id-3']
-    assert len(successes) == 1
-    assert successes[0].local_identifier == 'local-id-1'
+    assert result.ids == ['local-id-1', 'local-id-2', 'local-id-3']
+    assert len(result.successes) == 1
+    assert result.successes[0].local_identifier == 'local-id-1'
+    assert result.unacknowledged == ['local-id-2', 'local-id-3']
     batch_calls = [r for r in aura._client.history if r.request.url.path == BATCH_UPDATE_PATH]
     assert len(batch_calls) == 1
 

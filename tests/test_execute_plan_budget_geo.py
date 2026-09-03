@@ -99,11 +99,12 @@ def _install_ack_all_batch_update(aura):
     calls: list = []
 
     def _fake_batch_update(assets):
+        from auraframes.api.assetApi import BatchUpdateResult
         items = assets if isinstance(assets, list) else [assets]
         calls.append(items)
         ids = [item.local_identifier for item in items]
         successes = [{'id': f'new-{lid}', 'local_identifier': lid} for lid in ids]
-        return ids, [AssetPartialId(**s) for s in successes]
+        return BatchUpdateResult(ids, [AssetPartialId(**s) for s in successes], [])
 
     aura.asset_api.batch_update = _fake_batch_update
     return calls

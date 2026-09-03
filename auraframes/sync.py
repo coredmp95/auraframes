@@ -706,8 +706,8 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                 logger.debug(f'Best-effort SQS poll after chunk select_asset: {message}')
 
                 throttle()
-                _, successes = aura.asset_api.batch_update([partial for (_, _, partial) in prepped])
-                succeeded = {s.local_identifier for s in successes}
+                batch_result = aura.asset_api.batch_update([partial for (_, _, partial) in prepped])
+                succeeded = {s.local_identifier for s in batch_result.successes}
 
                 for path, local_identifier, _ in prepped:
                     if local_identifier in succeeded:
@@ -815,9 +815,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                             frame_id, [AssetPartialId(local_identifier=lid) for (_, lid, _) in resend]
                         )
                         throttle()
-                        _, resend_successes = aura.asset_api.batch_update(
+                        resend_batch_result = aura.asset_api.batch_update(
                             [partial for (_, _, partial) in resend])
-                        resend_succeeded = {s.local_identifier for s in resend_successes}
+                        resend_succeeded = {s.local_identifier for s in resend_batch_result.successes}
                         for path, lid, _ in resend:
                             if lid in resend_succeeded:
                                 result.upload_succeeded += 1

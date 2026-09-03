@@ -1,3 +1,8 @@
+import typing
+
+from loguru import logger
+from pydantic import ValidationError
+
 from auraframes.api.baseApi import BaseApi
 from auraframes.client import WriteEndpointError
 
@@ -5,9 +10,27 @@ from auraframes.client import WriteEndpointError
 from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
 
 
+class BatchUpdateResult(typing.NamedTuple):
+    """Result of `AssetApi.batch_update`.
+
+    A `NamedTuple` so `unacknowledged` is reachable by name
+    (`result.unacknowledged`) while the value stays usable positionally.
+
+    `unacknowledged` is the sent-but-not-acknowledged local_identifier set --
+    the honest name for the fact that a `batch_update` response can silently
+    drop requested ids (REL-07, D-18). A non-empty `unacknowledged` is a
+    per-item failure signal for the caller to attribute, NOT an error
+    condition for `batch_update` itself to raise on -- see the docstring
+    below.
+    """
+    ids: list[str]
+    successes: list[AssetPartialId]
+    unacknowledged: list[str]
+
+
 class AssetApi(BaseApi):
 
-    def batch_update(self, assets: Asset | AssetPartial | list[Asset | AssetPartial]) -> tuple[list[str], list[AssetPartialId]]:
+    def batch_update(self, assets: Asset | AssetPartial | list[Asset | AssetPartial]) -> BatchUpdateResult:
         """
         Posts new metadata to the API for one or more assets. This does not appear to affect the
         frame; however subsequent calls to retrieve the asset(s) will have the modified metadata.
@@ -17,8 +40,7 @@ class AssetApi(BaseApi):
         This is a native Pushd BATCH endpoint: the official app sends the whole collection of
         assets to update in a single `{"assets": [...]}` call rather than one call per asset. A
         single `Asset`/`AssetPartial` is accepted for backward compatibility (normalized to a
-        one-element list); the legacy single-item caller (`Aura.upload_image`) discards this
-        method's return value, so this does not change its behavior.
+        one-element list).
 
         `successes` in the response (each carrying `id` + `local_identifier`) is the per-file
         source of truth for batch callers: match each sent item's `local_identifier` against
@@ -27,9 +49,21 @@ class AssetApi(BaseApi):
         that the caller must attribute per-item, not an error to raise on. Only the `error`
         envelope (a whole-call failure) raises here.
 
+        The returned `BatchUpdateResult.unacknowledged` is that same per-item signal computed
+        once, here, as the sent local_identifiers (in sent order) that never appear among the
+        parsed `successes` entries -- returned to the caller rather than raised, since a partial
+        `successes` list is this endpoint's normal batch behavior, not an error. Every caller,
+        not just `execute_plan`, can read it -- `Aura.upload_image` now does too.
+
+        Each entry in the inbound `successes` array is parsed strictly (`AssetPartialId`'s
+        cross-field validator still applies), but a single malformed entry is skipped and logged
+        rather than raised (D-19): the API is undocumented and its shape drifts, so one junk row
+        in an otherwise-good response must not cost the whole chunk's per-file attribution.
+
         :param assets: A single `Asset`/`AssetPartial`, or a list of them, to update in one call.
-        :return: List of sent remote ids, list of received AssetPartialId successes (may be a
-            partial subset of what was sent -- see above).
+        :return: A `BatchUpdateResult` of sent remote ids, parsed `AssetPartialId` successes (may
+            be a partial subset of what was sent -- see above), and the unacknowledged
+            local_identifier set.
         """
         items = assets if isinstance(assets, list) else [assets]
 
@@ -58,9 +92,32 @@ class AssetApi(BaseApi):
             raise WriteEndpointError(f"batch_update failed: {json_response.get('error')}")
 
         ids = json_response.get('ids') or []
-        successes = json_response.get('successes') or []
+        raw_successes = json_response.get('successes') or []
 
-        return ids, [AssetPartialId(**partial_asset_id) for partial_asset_id in successes]
+        successes: list[AssetPartialId] = []
+        for entry in raw_successes:
+            # D-19: strict outbound, tolerant inbound. The outbound
+            # AssetPartialId validator (auraframes/models/asset.py) is left
+            # untouched; here on the inbound side, one malformed row must
+            # not crash the whole chunk -- the API is undocumented and its
+            # shape drifts (Phase 10's smart_adds regression is the
+            # precedent), so a single junk entry in a 50-item response is
+            # skipped and logged rather than costing the whole chunk's
+            # per-file attribution through execute_plan's generic
+            # `except Exception` branch.
+            try:
+                successes.append(AssetPartialId(**entry))
+            except ValidationError as e:
+                keys = sorted(entry.keys()) if isinstance(entry, dict) else type(entry).__name__
+                logger.warning(f"batch_update: skipping malformed successes entry (keys={keys}): {e}")
+
+        acknowledged = {s.local_identifier for s in successes if s.local_identifier}
+        unacknowledged = [
+            item.local_identifier for item in items
+            if item.local_identifier and item.local_identifier not in acknowledged
+        ]
+
+        return BatchUpdateResult(ids, successes, unacknowledged)
 
     def get_asset_by_local_identifier(self, local_id: str):
         """
