@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+import pillow_heif
 from PIL import Image
 from loguru import logger
 
@@ -51,18 +52,25 @@ from auraframes.models.asset import AssetPartial, AssetPartialId
 from auraframes.ratelimit import BudgetExhausted
 from auraframes.utils.dt import format_dt_to_aura, get_utc_now
 
+# D-09/FMT-03: without this call, Image.open() on a .heic path raises
+# before any UTI lookup could even run -- Pillow has no built-in HEIF
+# decoder. Registered here at auraframes.sync import time (not inside
+# Aura.__init__) so _prep_upload stays usable, and testable, without
+# constructing an Aura instance.
+pillow_heif.register_heif_opener()
+
 # Only these extensions are eligible for content-hash diffing (D-02). Phase 6
 # confirmed md5_hash is populated for photo assets but null for video assets,
 # so videos/non-images are excluded here rather than diffed unsafely.
 ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})
 
-# Maps a local file's suffix to the Apple UTI the API expects in
-# `data_uti`. Deliberately narrower than ELIGIBLE_EXTENSIONS: '.heic'
-# has no registered Pillow decoder in this environment (no pillow-heif
-# installed) so `Image.open()` on a `.heic` path always raises before a
-# UTI would even be used, and '.png' has no verified-correct UTI value
-# yet -- both are left unmapped so `_execute_upload` fails closed with a
-# named reason instead of mislabeling the upload server-side.
+# D-09/D-11: the `.heic` decoder (pillow-heif, registered above) is now
+# installed and `.png` has a verified-correct Apple UTI, so this table is
+# about to widen to cover all three. This suffix-keyed shape is superseded
+# by Task 3's `_DATA_UTI_BY_IMAGE_FORMAT`, keyed on `image.format` (the
+# decoded bytes) rather than the filename -- so a mislabeled file (a PNG
+# saved with a `.jpg` extension) can no longer be typed wrong. Left as-is
+# here; Task 3 replaces this table entirely rather than patching it.
 _DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
 
 # Seconds to pause before each write network call (select_asset /

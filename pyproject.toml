@@ -10,6 +10,13 @@ dependencies = [
     "boto3>=1.34",
     "botocore>=1.34",
     "Pillow>=10.4",
+    # D-09: HEIC uploads go to S3 as-is, with data_uti set to 'public.heic'
+    # and the original bytes untouched. Transcoding to JPEG was rejected --
+    # it would make the uploaded bytes differ from the source file, so the
+    # md5_hash diffing contract would compare a local original against a
+    # transcoded remote and every run would risk seeing every photo as
+    # changed.
+    "pillow-heif>=1.6",
     "piexif>=1.1.3",
     "geopy>=2.4",
     "loguru>=0.7",
