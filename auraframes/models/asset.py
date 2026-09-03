@@ -36,6 +36,14 @@ class Asset(BaseModel):
     burst_id: Any
     burst_selection_types: Any
     colorized_file_name: Optional[str] = None
+    # Optional with a None default, not required: whether the live
+    # `/frames/{id}/assets.json` payload sends this field at all is
+    # currently unknown (pydantic silently drops undeclared keys, so its
+    # prior absence here proved nothing either way). Declaring it Optional
+    # makes the value visible when the server does send it and None when it
+    # does not -- additive, and cannot break any existing caller (Phase 11
+    # Plan 03, D-15).
+    created_at: Optional[str] = None
     created_at_on_client: Optional[str] = None
     # data_uti/file_name/good_resolution/height/width/upload_priority/taken_at/
     # uploaded_at are Optional because the live API returns assets that are still
