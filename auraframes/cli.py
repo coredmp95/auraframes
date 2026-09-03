@@ -15,7 +15,7 @@ from auraframes.aws.sqsclient import SQSClient
 from auraframes.client import RateLimitError
 from auraframes.models.frame import Frame
 from auraframes.ratelimit import WriteBudget, check_geo, _default_resolver, GeoMismatchError, BudgetExhausted
-from auraframes.reconcile import find_placeholders
+from auraframes.reconcile import apply_reconciliation, find_placeholders
 from auraframes.sync import scan_directory, compute_plan, execute_plan, ConsecutiveWriteFailureError
 from auraframes.utils.settings import (
     AURA_WRITE_BUDGET_CAPACITY,
@@ -367,7 +367,56 @@ def run_reconcile(frame_arg: str, *, remove: bool = False, yes: bool = False, me
             # kind -- return here, before any write path is reachable.
             return 0
 
-        # Task 3 (11-03) adds the --remove continuation here.
+        # D-13/D-16: --remove continuation. Fail closed on a non-interactive
+        # invocation missing --yes -- never block on input() forever, never
+        # silently proceed (mirrors run_sync's identical check verbatim).
+        if not yes and not sys.stdin.isatty():
+            print('--remove requires --yes when running non-interactively')
+            return 1
+
+        if not yes:
+            if mechanism == 'hard-delete':
+                # Same escalated-friction gate as run_sync's hard_delete
+                # branch: this primitive is irreversible and account-wide,
+                # so a reworded y/N is too easy to answer reflexively.
+                count = len(result.stuck)
+                print(f'IRREVERSIBLE: {count} row(s) will be permanently destroyed '
+                      f'account-wide via hard-delete. This cannot be undone.')
+                answer = input(f'To confirm, type the number of rows to hard-delete ({count}): ')
+                if answer.strip() != str(count):
+                    print('Aborted.')
+                    return 0
+            else:
+                answer = input(f'About to attempt removal of {len(result.stuck)} stuck row(s) on '
+                                f'"{frame.name}" (id: {frame.id}) using mechanism "{mechanism}". '
+                                f'Proceed? [y/N] ')
+                if answer.strip().lower() not in ('y', 'yes'):
+                    print('Aborted.')
+                    return 0
+
+        # D-13: the same account-wide budget as sync/push -- reconcile has
+        # no --ignore-budget escape hatch, so this is always False.
+        write_budget = _build_write_budget(os.getenv('AURA_EMAIL'), False)
+
+        apply_reconciliation(result, aura, frame.id, mechanism=mechanism, budget=write_budget)
+
+        print(f'Removed: {len(result.removed)} succeeded, {len(result.failed)} failed')
+        for asset_id, err in result.failed:
+            print(f'  ! {asset_id}: {err}')
+
+        return 1 if result.failed else 0
+    except RateLimitError as e:
+        # Anti-abuse throttle/lockout mid-removal -- apply_reconciliation
+        # aborted the batch rather than emitting N confusing per-item 401s.
+        print(f'Aborted: {e}')
+        return 1
+    except GeoMismatchError as e:
+        print(f'VPN/exit IP in {e.found}, account expects {e.expected} — switch your VPN and retry.')
+        return 1
+    except BudgetExhausted as e:
+        minutes = e.wait_seconds / 60
+        print(f'Write budget exhausted, come back in ~{minutes:.0f} min (or pass --no-wait / raise --max-wait).')
+        return 1
     except Exception as e:
         # WR-01 fail-loud (D-05 convention): surface post-login API drift
         # instead of a raw traceback.

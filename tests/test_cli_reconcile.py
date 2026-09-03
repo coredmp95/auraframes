@@ -1,6 +1,6 @@
 """Offline tests for `aura-cli reconcile` (auraframes.cli.run_reconcile) and
 the placeholder-count line `run_inspect` gained alongside it (Phase 11 Plan
-03, Task 2). Calls the handlers directly (never main()), copying
+03, Tasks 2-3). Calls the handlers directly (never main()), copying
 tests/test_cli_inspect.py's conventions exactly.
 
 Unmarked (no @pytest.mark.live) -- this is the default pytest suite, runs
@@ -13,6 +13,7 @@ import httpx
 import pytest
 from loguru import logger
 
+import auraframes.cli as cli_module
 from auraframes.cli import build_parser, run_inspect, run_reconcile
 from auraframes.reconcile import find_placeholders
 from tests.offline import FIXTURES_DIR, offline_aura
@@ -237,3 +238,73 @@ def test_run_reconcile_login_failure_exits_nonzero(monkeypatch, capsys):
     assert rc == 1
     out = capsys.readouterr().out
     assert 'Login failed' in out
+
+
+# ===========================================================================
+# Task 3: the --remove continuation
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Test 14: apply_reconciliation is never reachable from run_reconcile
+# without remove=True -- patched to raise, a report-only run still
+# succeeds, proving it was never called.
+# ---------------------------------------------------------------------------
+
+def test_run_reconcile_report_only_never_calls_apply_reconciliation(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    def _boom(*args, **kwargs):
+        raise AssertionError('apply_reconciliation must not be called when remove=False')
+
+    monkeypatch.setattr(cli_module, 'apply_reconciliation', _boom)
+
+    aura = offline_aura(overrides={ASSETS_PATH: _placeholder_assets_response()})
+
+    rc = run_reconcile('Fake', aura=aura, remove=False)
+
+    assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Test 19: run_reconcile(remove=True, yes=False) on non-interactive stdin
+# fails closed -- prints the message, returns 1, issues no write request.
+# ---------------------------------------------------------------------------
+
+def test_run_reconcile_remove_without_yes_noninteractive_fails_closed(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+    monkeypatch.setattr('sys.stdin.isatty', lambda: False)
+
+    aura = offline_aura(overrides={ASSETS_PATH: _placeholder_assets_response()})
+
+    rc = run_reconcile('Fake', aura=aura, remove=True, yes=False)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert '--remove requires --yes when running non-interactively' in out
+    assert _write_paths_hit(aura) == []
+
+
+def test_run_reconcile_remove_yes_end_to_end_removes_stuck_rows(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+    # A real WriteBudget on first use starts at 0 tokens and would make
+    # apply_reconciliation's budget.acquire() wait for real (minutes, per
+    # AURA_WRITE_BUDGET_REFILL_PER_MIN's default) -- neutralize it here so
+    # this test proves the CLI's wiring, not the budget's own timing
+    # (budget costing itself is covered offline in tests/test_reconcile.py
+    # via a `_FakeBudget`, and forwarding-to-a-real-WriteBudget is covered
+    # in tests/test_cli_push_budget_geo.py's identical pattern).
+    monkeypatch.setattr(cli_module, '_build_write_budget', lambda email, ignore_budget: None)
+
+    aura = offline_aura(overrides={
+        ASSETS_PATH: _placeholder_assets_response(),
+        REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
+    })
+
+    rc = run_reconcile('Fake', aura=aura, remove=True, yes=True, mechanism='remove')
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'Removed: 3 succeeded, 0 failed' in out

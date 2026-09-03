@@ -1,22 +1,32 @@
-"""Offline tests for `auraframes.reconcile` (Phase 11 Plan 03, Task 1) --
-the pure placeholder predicate (`find_placeholders`) and the age guard.
+"""Offline tests for `auraframes.reconcile` (Phase 11 Plan 03) -- the pure
+placeholder predicate (`find_placeholders`, Task 1) and the bounded, gated
+removal path (`apply_reconciliation`, Task 3).
 
-Unmarked (no @pytest.mark.live) -- pure model-construction + pure-function
-tests, zero network access and no credentials required. `find_placeholders`
-is exercised with plain `Asset` model instances only; no `offline_aura`
-transport is ever constructed in this module, which is itself the proof
-that classification performs no network call.
+Unmarked (no @pytest.mark.live) -- Task 1's tests exercise plain `Asset`
+model instances only, no `offline_aura` transport, proving classification
+performs no network call. Task 3's `apply_reconciliation` tests DO use
+`offline_aura` (`httpx.MockTransport`), matching `tests/test_execute_plan.py`'s
+harness, since that function is this module's one network-touching path.
 """
 import json
 from datetime import datetime, timedelta
 
+import httpx
 import pytest
 from loguru import logger
 
 from auraframes.models.asset import Asset
-from auraframes.reconcile import ReconcileResult, find_placeholders
+from auraframes.reconcile import (
+    RECONCILE_PROBE_CANDIDATE_LIMIT,
+    ReconcileResult,
+    apply_reconciliation,
+    find_placeholders,
+)
 from auraframes.utils.dt import format_dt_to_aura
-from tests.offline import FIXTURES_DIR
+from tests.offline import FIXTURES_DIR, offline_aura
+
+FRAME_ID = 'frame-fake-0001'
+REMOVE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/remove_asset.json'
 
 RECENT_TOKEN = '__RECENT_CREATED_AT_TOKEN__'
 # Fixed reference instant for every test below -- far enough in the future
@@ -206,3 +216,170 @@ def test_placeholder_count_sums_all_three_buckets():
     # classifies as stuck too: 3 stuck (stuck-001, stuck-002, recent-001) + 0
     # recently_created + 1 unknown_age (unknown-age-001) = 4.
     assert result.placeholder_count == 4
+
+
+# ===========================================================================
+# Task 3: apply_reconciliation -- the bounded, gated removal path
+# ===========================================================================
+
+class _FakeBudget:
+    """Records `acquire`/`save`/`reconcile_tripped` calls in order, without
+    any real token-bucket math -- mirrors
+    `tests/test_execute_plan_budget_geo.py`'s `_FakeBudget`. Asserts call
+    sequencing/costing against the budget's public surface only."""
+
+    def __init__(self):
+        self.acquire_calls: list = []
+        self.save_calls = 0
+        self.reconcile_calls: list = []
+
+    def acquire(self, n, *, wait, max_wait, now, sleep, on_wait=None):
+        self.acquire_calls.append(n)
+
+    def save(self):
+        self.save_calls += 1
+
+    def reconcile_tripped(self, now):
+        self.reconcile_calls.append(now)
+
+
+def _stuck(*ids) -> ReconcileResult:
+    return ReconcileResult(stuck=[Asset.model_construct(id=i) for i in ids])
+
+
+# ---------------------------------------------------------------------------
+# Test 15: mechanism='remove' against a mocked 200 records every candidate
+# in `removed` and issues exactly one remove_asset request per chunk.
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_remove_records_removed_and_issues_one_request_per_chunk():
+    result = _stuck('asset-a', 'asset-b')
+    aura = offline_aura(overrides={REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0})})
+
+    returned = apply_reconciliation(result, aura, FRAME_ID, mechanism='remove', sleep=lambda *_: None)
+
+    assert returned is result
+    assert sorted(result.removed) == ['asset-a', 'asset-b']
+    assert result.failed == []
+    remove_calls = [
+        r for r in aura._client.history
+        if r.request.method == 'POST' and r.request.url.path == REMOVE_ASSET_PATH
+    ]
+    assert len(remove_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# Test 16: a mocked 404 populates `failed` with the error string, does not
+# raise.
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_remove_404_populates_failed_without_raising():
+    result = _stuck('asset-a')
+    aura = offline_aura(overrides={REMOVE_ASSET_PATH: httpx.Response(404, json={'error': 'not_found'})})
+
+    apply_reconciliation(result, aura, FRAME_ID, mechanism='remove', sleep=lambda *_: None)
+
+    assert result.removed == []
+    assert len(result.failed) == 1
+    failed_id, failed_reason = result.failed[0]
+    assert failed_id == 'asset-a'
+    assert failed_reason
+
+
+# ---------------------------------------------------------------------------
+# Test 17: apply_reconciliation is passed only `stuck` rows -- the request
+# payload carries only the stuck ids even when other buckets are populated.
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_only_acts_on_stuck_bucket():
+    result = ReconcileResult(
+        stuck=[Asset.model_construct(id='stuck-1')],
+        recently_created=[Asset.model_construct(id='recent-1')],
+        unknown_age=[Asset.model_construct(id='unknown-1')],
+    )
+    captured_payloads: list = []
+
+    def _capture(request: httpx.Request) -> httpx.Response:
+        captured_payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={'number_failed': 0})
+
+    aura = offline_aura(overrides={REMOVE_ASSET_PATH: _capture})
+
+    apply_reconciliation(result, aura, FRAME_ID, mechanism='remove', sleep=lambda *_: None)
+
+    assert len(captured_payloads) == 1
+    sent_ids = {a['asset_id'] for a in captured_payloads[0]['assets']}
+    assert sent_ids == {'stuck-1'}
+
+
+# ---------------------------------------------------------------------------
+# Test 18: acquires from the budget exactly once per chunk for 'remove'
+# (cost 1), and one budget TOKEN per asset for 'hard-delete' (cost
+# len(chunk)).
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_remove_acquires_once_per_chunk_cost_1():
+    result = _stuck('asset-a', 'asset-b')
+    budget = _FakeBudget()
+    aura = offline_aura(overrides={REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0})})
+
+    apply_reconciliation(result, aura, FRAME_ID, mechanism='remove', budget=budget, sleep=lambda *_: None)
+
+    assert budget.acquire_calls == [1]
+    assert budget.save_calls == 1
+
+
+def test_apply_reconciliation_hard_delete_acquires_one_token_per_asset():
+    result = _stuck('a', 'b')
+    budget = _FakeBudget()
+    aura = offline_aura(overrides={
+        '/v5/assets/a.json': httpx.Response(200, json={}),
+        '/v5/assets/b.json': httpx.Response(200, json={}),
+    })
+
+    apply_reconciliation(result, aura, FRAME_ID, mechanism='hard-delete', budget=budget, sleep=lambda *_: None)
+
+    # One chunk (both fit under batch_size) -> one acquire() call, but its
+    # cost is len(chunk) == 2 -- one token per asset, mirroring
+    # auraframes/sync.py's hard_delete costing.
+    assert budget.acquire_calls == [2]
+    assert sorted(result.removed) == ['a', 'b']
+
+
+# ---------------------------------------------------------------------------
+# Test 20: apply_reconciliation refuses more than
+# RECONCILE_PROBE_CANDIDATE_LIMIT candidates in one call unless explicitly
+# overridden, returning the refusal as a named ValueError.
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_refuses_more_than_candidate_limit():
+    result = _stuck(*[f'a-{i}' for i in range(RECONCILE_PROBE_CANDIDATE_LIMIT + 1)])
+
+    with pytest.raises(ValueError, match=str(RECONCILE_PROBE_CANDIDATE_LIMIT)):
+        apply_reconciliation(result, None, FRAME_ID)
+
+
+def test_apply_reconciliation_candidate_limit_override_is_honored():
+    over_default = RECONCILE_PROBE_CANDIDATE_LIMIT + 1
+    result = _stuck(*[f'a-{i}' for i in range(over_default)])
+    aura = offline_aura(overrides={REMOVE_ASSET_PATH: httpx.Response(200, json={'number_failed': 0})})
+
+    # Must not raise when the caller explicitly widens the cap.
+    apply_reconciliation(result, aura, FRAME_ID, mechanism='remove', sleep=lambda *_: None,
+                          candidate_limit=over_default)
+
+    assert len(result.removed) == over_default
+
+
+# ---------------------------------------------------------------------------
+# apply_reconciliation's source references neither of find_placeholders'
+# non-removal-eligible buckets (structural enforcement of D-15).
+# ---------------------------------------------------------------------------
+
+def test_apply_reconciliation_source_never_names_the_other_buckets():
+    import inspect
+    from auraframes import reconcile as reconcile_module
+
+    source = inspect.getsource(reconcile_module.apply_reconciliation)
+    assert 'recently_created' not in source
+    assert 'unknown_age' not in source

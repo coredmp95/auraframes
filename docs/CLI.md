@@ -440,11 +440,54 @@ placeholders, since the two are indistinguishable from an API response alone.
 ### `--remove`
 
 `--remove` is required to attempt any write; without it, `reconcile` cannot mutate anything.
-**No removal mechanism is yet confirmed to work on these rows** — the two existing
-primitives are already known not to clear them (`delete_asset` returns success and removes
-nothing; `remove_asset` returns "not found"). `--remove` runs a bounded, gated probe of a
-removal mechanism, capped so it cannot burn a large write budget on a mechanism that turns
-out to do nothing, and draws from the same account-wide write budget as `sync`/`push`.
+**No removal mechanism is yet confirmed to clear these rows** — the two existing primitives
+are already known not to: `delete_asset` (`--mechanism hard-delete`) returns success and
+removes nothing, and `remove_asset` (`--mechanism remove`, the default) returns "not found".
+A third, untried option — `--mechanism complete` — is reserved for treating a stuck row as
+an unfinished upload to *finish* (filling in real `file_name`/`md5_hash`/`uploaded_at` so it
+becomes an ordinary asset the existing hide/remove paths already handle) rather than a bad
+row to delete; it is not yet implemented and raises until a future plan's live probe
+determines whether it's viable. Which mechanism will eventually work — if any — is the
+honest open question `--remove` exists to answer.
+
+Only the **stuck** bucket is ever a removal candidate — recently-created and unknown-age
+rows are structurally unreachable from the removal code path, whatever `--mechanism` or
+confirmation you give.
+
+```bash
+uv run aura-cli reconcile --frame "Living Room" --remove
+```
+
+```
+Assets scanned: 172
+Placeholder rows: 58
+  stuck (older than 24.0h): 58
+  ...
+About to attempt removal of 58 stuck row(s) on "Living Room" (id: 00000000-...) using mechanism "remove". Proceed? [y/N]
+```
+
+```
+Removed: 0 succeeded, 58 failed
+  ! e7f8a9b0-5555-7666-8777-0eeeeeeeeeee: Client error '404 Not Found' for url '...'
+  ...
+```
+
+`--mechanism hard-delete` uses the same escalated, exact-count-typing confirmation
+`sync --hard-delete` does — irreversible, account-wide, no y/N shortcut — since a wrongly-run
+hard-delete destroys real photos, not placeholder rows.
+
+Without a TTY, `--remove` requires `--yes` and fails closed exactly like `sync`/`push --apply`.
+
+**Candidate cap.** A single `--remove` run refuses to act on more than 25 stuck rows at
+once — no removal mechanism is confirmed to work, so a first live attempt is a bounded,
+time-boxed probe rather than a bulk operation that could either burn a large write budget on
+a mechanism that does nothing, or (if a mechanism turns out to be more destructive than
+expected) act on every stuck row on the frame in one run. `reconcile` reports this refusal
+as a named error rather than silently truncating the candidate list.
+
+`--remove` draws from the same account-wide write budget as `sync --apply`/`push --apply`
+(see [Write budget and geo guard](#write-budget-and-geo-guard)) and paces its requests the
+same way.
 
 ## Choosing between `sync` and `push`
 
