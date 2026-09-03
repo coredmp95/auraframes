@@ -23,9 +23,10 @@ from loguru import logger
 from PIL import Image
 
 import auraframes.cli as cli
-from auraframes.client import AuthenticationError
+from auraframes.client import AuraError, AuthenticationError, RateLimitError, WriteEndpointError
+from auraframes.models.asset import Asset, AssetPartial
 from auraframes.ratelimit import BudgetExhausted, WriteBudget
-from auraframes.sync import ExecutionResult, SyncPlan, execute_plan
+from auraframes.sync import ConsecutiveWriteFailureError, ExecutionResult, SyncPlan, execute_plan
 from tests.offline import offline_aura
 
 # Fixed instant used as `clock()` for real-`WriteBudget` tests below --
@@ -54,6 +55,10 @@ def _reset_loguru():
 
 def _write_jpeg(path, color=(255, 0, 0)):
     Image.new('RGB', (4, 4), color).save(path, format='JPEG')
+
+
+def _asset(id_):
+    return Asset.model_construct(id=id_, md5_hash='deadbeef', taken_at='2024-03-11T12:00:00.000Z')
 
 
 class _FakeS3Client:
@@ -488,3 +493,106 @@ def test_run_sync_prints_retries_line_unconditionally_even_when_zero(tmp_path, m
     assert rc == 0
     out = capsys.readouterr().out
     assert 'Retries: 0 chunk(s) retried after a 401, 0 item(s) already landed' in out
+
+
+# ---------------------------------------------------------------------------
+# Task 3: extend the retry to the re-show and removal loops, and complete
+# the exception hierarchy
+# ---------------------------------------------------------------------------
+
+def test_reshow_chunk_401_recovers_after_relogin_and_resend():
+    plan = SyncPlan(to_upload=[], to_delete=[], to_reshow=[_asset('r1'), _asset('r2')])
+
+    select_asset_handler = _sequenced_responses(
+        httpx.Response(401, json={'error': 'unauthorized'}),
+        httpx.Response(200, json={'number_failed': 0}),
+    )
+    aura = offline_aura(overrides={SELECT_ASSET_PATH: select_asset_handler})
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        relogin=lambda: None,
+    )
+
+    assert result.reshow_succeeded == 2
+    assert result.reshow_failures == []
+    assert result.chunks_retried == 1
+
+
+def test_removal_chunk_hide_mode_401_recovers_after_relogin_and_resend():
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2')], to_reshow=[])
+
+    exclude_handler = _sequenced_responses(
+        httpx.Response(401, json={'error': 'unauthorized'}),
+        httpx.Response(200, json={'number_failed': 0}),
+    )
+    aura = offline_aura(overrides={EXCLUDE_ASSET_PATH: exclude_handler})
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        relogin=lambda: None, removal_mode='hide',
+    )
+
+    assert result.delete_succeeded == 2
+    assert result.delete_failures == []
+
+
+def test_removal_chunk_second_401_attributes_all_and_makes_no_third_attempt():
+    plan = SyncPlan(to_upload=[], to_delete=[_asset('a1'), _asset('a2')], to_reshow=[])
+
+    exclude_calls: list = []
+
+    def _exclude_always_401(request: httpx.Request) -> httpx.Response:
+        exclude_calls.append(request)
+        return httpx.Response(401, json={'error': 'unauthorized'})
+
+    aura = offline_aura(overrides={EXCLUDE_ASSET_PATH: _exclude_always_401})
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        relogin=lambda: None, removal_mode='hide',
+    )
+
+    assert result.delete_succeeded == 0
+    assert {aid for aid, _ in result.delete_failures} == {'a1', 'a2'}
+    # First attempt + one retry -- no third attempt.
+    assert len(exclude_calls) == 2
+
+
+def test_rate_limit_error_is_auraerror_subclass_and_still_aborts_the_run(tmp_path):
+    assert issubclass(RateLimitError, AuraError)
+    assert issubclass(ConsecutiveWriteFailureError, AuraError)
+
+    path = tmp_path / 'a.jpg'
+    _write_jpeg(path)
+    plan = SyncPlan(to_upload=[path], to_delete=[])
+
+    aura = offline_aura(overrides={
+        SELECT_ASSET_PATH: httpx.Response(429, json={'message': 'slow down'}),
+    })
+
+    with pytest.raises(RateLimitError):
+        execute_plan(
+            plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+            sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        )
+
+
+def test_batch_update_and_delete_asset_raise_write_endpoint_error_on_error_envelope():
+    aura_batch = offline_aura(overrides={
+        BATCH_UPDATE_PATH: httpx.Response(200, json={'error': 'invalid'}),
+    })
+    partial = AssetPartial(local_identifier='local-id-1')
+    with pytest.raises(WriteEndpointError):
+        aura_batch.asset_api.batch_update(partial)
+
+    delete_path = '/v5/assets/asset-1.json'
+    aura_delete = offline_aura(overrides={
+        delete_path: httpx.Response(200, json={'error': 'forbidden'}),
+    })
+    asset = Asset.model_construct(id='asset-1', local_identifier=None)
+    with pytest.raises(WriteEndpointError):
+        aura_delete.asset_api.delete_asset(asset)

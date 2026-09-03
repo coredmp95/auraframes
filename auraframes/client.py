@@ -69,7 +69,24 @@ class AuthenticationError(AuraError):
         )
 
 
-class RateLimitError(Exception):
+class WriteEndpointError(AuraError):
+    """The write-path form of an Aura error-envelope response (MOD-03/D-20):
+    the call reached the server, the server answered HTTP 200, and the body
+    carried an `error` key -- distinct from a network/HTTP-status failure.
+
+    Converted from exactly two bare `RuntimeError`s in
+    `auraframes/api/assetApi.py` (`batch_update`, `delete_asset`). Every
+    other write-endpoint error envelope (`select_asset`/`exclude_asset`/
+    `remove_asset` in `auraframes/api/frameApi.py`) and every read-path
+    raise is deliberately left as `RuntimeError` this phase -- D-20 scopes
+    conversion narrowly so a phase about the write path's *trustworthiness*
+    does not also become the widest-blast-radius rewrite of its *type
+    surface*.
+    """
+    pass
+
+
+class RateLimitError(AuraError):
     """Raised when the Aura/Pushd API signals rate-limiting or an account
     lockout (HTTP 429 or the custom 475).
 

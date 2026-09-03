@@ -46,7 +46,7 @@ from PIL import Image
 from loguru import logger
 
 from auraframes.aws.s3client import get_md5
-from auraframes.client import AuthenticationError, RateLimitError
+from auraframes.client import AuraError, AuthenticationError, RateLimitError
 from auraframes.models.asset import AssetPartial, AssetPartialId
 from auraframes.ratelimit import BudgetExhausted
 from auraframes.utils.dt import format_dt_to_aura, get_utc_now
@@ -184,7 +184,7 @@ def _probe_landed(asset_probe, local_identifiers: list[str]) -> tuple[set, set, 
     return landed, absent, inconclusive
 
 
-class ConsecutiveWriteFailureError(Exception):
+class ConsecutiveWriteFailureError(AuraError):
     """Raised by `execute_plan` when `max_consecutive_failures` write items
     fail in an unbroken run -- the signature of an account lockout / systemic
     cut-off that did NOT announce itself with a 429/475 (`RateLimitError`),
@@ -894,17 +894,80 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
             # 1 request per chunk (select_asset is a batch endpoint).
             budget.acquire(1, wait=wait_on_budget, max_wait=max_wait_seconds,
                             now=clock(), sleep=sleep, on_wait=on_wait)
+        chunk_retried = False  # D-04: at most one verify-and-retry per chunk
         try:
-            throttle()
-            aura.frame_api.select_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
-            for asset in chunk:
-                result.reshow_succeeded += 1
-                consecutive_failures = 0
-                progress('reshow', asset.id, True)
+            try:
+                throttle()
+                aura.frame_api.select_asset(frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
+                for asset in chunk:
+                    result.reshow_succeeded += 1
+                    consecutive_failures = 0
+                    progress('reshow', asset.id, True)
+            except httpx.HTTPStatusError as e:
+                # This loop acts on server-assigned asset ids, not a
+                # client-minted local_identifier, and re-showing an
+                # already-visible asset is a no-op -- identity already
+                # exists server-side, so a re-send cannot create a
+                # duplicate row and no verify probe is needed here (unlike
+                # the upload loop above).
+                if not retry_on_auth_401 or not _is_http_401(e) or chunk_retried:
+                    raise
+                chunk_retried = True
+                result.chunks_retried += 1
+
+                if not relogin_done:
+                    if budget is not None:
+                        budget.acquire(RETRY_RELOGIN_REQUEST_COST, wait=wait_on_budget,
+                                        max_wait=max_wait_seconds, now=clock(),
+                                        sleep=sleep, on_wait=on_wait)
+                    try:
+                        relogin()
+                    except Exception as relogin_exc:
+                        raise AuthenticationError(relogin_exc) from relogin_exc
+                    relogin_done = True
+                else:
+                    for asset in chunk:
+                        reason = ('HTTP 401 after a successful re-login -- classified as an '
+                                  'anti-abuse trip, not authentication')
+                        result.reshow_failures.append((asset.id, reason))
+                        progress('reshow', asset.id, False)
+                        note_failure(reason)
+                    if budget is not None:
+                        budget.save()
+                    continue
+
+                # Re-send the whole chunk once (D-04) -- same request count
+                # this loop already charges (D-05/D-07).
+                if budget is not None:
+                    budget.acquire(1, wait=wait_on_budget, max_wait=max_wait_seconds,
+                                    now=clock(), sleep=sleep, on_wait=on_wait)
+                try:
+                    throttle()
+                    aura.frame_api.select_asset(
+                        frame_id, [AssetPartialId(id=asset.id) for asset in chunk])
+                    for asset in chunk:
+                        result.reshow_succeeded += 1
+                        consecutive_failures = 0
+                        progress('reshow', asset.id, True)
+                except (RateLimitError, ConsecutiveWriteFailureError):
+                    raise
+                except Exception as resend_exc:
+                    # No third attempt (D-04).
+                    for asset in chunk:
+                        reason = f'HTTP 401 retry failed: {resend_exc}'
+                        result.reshow_failures.append((asset.id, reason))
+                        progress('reshow', asset.id, False)
+                        note_failure(str(resend_exc))
         except RateLimitError:
             if budget is not None:
                 budget.reconcile_tripped(clock())
                 budget.save()
+            raise
+        except AuthenticationError:
+            raise
+        except BudgetExhausted:
+            raise
+        except ConsecutiveWriteFailureError:
             raise
         except Exception as e:
             # select_asset returns only a count, never per-item -- a raised
@@ -928,17 +991,79 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
             budget.acquire(_REMOVAL_REQUEST_COST[removal_mode](chunk),
                             wait=wait_on_budget, max_wait=max_wait_seconds,
                             now=clock(), sleep=sleep, on_wait=on_wait)
+        chunk_retried = False  # D-04: at most one verify-and-retry per chunk
         try:
-            throttle()
-            _REMOVAL_PRIMITIVE[removal_mode](aura, frame_id, chunk)
-            for asset in chunk:
-                result.delete_succeeded += 1
-                consecutive_failures = 0
-                progress('delete', asset.id, True)
+            try:
+                throttle()
+                _REMOVAL_PRIMITIVE[removal_mode](aura, frame_id, chunk)
+                for asset in chunk:
+                    result.delete_succeeded += 1
+                    consecutive_failures = 0
+                    progress('delete', asset.id, True)
+            except httpx.HTTPStatusError as e:
+                # Same rationale as the re-show loop above: this loop acts
+                # on server-assigned asset ids, hiding/removing an
+                # already-hidden/removed asset is a no-op, so identity
+                # already exists server-side and a re-send cannot create a
+                # duplicate -- no verify probe needed.
+                if not retry_on_auth_401 or not _is_http_401(e) or chunk_retried:
+                    raise
+                chunk_retried = True
+                result.chunks_retried += 1
+
+                if not relogin_done:
+                    if budget is not None:
+                        budget.acquire(RETRY_RELOGIN_REQUEST_COST, wait=wait_on_budget,
+                                        max_wait=max_wait_seconds, now=clock(),
+                                        sleep=sleep, on_wait=on_wait)
+                    try:
+                        relogin()
+                    except Exception as relogin_exc:
+                        raise AuthenticationError(relogin_exc) from relogin_exc
+                    relogin_done = True
+                else:
+                    for asset in chunk:
+                        reason = ('HTTP 401 after a successful re-login -- classified as an '
+                                  'anti-abuse trip, not authentication')
+                        result.delete_failures.append((asset.id, reason))
+                        progress('delete', asset.id, False)
+                        note_failure(reason)
+                    if budget is not None:
+                        budget.save()
+                    continue
+
+                # Re-send the whole chunk once (D-04) -- same request count
+                # this loop already charges (D-05/D-07).
+                if budget is not None:
+                    budget.acquire(_REMOVAL_REQUEST_COST[removal_mode](chunk),
+                                    wait=wait_on_budget, max_wait=max_wait_seconds,
+                                    now=clock(), sleep=sleep, on_wait=on_wait)
+                try:
+                    throttle()
+                    _REMOVAL_PRIMITIVE[removal_mode](aura, frame_id, chunk)
+                    for asset in chunk:
+                        result.delete_succeeded += 1
+                        consecutive_failures = 0
+                        progress('delete', asset.id, True)
+                except (RateLimitError, ConsecutiveWriteFailureError):
+                    raise
+                except Exception as resend_exc:
+                    # No third attempt (D-04).
+                    for asset in chunk:
+                        reason = f'HTTP 401 retry failed: {resend_exc}'
+                        result.delete_failures.append((asset.id, reason))
+                        progress('delete', asset.id, False)
+                        note_failure(str(resend_exc))
         except RateLimitError:
             if budget is not None:
                 budget.reconcile_tripped(clock())
                 budget.save()
+            raise
+        except AuthenticationError:
+            raise
+        except BudgetExhausted:
+            raise
+        except ConsecutiveWriteFailureError:
             raise
         except Exception as e:
             # remove_asset returns only a count, never per-item -- a raised

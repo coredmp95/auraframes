@@ -9,6 +9,7 @@ access and no credentials required.
 import httpx
 import pytest
 
+from auraframes.client import WriteEndpointError
 from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
 from tests.offline import offline_aura
 
@@ -143,7 +144,7 @@ def test_batch_update_raises_on_error_envelope():
     aura = offline_aura(overrides=overrides)
     partial = AssetPartial(local_identifier='local-id-1')
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(WriteEndpointError):
         aura.asset_api.batch_update(partial)
 
 
@@ -202,7 +203,7 @@ def test_delete_asset_raises_on_error_envelope():
     aura = offline_aura(overrides=overrides)
     asset = Asset.model_construct(id='asset-1', local_identifier=None)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(WriteEndpointError):
         aura.asset_api.delete_asset(asset)
 
 

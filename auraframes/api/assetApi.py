@@ -1,4 +1,5 @@
 from auraframes.api.baseApi import BaseApi
+from auraframes.client import WriteEndpointError
 
 # TODO: Untested
 from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
@@ -54,7 +55,7 @@ class AssetApi(BaseApi):
             ]
         })
         if json_response.get('error'):
-            raise RuntimeError(f"batch_update failed: {json_response.get('error')}")
+            raise WriteEndpointError(f"batch_update failed: {json_response.get('error')}")
 
         ids = json_response.get('ids') or []
         successes = json_response.get('successes') or []
@@ -103,7 +104,7 @@ class AssetApi(BaseApi):
         json_response = self._client.delete(f'/assets/{asset.id}.json')
 
         if json_response.get('error'):
-            raise RuntimeError(f"delete_asset failed: {json_response.get('error')}")
+            raise WriteEndpointError(f"delete_asset failed: {json_response.get('error')}")
 
         return json_response
 
