@@ -27,7 +27,12 @@ def make_router(overrides: dict | None = None):
     `overrides` lets a caller substitute a canned `httpx.Response` for a
     given path key, checked before the default routing branches — this is
     how error-path tests force a specific endpoint to misbehave without
-    editing this router's defaults.
+    editing this router's defaults. An override value may also be a
+    callable `(httpx.Request) -> httpx.Response` -- this is how a test makes
+    one endpoint answer DIFFERENTLY on successive calls (e.g. a mutable
+    counter closure returning 401 on the first call and 200 after, as the
+    401-retry tests need). Every existing override in the suite is a plain
+    `httpx.Response`, so callable support is purely additive.
     """
     overrides = overrides or {}
 
@@ -35,7 +40,8 @@ def make_router(overrides: dict | None = None):
         path = request.url.path  # includes the '/v5' base_url prefix (Pitfall 2)
 
         if path in overrides:
-            return overrides[path]
+            value = overrides[path]
+            return value(request) if callable(value) else value
 
         if path == "/v5/login.json":
             return httpx.Response(200, json=_load("login.json"))

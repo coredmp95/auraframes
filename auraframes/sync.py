@@ -41,11 +41,12 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import httpx
 from PIL import Image
 from loguru import logger
 
 from auraframes.aws.s3client import get_md5
-from auraframes.client import RateLimitError
+from auraframes.client import AuthenticationError, RateLimitError
 from auraframes.models.asset import AssetPartial, AssetPartialId
 from auraframes.utils.dt import format_dt_to_aura, get_utc_now
 
@@ -122,6 +123,64 @@ WRITE_CHUNK_DELAY_SECONDS = 5.0
 # the status code hides. N=5 balances catching the lockout early (5 wasted calls
 # vs 103) against tolerating a small unlucky cluster of independent failures.
 MAX_CONSECUTIVE_WRITE_FAILURES = 5
+
+
+# Cost (in write-budget tokens) of the ONE re-login `execute_plan`'s 401
+# retry performs per run (REL-01..04, D-06). Reads demonstrably kept
+# working throughout the v2.0 write lockouts, so the verify probe this
+# retry runs before re-sending anything is free -- but the LOGIN endpoint
+# is on the anti-abuse surface too, and the v2.0 incident escalated from
+# write 401s into a login lockout (see
+# `.planning/debug/resolved/select-asset-401-unauthorized.md`), so the
+# re-login is charged like any other write rather than treated as free
+# housekeeping.
+RETRY_RELOGIN_REQUEST_COST = 1
+
+
+def _is_http_401(exc: BaseException) -> bool:
+    """True only when `exc` is an `httpx.HTTPStatusError` whose response
+    carries HTTP 401 -- the plain-401 form of a write's anti-abuse trip
+    (REL-01/REL-04, D-01/D-02). Any other status or exception type is not
+    eligible for the verify-then-retry path below."""
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 401
+
+
+def _probe_landed(asset_probe, local_identifiers: list[str]) -> tuple[set, set, dict]:
+    """Verify, per item, whether a local_identifier from a 401'd write chunk
+    actually landed server-side BEFORE the retry re-sends anything (REL-02,
+    D-01).
+
+    Classification is deliberately asymmetric (PITFALLS.md Pitfall 4): the
+    probe returning normally means the item is `landed`; the probe raising
+    an `httpx.HTTPStatusError` with status 404 means it is genuinely
+    `absent`; ANY other raised exception (a different status, a network
+    error, a malformed response) is `inconclusive` and is NEVER treated as
+    absent -- re-sending on an ambiguous probe is exactly how the 58 stuck
+    placeholder rows this phase is separately reconciling were created.
+
+    :param asset_probe: Callable `(local_identifier: str) -> Any` -- the
+        already-existing read endpoint (`AssetApi.get_asset_by_local_identifier`
+        by default). Its return value is discarded; only whether it raises
+        (and how) is examined.
+    :return: `(landed, absent, inconclusive)` -- `landed`/`absent` are sets
+        of local_identifier strings; `inconclusive` maps a local_identifier
+        to the `str()` of the exception that made its probe ambiguous.
+    """
+    landed: set = set()
+    absent: set = set()
+    inconclusive: dict = {}
+    for local_identifier in local_identifiers:
+        try:
+            asset_probe(local_identifier)
+            landed.add(local_identifier)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                absent.add(local_identifier)
+            else:
+                inconclusive[local_identifier] = str(e)
+        except Exception as e:
+            inconclusive[local_identifier] = str(e)
+    return landed, absent, inconclusive
 
 
 class ConsecutiveWriteFailureError(Exception):
@@ -305,6 +364,10 @@ class ExecutionResult:
     upload_failures: list = field(default_factory=list)  # list[tuple[Path, str]]
     delete_failures: list = field(default_factory=list)  # list[tuple[str, str]]
     reshow_failures: list = field(default_factory=list)  # list[tuple[str, str]]
+    # REL-01/REL-03/D-08 visibility counters for the 401 verify-then-retry
+    # path -- both default to 0 so every existing caller/test is unaffected.
+    chunks_retried: int = 0
+    items_already_landed: int = 0
 
 
 # The three tiers of "this photo is no longer wanted locally" (D-01/D-03).
@@ -386,7 +449,9 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                  on_wait=lambda *args: None,
                  budget=None, geo_check=None, wait_on_budget: bool = True,
                  max_wait_seconds: float = 3600.0, clock=get_utc_now,
-                 removal_mode: str = 'hide') -> ExecutionResult:
+                 removal_mode: str = 'hide',
+                 relogin=None, asset_probe=None,
+                 retry_on_auth_401: bool = True) -> ExecutionResult:
     """Execute a `SyncPlan` against a live frame -- the module's only
     mutating entry point (D-06/D-08/D-09/D-10), batched (quick task
     260708-fyr) to collapse ~3N Pushd write calls to ~2 per chunk.
@@ -492,6 +557,24 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         now=clock())` and `budget.reconcile_tripped(clock())`; defaults to
         `auraframes.utils.dt.get_utc_now`. Only ever called when `budget` is
         not `None` (or `geo_check`, which never touches `clock`).
+    :param relogin: Zero-arg callable invoked at most ONCE per run (REL-01/
+        REL-04, D-02/D-04) when a write chunk's first attempt returns HTTP
+        401 -- the re-login is this function's auth-vs-anti-abuse
+        discriminator: if it raises, the 401 is a genuine authentication
+        failure (`AuthenticationError` propagates, the run aborts); if it
+        succeeds, the original 401 was the anti-abuse trip, not auth, and
+        the chunk's items are verified then selectively re-sent. Defaults
+        to `aura.login` when `None`, so this is live behaviour by default
+        and an injectable seam for offline tests.
+    :param asset_probe: Callable `(local_identifier: str) -> Any` used by
+        the retry's verify step (REL-02, D-01) to check whether an item
+        already landed before re-sending it. Defaults to
+        `aura.asset_api.get_asset_by_local_identifier` when `None`. Never
+        charged against `budget` (D-06) -- it is a read.
+    :param retry_on_auth_401: Kill switch (T-11-03) for the whole 401
+        verify-then-retry path. `True` (the default) enables it; `False`
+        restores the pre-Phase-11 behaviour where a plain 401 falls straight
+        through to the generic per-chunk attribution below.
     :return: An `ExecutionResult` with separated upload/delete success counts and named failures.
 
     Raises `RateLimitError` (from the client layer) WITHOUT catching it:
@@ -510,6 +593,12 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     still recorded in `result` and reported via `progress` before the abort
     (so the reporter-call count still equals the attempted-and-resolved item
     count); items after the abort are never attempted.
+
+    Raises `AuthenticationError` (REL-04, D-02) when a write chunk's first
+    attempt returns HTTP 401 and the resulting re-login itself fails --
+    a hard stop, never retried and never re-labelled transient. Nothing in
+    the chunk is attributed as a per-item failure in this case; the run
+    simply aborts, same as `RateLimitError`.
     """
     # Geo pre-flight (Phase 09, ANTI-03) -- the VERY FIRST executable
     # statement of the body, before ExecutionResult is even constructed, so
@@ -519,8 +608,21 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
     if geo_check is not None:
         geo_check()
 
+    # REL-01/D-01: resolve the injectable seams to their live defaults here
+    # (not in the signature) so the defaults are live behaviour while the
+    # seams stay injectable for offline tests -- the same pattern every
+    # other cross-cutting concern in this function uses.
+    if relogin is None:
+        relogin = aura.login
+    if asset_probe is None:
+        asset_probe = aura.asset_api.get_asset_by_local_identifier
+
     result = ExecutionResult()
     consecutive_failures = 0
+    # D-04: at most ONE re-login for the whole run, shared by all three
+    # write loops -- no re-login storm. Set the first (and only) time a
+    # chunk's 401 retry successfully re-authenticates.
+    relogin_done = False
 
     def throttle() -> None:
         if throttle_seconds > 0:
@@ -590,36 +692,145 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
         if not prepped:
             continue
 
+        chunk_retried = False  # D-04: at most one verify-and-retry per chunk
         try:
-            throttle()
-            aura.frame_api.select_asset(
-                frame_id, [AssetPartialId(local_identifier=lid) for (_, lid, _) in prepped]
-            )
-            # Best-effort/observational poll only -- never gates success or
-            # failure (Pitfall 3); at most once per chunk, not per file.
-            message = sqs_client.receive_message(queue_url, wait_time_seconds=5)
-            logger.debug(f'Best-effort SQS poll after chunk select_asset: {message}')
+            try:
+                throttle()
+                aura.frame_api.select_asset(
+                    frame_id, [AssetPartialId(local_identifier=lid) for (_, lid, _) in prepped]
+                )
+                # Best-effort/observational poll only -- never gates success or
+                # failure (Pitfall 3); at most once per chunk, not per file.
+                message = sqs_client.receive_message(queue_url, wait_time_seconds=5)
+                logger.debug(f'Best-effort SQS poll after chunk select_asset: {message}')
 
-            throttle()
-            _, successes = aura.asset_api.batch_update([partial for (_, _, partial) in prepped])
-            succeeded = {s.local_identifier for s in successes}
+                throttle()
+                _, successes = aura.asset_api.batch_update([partial for (_, _, partial) in prepped])
+                succeeded = {s.local_identifier for s in successes}
 
-            for path, local_identifier, _ in prepped:
-                if local_identifier in succeeded:
+                for path, local_identifier, _ in prepped:
+                    if local_identifier in succeeded:
+                        result.upload_succeeded += 1
+                        consecutive_failures = 0
+                        progress('upload', path, True)
+                    else:
+                        reason = 'file not acknowledged in batch_update successes'
+                        result.upload_failures.append((path, reason))
+                        progress('upload', path, False)
+                        note_failure(reason)
+            except httpx.HTTPStatusError as e:
+                # REL-01/REL-02/REL-04, D-01/D-02/D-04: a plain HTTP 401 on
+                # this chunk's write(s). Re-raise (falling through to the
+                # generic Pushd-failure branch below, unchanged) whenever
+                # this branch is not the tool for the job -- the feature is
+                # disabled, the status isn't 401, or this chunk already used
+                # its one retry.
+                if not retry_on_auth_401 or not _is_http_401(e) or chunk_retried:
+                    raise
+                chunk_retried = True
+                result.chunks_retried += 1
+
+                if not relogin_done:
+                    # This run's ONE shared re-login -- the auth-vs-anti-abuse
+                    # discriminator (D-02). A failure here is a genuine
+                    # authentication failure: hard stop, never retried.
+                    if budget is not None:
+                        budget.acquire(RETRY_RELOGIN_REQUEST_COST, wait=wait_on_budget,
+                                        max_wait=max_wait_seconds, now=clock(),
+                                        sleep=sleep, on_wait=on_wait)
+                    try:
+                        relogin()
+                    except Exception as relogin_exc:
+                        raise AuthenticationError(relogin_exc) from relogin_exc
+                    relogin_done = True
+                else:
+                    # D-02: this run's ONE re-login already succeeded (on an
+                    # earlier chunk) -- a further 401 here is NOT
+                    # authentication, it is the anti-abuse trip. No second
+                    # re-login, no verify probe, no resend -- attribute every
+                    # prepped item as a per-file failure exactly like the
+                    # generic branch, so ConsecutiveWriteFailureError's
+                    # backstop still applies.
+                    for path, _, _ in prepped:
+                        reason = ('HTTP 401 after a successful re-login -- classified as an '
+                                  'anti-abuse trip, not authentication')
+                        result.upload_failures.append((path, reason))
+                        progress('upload', path, False)
+                        note_failure(reason)
+                    if budget is not None:
+                        budget.save()
+                    continue
+
+                # Re-login just succeeded -- verify every prepped item BEFORE
+                # re-sending anything (REL-02, D-01): an item the probe
+                # confirms already landed must never be re-sent.
+                by_lid = {lid: path for (path, lid, _) in prepped}
+                landed, absent, inconclusive = _probe_landed(asset_probe, list(by_lid))
+
+                for lid in landed:
+                    result.items_already_landed += 1
                     result.upload_succeeded += 1
                     consecutive_failures = 0
-                    progress('upload', path, True)
-                else:
-                    reason = 'file not acknowledged in batch_update successes'
-                    result.upload_failures.append((path, reason))
-                    progress('upload', path, False)
+                    progress('upload', by_lid[lid], True)
+                for lid, probe_error in inconclusive.items():
+                    reason = f'verify probe after re-login was inconclusive: {probe_error}'
+                    result.upload_failures.append((by_lid[lid], reason))
+                    progress('upload', by_lid[lid], False)
                     note_failure(reason)
+
+                if absent:
+                    # Re-send ONLY the genuinely-absent subset, iterating
+                    # `prepped` in its existing (sorted-path) order so the
+                    # re-sent list's attribution lines up with what the plan
+                    # printed.
+                    resend = [item for item in prepped if item[1] in absent]
+                    if budget is not None:
+                        # Full first-attempt cost (D-05): the requests really
+                        # were sent and really did hit the anti-abuse surface.
+                        budget.acquire(2, wait=wait_on_budget, max_wait=max_wait_seconds,
+                                        now=clock(), sleep=sleep, on_wait=on_wait)
+                    try:
+                        throttle()
+                        aura.frame_api.select_asset(
+                            frame_id, [AssetPartialId(local_identifier=lid) for (_, lid, _) in resend]
+                        )
+                        throttle()
+                        _, resend_successes = aura.asset_api.batch_update(
+                            [partial for (_, _, partial) in resend])
+                        resend_succeeded = {s.local_identifier for s in resend_successes}
+                        for path, lid, _ in resend:
+                            if lid in resend_succeeded:
+                                result.upload_succeeded += 1
+                                consecutive_failures = 0
+                                progress('upload', path, True)
+                            else:
+                                reason = 'file not acknowledged in batch_update successes (retry)'
+                                result.upload_failures.append((path, reason))
+                                progress('upload', path, False)
+                                note_failure(reason)
+                    except (RateLimitError, ConsecutiveWriteFailureError):
+                        raise
+                    except Exception as resend_exc:
+                        # No third attempt (D-04) -- attribute every
+                        # still-unresolved absent item as a per-file failure.
+                        for path, _, _ in resend:
+                            reason = f'HTTP 401 retry failed: {resend_exc}'
+                            result.upload_failures.append((path, reason))
+                            progress('upload', path, False)
+                            note_failure(str(resend_exc))
         except RateLimitError:
             # Anti-abuse throttle/lockout: abort the whole batch (do not
             # mask it as one per-item failure and keep hammering).
             if budget is not None:
                 budget.reconcile_tripped(clock())
                 budget.save()
+            raise
+        except AuthenticationError:
+            # REL-04, D-02: the retry branch above raises this when the
+            # run's re-login itself failed -- it must propagate exactly as
+            # RateLimitError does, never be re-caught by the broader
+            # ConsecutiveWriteFailureError/Exception branches below and
+            # never be attributed as a per-file failure.
             raise
         except ConsecutiveWriteFailureError:
             # note_failure() above can raise this from WITHIN the per-file

@@ -25,6 +25,50 @@ _REDACTED = '***REDACTED***'
 _RATE_LIMIT_STATUS_CODES = {429, 475}
 
 
+class AuraError(Exception):
+    """Package-wide exception root for auraframes's own control-flow types
+    (MOD-03/D-20). This is a MARKER base, not a codebase-wide taxonomy --
+    most of this codebase still raises bare ``RuntimeError``/``ValueError``
+    deliberately (MOD-03 scopes typed-exception conversion to the write
+    path only, "where it pays", not a full rewrite).
+
+    Catching ``AuraError`` broadly is deliberately discouraged and, inside
+    `auraframes/sync.py`, actively prohibited: `execute_plan`'s write-loop
+    except-ladder depends on `RateLimitError` and
+    `ConsecutiveWriteFailureError` each being matched by their OWN specific
+    branch before any broader handler could see them. An `except AuraError`
+    introduced there would silently swallow both and break that ordering.
+    """
+    pass
+
+
+class AuthenticationError(AuraError):
+    """Raised by `execute_plan`'s write-chunk 401 retry (REL-01/REL-04,
+    D-01/D-02) when a write returns HTTP 401, a re-login is attempted to
+    discriminate a genuine authentication failure from an anti-abuse trip,
+    and that re-login itself raises.
+
+    This is a HARD STOP, never a transient/retryable condition: two write
+    401s in a row would be ambiguous on their own, but a re-login that
+    *itself* fails means the credentials are bad or revoked. The write is
+    never retried and the failure is never re-labelled transient.
+
+    Carries `underlying` -- the exception the re-login raised (or `None`)
+    -- for callers/logs. The message names the failure class and
+    `type(underlying).__name__` ONLY; it must never interpolate a response
+    body, an auth token, or the password (T-11-02).
+    """
+
+    def __init__(self, underlying: Exception | None = None):
+        self.underlying = underlying
+        underlying_name = type(underlying).__name__ if underlying is not None else 'unknown error'
+        super().__init__(
+            f'Re-login failed after a write returned HTTP 401 -- treating this as a '
+            f'genuine authentication failure (bad or revoked credentials), not a '
+            f'transient/retryable anti-abuse trip. Underlying: {underlying_name}.'
+        )
+
+
 class RateLimitError(Exception):
     """Raised when the Aura/Pushd API signals rate-limiting or an account
     lockout (HTTP 429 or the custom 475).
