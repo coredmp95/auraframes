@@ -15,15 +15,24 @@ Zero network access, zero AWS credentials -- no real S3Client/SQSClient/
 Client transport is ever constructed here.
 """
 import json
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 from loguru import logger
 from PIL import Image
 
+import auraframes.cli as cli
 from auraframes.client import AuthenticationError
-from auraframes.sync import SyncPlan, execute_plan
+from auraframes.ratelimit import BudgetExhausted, WriteBudget
+from auraframes.sync import ExecutionResult, SyncPlan, execute_plan
 from tests.offline import offline_aura
+
+# Fixed instant used as `clock()` for real-`WriteBudget` tests below --
+# every acquire() call sees the SAME `now`, so elapsed-time refill is always
+# 0 and the token math in each assertion is exact (mirrors
+# tests/test_ratelimit.py's T0 convention).
+T0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
 FRAME_ID = 'frame-fake-0001'
 SELECT_ASSET_PATH = f'/v5/frames/{FRAME_ID}/select_asset.json'
@@ -315,3 +324,167 @@ def test_chunk_where_every_file_fails_prep_issues_no_select_asset_call(tmp_path)
     assert len(result.upload_failures) == 1
     assert select_calls == []
     assert result.chunks_retried == 0
+
+
+# ---------------------------------------------------------------------------
+# Task 2: retry budget accounting and runtime visibility
+# ---------------------------------------------------------------------------
+
+def _real_budget(tmp_path, tokens: float, refill_per_min: float = 1.0) -> WriteBudget:
+    """A real `WriteBudget` (not the sequencing-only fake in
+    tests/test_execute_plan_budget_geo.py) so these tests assert on the
+    REAL token math, not a recorded call shape -- construction mirrors
+    tests/test_ratelimit.py's shape."""
+    return WriteBudget(capacity=1000.0, refill_per_min=refill_per_min,
+                       path=tmp_path / 'budget.json', tokens=tokens, updated_at=T0)
+
+
+def test_retried_upload_chunk_consumes_5_budget_tokens_total(tmp_path):
+    path = tmp_path / 'a.jpg'
+    _write_jpeg(path)
+    plan = SyncPlan(to_upload=[path], to_delete=[])
+
+    select_asset_handler = _sequenced_responses(
+        httpx.Response(401, json={'error': 'unauthorized'}),
+        httpx.Response(200, json={'number_failed': 0}),
+    )
+    batch_update_handler, _ = _batch_update_recorder()
+    aura = offline_aura(overrides={
+        SELECT_ASSET_PATH: select_asset_handler,
+        BATCH_UPDATE_PATH: batch_update_handler,
+    })
+    budget = _real_budget(tmp_path, tokens=100.0)
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        asset_probe=_ordered_probe(['absent']),
+        budget=budget, clock=lambda: T0, wait_on_budget=False,
+    )
+
+    assert result.upload_succeeded == 1
+    # 2 (first attempt: select_asset + batch_update) + 1 (re-login) + 2
+    # (retried resend: select_asset + batch_update) = 5.
+    assert budget.tokens == 100.0 - 5
+
+
+def test_all_items_already_landed_consumes_3_tokens_no_resend_charge(tmp_path):
+    path_a = tmp_path / 'a.jpg'
+    path_b = tmp_path / 'b.jpg'
+    _write_jpeg(path_a)
+    _write_jpeg(path_b)
+    plan = SyncPlan(to_upload=[path_a, path_b], to_delete=[])
+
+    batch_update_handler, batch_payloads = _batch_update_recorder(fail_first=True)
+    aura = offline_aura(overrides={
+        SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
+        BATCH_UPDATE_PATH: batch_update_handler,
+    })
+    budget = _real_budget(tmp_path, tokens=100.0)
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        asset_probe=_ordered_probe(['landed', 'landed']),
+        budget=budget, clock=lambda: T0, wait_on_budget=False,
+    )
+
+    assert result.items_already_landed == 2
+    assert result.upload_succeeded == 2
+    # 2 (first attempt) + 1 (re-login) = 3 -- the retry's 2 are never
+    # acquired because nothing was re-sent (absent is empty).
+    assert budget.tokens == 100.0 - 3
+    assert len(batch_payloads) == 1  # only the first, 401'd attempt
+
+
+def test_probe_itself_never_charges_budget_regardless_of_chunk_size(tmp_path):
+    paths = [tmp_path / f'{i}.jpg' for i in range(3)]
+    for p in paths:
+        _write_jpeg(p)
+    plan = SyncPlan(to_upload=paths, to_delete=[])
+
+    batch_update_handler, _ = _batch_update_recorder(fail_first=True)
+    aura = offline_aura(overrides={
+        SELECT_ASSET_PATH: httpx.Response(200, json={'number_failed': 0}),
+        BATCH_UPDATE_PATH: batch_update_handler,
+    })
+    budget = _real_budget(tmp_path, tokens=100.0)
+
+    result = execute_plan(
+        plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+        sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+        asset_probe=_ordered_probe(['landed', 'landed', 'landed']),
+        budget=budget, clock=lambda: T0, wait_on_budget=False,
+    )
+
+    assert result.items_already_landed == 3
+    # Still only 3 tokens total (2 first attempt + 1 re-login) across a
+    # 3-item chunk -- the probe adds nothing per item, proving it is free
+    # regardless of chunk size.
+    assert budget.tokens == 100.0 - 3
+
+
+def test_budget_exhausted_propagates_from_retry_acquire_with_no_bypass(tmp_path):
+    path = tmp_path / 'a.jpg'
+    _write_jpeg(path)
+    plan = SyncPlan(to_upload=[path], to_delete=[])
+
+    select_asset_handler = _sequenced_responses(
+        httpx.Response(401, json={'error': 'unauthorized'}),
+        httpx.Response(200, json={'number_failed': 0}),
+    )
+    batch_update_handler, _ = _batch_update_recorder()
+    aura = offline_aura(overrides={
+        SELECT_ASSET_PATH: select_asset_handler,
+        BATCH_UPDATE_PATH: batch_update_handler,
+    })
+    # Enough for the first attempt (2) + re-login (1) = 3, but NOT enough
+    # for the retry's resend (needs 2 more) -- refill_per_min=0 forces an
+    # immediate BudgetExhausted on the deficit rather than a wait.
+    budget = _real_budget(tmp_path, tokens=3.0, refill_per_min=0.0)
+
+    with pytest.raises(BudgetExhausted):
+        execute_plan(
+            plan, aura, FRAME_ID, s3_client=_FakeS3Client(), sqs_client=_FakeSQSClient(),
+            sleep=lambda *_: None, throttle_seconds=0, chunk_delay_seconds=0,
+            asset_probe=_ordered_probe(['absent']),
+            budget=budget, clock=lambda: T0, wait_on_budget=False,
+        )
+
+
+def test_run_sync_prints_retries_line_unconditionally_even_when_zero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+    monkeypatch.chdir(tmp_path)
+
+    class _FakeS3ClientCtor:
+        def __init__(self, *a, **k):
+            pass
+
+    class _FakeSQSClientCtor:
+        def __init__(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(cli, 'S3Client', _FakeS3ClientCtor)
+    monkeypatch.setattr(cli, 'SQSClient', _FakeSQSClientCtor)
+
+    def _fake_execute_plan(plan, aura, frame_id, *, s3_client, sqs_client, progress=None,
+                           on_wait=None, **kwargs):
+        return ExecutionResult()
+
+    monkeypatch.setattr(cli, 'execute_plan', _fake_execute_plan)
+
+    upload_dir = tmp_path / 'photos'
+    upload_dir.mkdir()
+    _write_jpeg(upload_dir / 'new.jpg')
+
+    assets_path = f'/v5/frames/{FRAME_ID}/assets.json'
+    aura = offline_aura(overrides={
+        assets_path: httpx.Response(200, json={'assets': [], 'next_page_cursor': None}),
+    })
+
+    rc = cli.run_sync(str(upload_dir), 'Fake', apply=True, yes=True, aura=aura, debug=False)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'Retries: 0 chunk(s) retried after a 401, 0 item(s) already landed' in out

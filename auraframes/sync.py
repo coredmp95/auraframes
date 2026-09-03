@@ -48,6 +48,7 @@ from loguru import logger
 from auraframes.aws.s3client import get_md5
 from auraframes.client import AuthenticationError, RateLimitError
 from auraframes.models.asset import AssetPartial, AssetPartialId
+from auraframes.ratelimit import BudgetExhausted
 from auraframes.utils.dt import format_dt_to_aura, get_utc_now
 
 # Only these extensions are eligible for content-hash diffing (D-02). Phase 6
@@ -735,6 +736,12 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                     # discriminator (D-02). A failure here is a genuine
                     # authentication failure: hard stop, never retried.
                     if budget is not None:
+                        # D-06: the re-login is charged (RETRY_RELOGIN_REQUEST_COST,
+                        # see its own rationale comment above) even though the
+                        # verify probe below is free -- same acquire() shape
+                        # every other write already uses (D-07), so
+                        # --no-wait/--max-wait/--ignore-budget govern this
+                        # exactly like a first attempt, with no bespoke path.
                         budget.acquire(RETRY_RELOGIN_REQUEST_COST, wait=wait_on_budget,
                                         max_wait=max_wait_seconds, now=clock(),
                                         sleep=sleep, on_wait=on_wait)
@@ -763,7 +770,12 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
 
                 # Re-login just succeeded -- verify every prepped item BEFORE
                 # re-sending anything (REL-02, D-01): an item the probe
-                # confirms already landed must never be re-sent.
+                # confirms already landed must never be re-sent. D-06: this
+                # probe is NEVER charged against `budget` -- reads
+                # demonstrably kept working throughout the v2.0 write
+                # lockouts, and charging them would make a 50-item chunk's
+                # verification cost 50 tokens, which would defeat D-01's
+                # whole point (a verify step so expensive nobody enables it).
                 by_lid = {lid: path for (path, lid, _) in prepped}
                 landed, absent, inconclusive = _probe_landed(asset_probe, list(by_lid))
 
@@ -785,8 +797,16 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
                     # printed.
                     resend = [item for item in prepped if item[1] in absent]
                     if budget is not None:
-                        # Full first-attempt cost (D-05): the requests really
-                        # were sent and really did hit the anti-abuse surface.
+                        # D-05: a retry is charged at FULL first-attempt cost
+                        # (2 -- select_asset + batch_update), not a discount.
+                        # The requests really were sent and really did hit
+                        # the anti-abuse surface, and Phase 9 already
+                        # observed that failed attempts appear to consume
+                        # server-side budget too -- charging the retry keeps
+                        # the local estimate honest at the price of a
+                        # shorter effective run. Same acquire() call shape
+                        # as the first attempt (D-07): no bespoke charge
+                        # path, no retry-specific wait policy.
                         budget.acquire(2, wait=wait_on_budget, max_wait=max_wait_seconds,
                                         now=clock(), sleep=sleep, on_wait=on_wait)
                     try:
@@ -831,6 +851,16 @@ def execute_plan(plan: SyncPlan, aura, frame_id: str, *, s3_client, sqs_client,
             # RateLimitError does, never be re-caught by the broader
             # ConsecutiveWriteFailureError/Exception branches below and
             # never be attributed as a per-file failure.
+            raise
+        except BudgetExhausted:
+            # REL-03, D-07: the retry's re-login/resend `budget.acquire(...)`
+            # calls (above, inside the 401 branch) use the exact same call
+            # shape as every other write's acquire -- so a BudgetExhausted
+            # raised from THEM must propagate exactly as it does from the
+            # chunk-start acquire (which sits entirely outside this
+            # try/except and is never caught here at all), not be
+            # re-labelled a per-file write failure by the generic branch
+            # below.
             raise
         except ConsecutiveWriteFailureError:
             # note_failure() above can raise this from WITHIN the per-file

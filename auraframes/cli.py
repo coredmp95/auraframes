@@ -552,6 +552,13 @@ def run_sync(dir_arg: str, frame_arg: str, apply: bool = False, yes: bool = Fals
         print(f'Uploads: {result.upload_succeeded} succeeded, {len(result.upload_failures)} failed')
         for path, err in result.upload_failures:
             print(f'  ! {path}: {err}')
+        # REL-01/REL-03, D-08: printed unconditionally on every --apply run
+        # (never behind --debug) -- how many chunks the 401 verify-then-retry
+        # path recovered and how many duplicate uploads it prevented is the
+        # single most useful signal for judging whether the 401 problem is
+        # actually fixed, including the (common, reassuring) all-zero case.
+        print(f'Retries: {result.chunks_retried} chunk(s) retried after a 401, '
+              f'{result.items_already_landed} item(s) already landed (duplicate uploads prevented)')
         print(f'{verb_past}: {result.delete_succeeded} succeeded, {len(result.delete_failures)} failed')
         for asset_id, err in result.delete_failures:
             print(f'  ! {asset_id}: {err}')
