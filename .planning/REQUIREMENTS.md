@@ -132,16 +132,67 @@ Deferred, tracked, not in this roadmap.
 
 ## Traceability
 
-Populated during roadmap creation.
+Populated during roadmap creation (2026-09-03). Every v3.0 requirement maps to exactly
+one phase; phase numbering continues from v2.0's Phase 10.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| _(to be filled by the roadmapper)_ | — | Pending |
+| REL-01 | Phase 11 | Pending |
+| REL-02 | Phase 11 | Pending |
+| REL-03 | Phase 11 | Pending |
+| REL-04 | Phase 11 | Pending |
+| REL-05 | Phase 11 | Pending |
+| REL-06 | Phase 11 | Pending |
+| REL-07 | Phase 11 | Pending |
+| REL-08 | Phase 11 | Pending |
+| FMT-01 | Phase 11 | Pending |
+| FMT-02 | Phase 11 | Pending |
+| FMT-03 | Phase 11 | Pending |
+| SPK-01 | Phase 12 | Pending |
+| SPK-02 | Phase 12 | Pending |
+| SPK-03 | Phase 12 | Pending |
+| SPK-04 | Phase 12 | Pending |
+| SPK-05 | Phase 12 | Pending |
+| GP-01 | Phase 13 | Pending |
+| GP-02 | Phase 13 | Pending |
+| GP-03 | Phase 13 | Pending |
+| GP-04 | Phase 13 | Pending |
+| GP-05 | Phase 14 | Pending |
+| GP-06 | Phase 14 | Pending |
+| GP-07 | Phase 14 | Pending |
+| GP-08 | Phase 14 | Pending |
+| GP-09 | Phase 14 | Pending |
+| GP-10 | Phase 14 | Pending |
+| GP-11 | Phase 14 | Pending |
+| GP-12 | Phase 14 | Pending |
+| GP-13 | Phase 14 | Pending |
+| SAFE-01 | Phase 14 | Pending |
+| SAFE-02 | Phase 14 | Pending |
+| SAFE-03 | Phase 14 | Pending |
+| SAFE-04 | Phase 14 | Pending |
+| MAP-01 | Phase 15 | Pending |
+| MAP-02 | Phase 15 | Pending |
+| MAP-03 | Phase 15 | Pending |
+| MAP-04 | Phase 15 | Pending |
+| TEST-01 | Phase 15 | Pending |
+| TEST-02 | Phase 13 | Pending |
+| MOD-02 | Phase 15 | Pending |
+| MOD-03 | Phase 11 | Pending |
+| MOD-04 | Phase 15 | Pending |
+| MOD-05 | Phase 14 | Pending |
 
 **Coverage:**
 - v3.0 requirements: 43 total
-- Mapped to phases: 0 ⚠️ (roadmap not yet created)
+- Mapped to phases: 43 ✓ (100% — no orphans, no duplicates)
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 11 — Write-Path Reliability & Format Support | REL-01..08, FMT-01..03, MOD-03 | 12 |
+| Phase 12 — Album-Access Mechanism Spike | SPK-01..05 | 5 |
+| Phase 13 — Google Link & Album Selection | GP-01..04, TEST-02 | 5 |
+| Phase 14 — Album → Frame Mirror Sync (Single Pair) | GP-05..13, SAFE-01..04, MOD-05 | 14 |
+| Phase 15 — Many-to-Many Mapping & Debt Closeout | MAP-01..04, TEST-01, MOD-02, MOD-04 | 7 |
 
 ---
 *Requirements defined: 2026-09-03*
-*Last updated: 2026-09-03 after research and the spike-all-three decision*
+*Last updated: 2026-09-03 — traceability populated by the roadmapper (phases 11-15)*
