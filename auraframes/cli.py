@@ -116,7 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
         help='Skip the confirmation prompt (required for --remove when running non-interactively)')
     reconcile_parser.add_argument(
         '--mechanism', choices=['remove', 'hard-delete', 'complete'], default='remove',
-        help='Which removal mechanism to attempt -- no mechanism is yet confirmed to work on these rows')
+        help="Which removal mechanism to attempt. 'remove' (the default) is confirmed working "
+             "live as of 2026-09-03 (plan 11-06); 'hard-delete' is unconfirmed; "
+             "'complete' is not yet implemented")
     reconcile_parser.add_argument(
         '--max-age-hours', type=float, default=24.0, dest='max_age_hours',
         help='Minimum age in hours for a placeholder row to be reported as stuck rather than '

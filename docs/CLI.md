@@ -392,8 +392,10 @@ options:
   --yes                 Skip the confirmation prompt (required for --remove
                         when running non-interactively)
   --mechanism {remove,hard-delete,complete}
-                        Which removal mechanism to attempt -- no mechanism is
-                        yet confirmed to work on these rows
+                        Which removal mechanism to attempt. 'remove' (the
+                        default) is confirmed working live as of 2026-09-03
+                        (plan 11-06); 'hard-delete' is unconfirmed; 'complete'
+                        is not yet implemented
   --max-age-hours MAX_AGE_HOURS
                         Minimum age in hours for a placeholder row to be
                         reported as stuck rather than recently created
