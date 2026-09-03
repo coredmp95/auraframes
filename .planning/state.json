@@ -1,0 +1,53 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": "v2.0 — Directory-to-Frame Sync",
+  "phases": [
+    {
+      "number": "1",
+      "name": "Toolchain Revival",
+      "status": "complete"
+    },
+    {
+      "number": "2",
+      "name": "Live Read-Path Verification",
+      "status": "complete"
+    },
+    {
+      "number": "3",
+      "name": "Run Docs & Verification Report",
+      "status": "complete"
+    },
+    {
+      "number": "4",
+      "name": "Client Transport Seam for Offline Testability",
+      "status": "complete"
+    },
+    {
+      "number": "5",
+      "name": "CLI Skeleton + Status",
+      "status": "complete"
+    },
+    {
+      "number": "6",
+      "name": "Inspect + Frame Resolution",
+      "status": "complete"
+    },
+    {
+      "number": "7",
+      "name": "Sync-Diffing Engine (Dry-Run Only)",
+      "status": "complete"
+    },
+    {
+      "number": "8",
+      "name": "Destructive Execution (Upload + Delete Verification)",
+      "status": "complete"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
+  },
+  "updated_at": "2026-09-02T19:16:40.945Z"
+}

@@ -8,6 +8,35 @@ from auraframes.models.frame import Frame, FramePartial
 from auraframes.utils.dt import get_utc_now, format_dt_to_aura
 
 
+def _apply_asset_settings(assets: list[Asset], asset_settings) -> None:
+    """Overwrite each asset's `selected` with this frame's visibility, taken
+    from the `asset_settings` array that rides alongside `assets` in the
+    /frames/{id}/assets.json response.
+
+    Visibility is per-frame state, so it lives in `asset_settings` (keyed by
+    `asset_id`, carrying `selected` and its mirror `hidden`), NOT on the asset
+    itself. Live-confirmed in Phase 10: after `exclude_asset` hid a photo, its
+    `asset_settings.selected` flipped to `false` while the asset-level
+    `selected` stayed `true`. Reading the asset-level field would classify
+    every photo as visible forever and silently never hide anything, so the
+    join happens once here at the API boundary rather than in each caller.
+
+    An asset with no matching settings row keeps whatever `selected` the API
+    sent (it has no per-frame override to apply). Mutates `assets` in place.
+    """
+    if not asset_settings:
+        return
+
+    visibility = {
+        row['asset_id']: row['selected']
+        for row in asset_settings
+        if row.get('asset_id') is not None and row.get('selected') is not None
+    }
+    for asset in assets:
+        if asset.id in visibility:
+            asset.selected = visibility[asset.id]
+
+
 class FrameApi(BaseApi):
 
     def get_frames(self) -> list[Frame]:
@@ -40,13 +69,29 @@ class FrameApi(BaseApi):
         Gets assets for a `frame_id`. The results are paginated with `limit` results per page. To obtain the next set
         of pages, pass in the cursor from the response.
 
+        Returns BOTH visible and hidden assets: the request sends `filter=all`
+        because the server otherwise defaults to `filter=selected` and silently
+        drops every hidden asset from the page (live-confirmed Phase 10 --
+        omitting the filter returned 154 assets where `filter=all` returned
+        157). Hidden assets must stay in the listing so a hidden photo still
+        counts as present for md5 dedup and is never re-uploaded (D-06).
+
+        Each returned `Asset.selected` carries THIS FRAME's visibility, joined
+        from the response's parallel `asset_settings` array (see
+        `_apply_asset_settings`). The asset-level `selected` field the API
+        sends is NOT per-frame visibility -- live probing showed it stays
+        `true` even while the photo is hidden on the frame -- so it is
+        overwritten here, at the boundary, and every downstream consumer can
+        read `asset.selected` as the real signal (D-01/D-05).
+
         :param frame_id: Frame ID to retrieve assets
         :param limit: Maximum number of assets per page / callout.
         :param cursor: The cursor from the previous page.
-        :return: List of all the assets, and the next page's cursor (will be `None` if there are no more pages)
+        :return: List of all the assets (visible and hidden), and the next page's cursor
+            (will be `None` if there are no more pages)
         """
         json_response = self._client.get(f'/frames/{frame_id}/assets.json',
-                                         query_params={'limit': limit, 'cursor': cursor})
+                                         query_params={'limit': limit, 'cursor': cursor, 'filter': 'all'})
         if json_response.get('error'):
             # Surface API drift instead of silently swallowing it (D-06):
             # a drifted/failed asset page must not be processed as success.
@@ -55,6 +100,7 @@ class FrameApi(BaseApi):
                 f"{json_response.get('message') or json_response.get('error')}"
             )
         assets = [Asset(**asset_data) for asset_data in json_response.get('assets')]
+        _apply_asset_settings(assets, json_response.get('asset_settings'))
         return assets, json_response.get('next_page_cursor')
 
     def get_activities(self, frame_id: str, cursor: str = None):
@@ -102,50 +148,107 @@ class FrameApi(BaseApi):
                                          data={'frame': frame_partial.dict(exclude_unset=True)})
         return Frame(**json_response.get('frame'))
 
-    def select_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+    def select_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Associates an asset to a frame. This is typically done immediately before the asset is uploaded to S3.
+        Associates one or more assets to a frame. This is typically done immediately before the
+        asset(s) are uploaded to S3.
+
+        This is a native Pushd BATCH endpoint: the official app sends the whole collection of
+        assets to associate in a single `{"assets": [...]}` call rather than one call per asset.
+        A single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list) and legacy single-item callers are unaffected.
 
         :param frame_id: Frame id
-        :param asset_partial_id: The asset identifier to associate to the frame.
-        :return: The number of assets that failed to be associated to the frame.
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to associate to
+            the frame in one call.
+        :return: The number of assets that failed to be associated to the frame. NOTE: this is a
+            count only -- in batch mode (a list of more than one item) there is no per-item
+            signal in this response, so a caller cannot learn WHICH item(s) failed from
+            select_asset alone.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/select_asset.json',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
+        if json_response.get('error'):
+            raise RuntimeError(f"select_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"select_asset reported {number_failed} failure(s) for frame {frame_id}")
 
-    def exclude_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+        return number_failed
+
+    def exclude_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Excludes an asset from displaying in the frame's slideshow. The asset will still show in the app.
+        Hides one or more assets on the frame: they stop displaying in the slideshow but are
+        NOT deleted -- they remain in `get_assets(filter='all')` and still show in the app.
+        Live-confirmed in Phase 10 (the frame's asset total was unchanged across a hide, and
+        the asset's `asset_settings.selected` flipped to false / `hidden` to true).
+
+        `select_asset` is the exact inverse -- it un-hides. There is no `include_asset`
+        endpoint and none is needed.
+
+        This is a native Pushd BATCH endpoint (service method `excludeAssets`): the official
+        app sends the whole collection in a single `{"assets": [...]}` call rather than one
+        call per asset, live-confirmed in Phase 10 by hiding two assets in one request. A
+        single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list).
+
+        The URL deliberately has NO `.json` suffix -- unlike every sibling endpoint here.
+        That matches what the decompiled app posts and is live-confirmed working; it is not
+        a bug, so do not "fix" it.
 
         :param frame_id: Frame id
-        :param asset_partial_id: The asset identifier to remove from the slideshow.
-        :return: The number of assets that failed to be excluded from the frame.
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to hide on
+            the frame in one call.
+        :return: The number of assets that failed to be hidden. NOTE: this is a count only --
+            in batch mode there is no per-item signal in this response, so a caller cannot
+            learn WHICH item(s) failed from exclude_asset alone.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/exclude_asset',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
+        if json_response.get('error'):
+            raise RuntimeError(f"exclude_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"exclude_asset reported {number_failed} failure(s) for frame {frame_id}")
 
-    def remove_asset(self, frame_id: str, asset_partial_id: AssetPartialId) -> int:
+        return number_failed
+
+    def remove_asset(self, frame_id: str, asset_partial_ids: AssetPartialId | list[AssetPartialId]) -> int:
         """
-        Disassociates an asset from a frame. This does not seem to remove the asset from S3/Glacier.
+        Disassociates one or more assets from a frame. This does not seem to remove the asset(s)
+        from S3/Glacier.
 
-        :param frame_id: Frame id containing the asset.
-        :param asset_partial_id: The asset identifier to remove from the frame.
-        :return: The number of assets that failed to be removed from the frame.
+        This is a native Pushd BATCH endpoint: the official app sends the whole collection of
+        assets to remove in a single `{"assets": [...]}` call rather than one call per asset. A
+        single `AssetPartialId` is accepted for backward compatibility (normalized to a
+        one-element list). Per-item delete attribution degrades to per-chunk in batch mode: a
+        nonzero `number_failed` or a raised error fails the WHOLE batch's deletes, since this
+        endpoint returns only a count, never which item(s) failed.
+
+        :param frame_id: Frame id containing the asset(s).
+        :param asset_partial_ids: A single `AssetPartialId`, or a list of them, to remove from
+            the frame in one call.
+        :return: The number of assets that failed to be removed from the frame. NOTE: this is a
+            count only -- there is no per-item signal in this response.
         """
+        items = asset_partial_ids if isinstance(asset_partial_ids, list) else [asset_partial_ids]
 
-        # Typical use of this endpoint results in a single AssetPartialId being sent per call.
         json_response = self._client.post(f'/frames/{frame_id}/remove_asset.json',
-                                          data={'assets': [asset_partial_id.to_request_format()]})
+                                          data={'assets': [item.to_request_format() for item in items]})
+        if json_response.get('error'):
+            raise RuntimeError(f"remove_asset failed for frame {frame_id}: {json_response.get('error')}")
 
-        return json_response.get('number_failed')
+        number_failed = json_response.get('number_failed')
+        if number_failed:
+            raise RuntimeError(f"remove_asset reported {number_failed} failure(s) for frame {frame_id}")
+
+        return number_failed
 
     def reconfigure(self, frame_id: str):
         """

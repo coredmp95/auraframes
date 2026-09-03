@@ -11,7 +11,13 @@ verified the core read flow (login → list → download) still works end-to-end
 live service. **v1.1 (shipped 2026-07-05)** added a `Client`/`Aura` dependency-injection
 transport seam and a reusable offline `httpx.MockTransport` test harness, lifting most of
 the read-path test suite off the live network while a byte-identical `@live` suite
-remains the drift oracle.
+remains the drift oracle. **v2.0 (shipped 2026-09-02)** turned that foundation into a
+real tool: a packaged `aura-cli` with `status`/`inspect`/`sync`/`push`, content-hash
+directory-to-frame mirroring, and the **write path proven live for the first time in the
+codebase's three-year history** — upload, `remove_asset`, `exclude_asset` (hide) and
+`delete_asset` all exercised against a real account and frame, behind a proactive
+anti-abuse rate-limiter and a hide-by-default removal mode that costs visibility rather
+than photos.
 
 ## Core Value
 
@@ -21,8 +27,45 @@ Python toolchain, so we know exactly what survives before building anything new.
 > ✓ **Achieved in v1.0.** The read path is proven live (login → list → 77-asset cursor
 > drain → image download with EXIF intact). **v1.1** made that proof cheap to re-run
 > (offline, no credentials) without weakening it — the `@live` suite still exists as the
-> ground truth. The natural next core value is proving the **write/upload path**
-> (select_asset → S3 → SQS → batch_update) the same way.
+> ground truth. **v2.0** shifts the core value: prove the **write path** the same way,
+> and turn that proof into a real usable capability — syncing a local photo directory to
+> a frame — rather than another internal-only verification pass.
+>
+> ✓ **Achieved in v2.0 (2026-09-02).** The write path is proven live (`select_asset` → S3
+> → SQS → `batch_update` upload round-trip, `remove_asset`, `exclude_asset`/`select_asset`
+> hide-and-re-show, `delete_asset` blast radius measured by before/after inventory diff),
+> and it ships as `aura-cli sync`, not as an internal test. **The core value now shifts
+> again: from *proving* the write path to making it boringly reliable** — the live runs
+> surfaced transient 401s, unremovable placeholder rows, and a server-side pagination
+> inconsistency that a tool people actually depend on should absorb rather than expose.
+
+## Current State
+
+**Shipped:** v2.0 Directory-to-Frame Sync (2026-09-02) — phases 5-10, 17 plans, 160 commits.
+
+`aura-cli` is a real, packaged CLI with four verbs:
+
+- `status` — config/auth health (creds set? login succeeds? which account?) + account frames
+- `inspect --frame <name|id>` — frame metadata (name, owner, contributor count, asset count)
+  plus the first N photos; resolves frames by case-insensitive name substring or exact ID
+- `sync <dir> --frame <name|id>` — content-hash directory mirroring, **dry-run by default**;
+  `--apply`/`--yes` executes. Removal defaults to **hide** (`exclude_asset`), with the two
+  destructive tiers opt-in and gated by their own destructiveness
+- `push` — direct upload path with the anti-abuse budget/geo override flags
+
+Underneath: a `WriteBudget` token bucket (persisted per account, reconciled on real
+anti-abuse trips) and a fail-open `check_geo` pre-flight guard protect every `--apply`.
+
+**Next milestone goals (candidates, not yet committed):**
+
+1. **Write-path reliability** — retry-once-on-401-with-fresh-login inside `execute_plan`
+   (the single highest-value fix; ~4 in 10 live runs currently fail spuriously)
+2. **Placeholder-row reconciliation** — 58 stuck rows on the live frame from `select_asset`
+   calls whose upload never completed; neither `delete_asset` nor `remove_asset` clears them
+3. **Triage the 3 open Phase 8 code-review findings** — `AssetPartialId`'s no-op validator,
+   unvalidated `batch_update` partial-success, hardcoded `data_uti='public.jpeg'`
+4. **Finish the lift-tests-off-network slice** — candidates #2 (authenticated value) and
+   #4 (injected config), carried since v1.1
 
 ## Requirements
 
@@ -47,29 +90,52 @@ Python toolchain, so we know exactly what survives before building anything new.
 - ✓ Downloading one image with EXIF (datetime + GPS) read back from disk verified live (READ-04) — Validated in Phase 2: Live Read-Path Verification
 - ✓ Documented `uv` setup/run commands + env vars and a repo-root VERIFICATION-REPORT.md recording read-path status and API drift (ENV-04, DOC-01) — Validated in Phase 3: Run Docs & Verification Report
 - ✓ `Client`/`Aura` dependency-injection transport seam (`Client(transport=...)`, `Aura(client=...)`) plus a reusable offline `httpx.MockTransport` test harness and sanitized fixtures, lifting most of `test_read_path.py`'s assertions off the live network while leaving the `@live` suite untouched as the drift oracle (R4-SEAM-CLIENT, R4-SEAM-AURA, R4-FIXTURES, R4-FIXTURE-VALIDITY, R4-HARNESS, R4-OFFLINE-TESTS, R4-LIVE-UNCHANGED) — Validated in Phase 4: Client Transport Seam for Offline Testability
+- ✓ Packaged `aura-cli` entrypoint distinct from `main.py`, with a `status` subcommand reporting config/auth health, login result, and the account's frames — quiet by default with an opt-in `--debug` flag for verbose loguru output (CLI-01, CLI-02) — Validated in Phase 5: CLI Skeleton + Status
+- ✓ `inspect --frame <name|id>` resolves a frame by case-insensitive name substring or exact ID, displays its photos and metadata (name, owner, contributor count, asset count), and gives a clear disambiguation error on ambiguous name matches; `--debug` promoted to a root-level flag (CLI-03, CLI-04) — Validated in Phase 6: Inspect + Frame Resolution
+- ✓ `sync <dir> --frame <name|id>` computes and prints a full upload/delete/unchanged dry-run plan by content-hash diffing (never filename), with zero mutating call reachable from the command — structurally dry-run only, no `--apply`/`--yes` path exists yet (SYNC-01, SYNC-02) — Validated in Phase 7: Sync-Diffing Engine (Dry-Run Only)
+- ✓ `sync --apply`/`--yes` executes the computed plan for real — uploads new local files (`select_asset` → S3 → `batch_update`) and removes gone-locally frame photos via `remove_asset`; prints upload/delete/unchanged counts before applying and exits non-zero on any execution failure (SYNC-03, SYNC-04) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Image upload round-trip verified live against a real account/frame (WRITE-01) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ `remove_asset`'s real behavior verified live — disassociates from the frame only (WRITE-02) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ `delete_asset`'s real behavior verified live — asset-scoped `DELETE /assets/{id}.json`, broader than `remove_asset`, correctly left unwired from `--apply` (WRITE-03) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Hardcoded frame ID in the SQS upload-confirmation lookup fixed and confirmed live for an arbitrary frame (WRITE-04) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Fail-loud error handling extended to the write/delete endpoints (WRITE-05) — Validated in Phase 8: Destructive Execution (Upload + Delete Verification)
+- ✓ Proactive client-side write rate-limiter (`WriteBudget` token bucket, persisted per-account + reconciled on real anti-abuse trips) that waits/stops before tripping the Pushd limit, plus a configurable geo pre-flight guard (`check_geo`, fail-open by default) that refuses writes when the exit-IP country differs from the account's country — wired into `execute_plan`/`run_sync`/CLI as a true no-op when unconfigured, 100% offline-tested (ANTI-01..ANTI-07) — Validated in Phase 9: Proactive Write Rate-Limiter & Geo Guard
+- ✓ `sync --apply` defaults to **hiding** removed photos rather than deleting them: `exclude_asset` (widened to the batch shape) marks them invisible while they remain on the frame, `select_asset` re-shows a restored file without re-uploading it, `get_assets` sends `filter=all` and joins the parallel `asset_settings` array so the diff engine classifies every frame asset re-show / unchanged / removal-candidate / already-hidden, and the two destructive tiers are mutually-exclusive opt-in flags gated by an exact-count confirmation (HIDE-01..HIDE-08) — Validated in Phase 10: Hide-instead-of-delete sync mode
+- ✓ `delete_asset` re-verified asset-scoped by before/after live inventory diff (158 → 157, exactly the target, no drift since Phase 8) (HIDE-07) — Validated in Phase 10: Hide-instead-of-delete sync mode
 
 ### Active
 
-<!-- v1.0 and v1.1 fully validated. The next milestone starts fresh via /gsd-new-milestone;
-     the items below are candidates carried forward, not yet committed scope. -->
+<!-- v1.0, v1.1, v2.0 and v2.x (Phase 9 anti-abuse, Phase 10 hide-by-default) all
+     validated — see Validated above. The items below are the carry-forward set for
+     the next milestone, ordered by value. -->
 
-- _All v1.0 and v1.1 requirements validated — see Validated above._
-- ⏭ (next-milestone candidate) Verify the **write/upload** round-trip live: select_asset → S3 → SQS → batch_update
-- ⏭ (next-milestone candidate) Complete the remaining "lift tests off the live network" slice: candidates #2 (authenticated value) and #4 (injected config)
-- ⏭ (next-milestone candidate) Harden the deferred code smells (MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, `Aura._init_logger()` loguru sink leak on repeated construction)
+- _All v1.0, v1.1, v2.0 and v2.x requirements validated — see Validated above._
+- **[reliability, highest value] Retry once on HTTP 401 with a fresh login inside `execute_plan`** — Phase 10 UAT measured ~4 of ~10 live `sync --apply` runs failing with a 401 that cleared on an immediate re-run, with no config/geo/credential change. Not endpoint-specific and not the geofence; the client has no retry, so users see spurious failures and a non-zero exit. Same signature as the Phase 8 mid-batch token-expiry incident.
+- **[correctness] Placeholder-row reconciliation** — 58 rows created by `select_asset` calls whose upload never completed (no `uploaded_at`/`file_name`/`md5_hash`) are permanently stuck on the live frame: `delete_asset` returns 200 and removes nothing, `remove_asset` returns 404. These are also the cause of the `num_assets` (171) vs paginated-drain (149) mismatch that fails `tests/test_read_path.py::test_read_03_pagination` — measured as a server-side pagination inconsistency, not a client bug. Operational lesson already learned: never call `select_asset` with a `local_identifier` you do not intend to upload.
+- **[correctness] Triage the 3 unresolved Phase 8 code-review findings** (see `08-REVIEW.md`): `AssetPartialId`'s cross-field validator is a no-op for the common construction path; `batch_update`'s partial-success response isn't validated against the requested id list; hardcoded `data_uti='public.jpeg'` will silently mis-tag/fail `.png`/`.heic` uploads (Pillow has no HEIC decoder in this environment).
+- **[testing] Finish the "lift tests off the live network" slice** — candidates #2 (authenticated value) and #4 (injected config), carried since v1.1.
+- **[hardening] Deferred code smells** — MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, MOD-04 `Aura._init_logger()` loguru sink leak on repeated construction.
 
 ### Out of Scope
 
 - Device-on-LAN / MITM traffic capture — deferred to a later reverse-engineering milestone
 - Reversing the frame's own rendering process / firmware — later milestone
-- Verifying the upload round-trip — the done bar is the read path; upload verification deferred
 - SQS push-flow deep-dive (the TODO to map the real SQS behaviour) — later milestone
-- Async migration of the HTTP client — not required to revive; existing sync client is fine
+- Async migration of the HTTP client — still not required; the sync client remains adequate
+  even under batched writes, which are paced deliberately (`WRITE_CHUNK_DELAY_SECONDS`) rather
+  than parallelised. Tracked as MOD-01 debt, not a goal.
+- Video sync — `md5_hash` is null for all video assets on the live frame, so content-hash
+  diffing cannot see them; would need a local-manifest fallback. Photos only, by design.
+- Removing the accumulated placeholder rows via the existing primitives — measured in Phase 10
+  as impossible with `delete_asset`/`remove_asset`; needs a different mechanism (see Active).
 
 ## Context
 
-### Current state (after v1.1, 2026-07-05)
+### Current state (after v2.0, 2026-09-02)
 
+- **Shipped v2.0** — `aura-cli` (`status`/`inspect`/`sync`/`push`), write path proven live,
+  hide-by-default removal, proactive anti-abuse guard. **7,676 LOC Python** (`auraframes` +
+  `tests`); 208 tests passing, 1 pre-existing failure (see below).
 - **Shipped v1.0** — read path proven live against `api.pushd.com/v5`. ~1,760 LOC Python.
 - **Shipped v1.1** — `Client`/`Aura` DI transport seam + offline `httpx.MockTransport`
   harness; ~1,942 LOC Python (`auraframes` + `tests` + `main.py`).
@@ -95,6 +161,79 @@ Python toolchain, so we know exactly what survives before building anything new.
   config) remain open for a future phase to complete the "lift tests off the live network" slice.
 - **Known still-open tech debt (deferred, not blocking):** hardcoded AWS pool IDs / bucket
   name, unguarded post-login state, silent `pass` on some API `error` fields, sync-only HTTP.
+- **Phase 5 (2026-07-06):** Shipped the packaged `aura-cli` entrypoint with a `status`
+  subcommand (config health, login, frame listing), offline-tested via the v1.1 DI seam.
+  A live UAT pass flagged verbose loguru request/response noise leaking to stderr; closed
+  in the same phase (05-02, gap closure) with a quiet-by-default `_configure_cli_logging()`
+  helper and an opt-in `--debug` flag, re-confirmed live. Threat register (6 threats,
+  T-05-01–05 + T-05-SC) fully mitigated/accepted — see `05-SECURITY.md`. A todo carries
+  forward the idea of promoting `--debug` to a global flag once Phase 6 designs `inspect`.
+- **Phase 6 (2026-07-06):** Shipped `aura-cli inspect --frame <name|id>` (frame resolution
+  by name or ID, metadata + first-N photo listing), and folded the `--debug`-promotion todo
+  into it (`--debug` is now a root-level `aura-cli` flag). Live spike (Success Criterion 4,
+  hard Phase 7 dependency): ran `inspect --debug` against a real frame (106 paginated assets)
+  and inspected the logged asset JSON — `md5_hash` is **populated** (non-null base64) for
+  101/101 pre-existing photo (`.jpg`) assets, but **not populated** (null) for 5/5 video
+  (`.mp4`) assets. Consequence for Phase 7: content-hash diffing via `md5_hash` is viable for
+  photos with no fallback needed; a local-manifest/alternate-hash fallback is only required
+  scope if video sync ever enters scope.
+- **Phase 7 (2026-07-07):** Shipped the dry-run sync-diffing engine (`auraframes/sync.py`
+  + `aura-cli sync <dir> --frame <name|id>`), structurally incapable of mutating (no
+  `--apply`/`--yes` flag exists yet). Live validation (SYNC-02 success criterion 3, D-09
+  precedent from Phase 6's `md5_hash` spike): ran `aura-cli sync ./data/ --frame "Cadre de
+  Fabrice"` against a real frame — one local file with a matching original already on the
+  frame was correctly classified "Unchanged" while a second, non-matching local file was
+  correctly classified "To upload". This confirms the base64-MD5 convention is **byte-identical**
+  between local `S3Client.get_md5(original_bytes)` hashing and the frame's reported
+  `md5_hash`, making the dry-run diff engine's core content-hash matching assumption sound.
+  Unblocks Phase 8 (the write/upload/delete path) to trust the diff without re-deriving
+  the hash convention.
+- **Phase 8 (2026-07-08) — v2.0 milestone complete:** Shipped `sync --apply`/`--yes`,
+  the first mutating path in this codebase's ~3-year history. `execute_plan()` (the
+  mutating counterpart to `compute_plan()`) uploads new local files (`select_asset` → S3
+  → `batch_update`, via a new `AssetPartial` identity model) and removes gone-locally
+  photos via `remove_asset`, with uploads-before-deletes ordering and per-item
+  continue-past-failure. Fixed the hardcoded SQS frame-id bug (WRITE-04) and extended
+  fail-loud error handling to all write/delete endpoints (WRITE-05). Live-verified
+  against "Cadre de Fabrice": the upload round-trip, `remove_asset`, and a standalone
+  `delete_asset` probe against a disposable asset all confirmed working as designed —
+  `delete_asset` is asset-scoped (`DELETE /assets/{id}.json`, broader than `remove_asset`'s
+  frame-scoped disassociation) and remains structurally unreachable from `--apply` (D-06).
+  A live-verification incident (an operator run against a near-empty local directory
+  triggered a 72-item delete plan against the standing test frame; 25 of 72 deletes hit a
+  mid-batch auth-token expiry) validated WRITE-05/SYNC-04's fail-loud, continue-past-failure,
+  non-zero-exit design under a real partial-failure condition — no data was lost (photos
+  independently backed up) and a fresh re-run completed cleanly. Code review flagged 3
+  unresolved critical findings (see Active, future-milestone candidates) that do not block
+  this milestone's must-haves but should be triaged before further write-path work.
+- **Phase 9 (2026-07-09):** Shipped `auraframes/ratelimit.py` — an injected-clock
+  `WriteBudget` token bucket with JSON persistence (per account, reconciled against real
+  anti-abuse trips) plus a fail-open `check_geo` pre-flight guard, wired into `execute_plan`
+  and both `push --apply` and `sync --apply` as a true no-op when unconfigured. Root cause
+  reframed during this phase: the persistent 401 write-lockout was diagnosed at the time as a
+  VPN geo mismatch on top of a real ~42-write/~40-min request limit measured live.
+  **Superseded by Phase 10's evidence — see below.** 19 new offline tests; a code-review
+  blocker (the bucket over-refilled after a wait) was caught and fixed pre-completion.
+- **Phase 10 (2026-08-25) — v2.0 milestone complete:** Shipped hide-by-default removal.
+  A live 8-step probe against "Cadre de Fabrice" with disposable throwaways confirmed
+  `exclude_asset` hides non-destructively (the asset REMAINS in `get_assets?filter=all`) and
+  `select_asset` re-shows it — and **corrected the design mid-phase**: the visibility flag is
+  `asset_settings[asset_id].selected`, a parallel array in the same response, **not**
+  `Asset.selected`, which stayed `true` through every hide/re-show cycle. `compute_plan` became
+  a 4-way classifier (re-show / unchanged / removal-candidate / already-hidden); `execute_plan`
+  hides by default and can only reach the irreversible primitive if a caller names it; the CLI
+  names the verb it will actually run and gates real deletion behind an exact-count prompt.
+  Live drift fixed: the API stopped returning `Frame.smart_adds`, breaking hydration for every
+  verb — patched to `Field(default_factory=list)` per the Phase 2 drift convention.
+  **The "geofence" was disproven:** from a French residential IP the first `push --apply` still
+  401'd, then the identical call succeeded minutes later and 11 subsequent writes all returned
+  200. The 401 is transient auth-token expiry, not geo — remedy is retry with a fresh login.
+  33 new offline tests; suite at 208 passed / 1 failed.
+- **Known open defects (non-blocking, carried into the next milestone):** intermittent write
+  401s (~4 in 10 runs, clears on retry — fails loud and safe, never silently skips work);
+  58 unremovable placeholder rows (fails toward *not* deleting, so the destructive direction
+  is safe); `test_read_03_pagination` asserting `drained == num_assets`, two counts the server
+  itself does not keep consistent.
 
 ### Original baseline
 
@@ -130,6 +269,15 @@ Python toolchain, so we know exactly what survives before building anything new.
 | Resolve login creds at call time, not import time | Early-bound default args evaluated `os.getenv` before `load_dotenv()`, sending null creds (HTTP 475) | ✓ Good — None-sentinel pattern + offline regression guard (debug `login-475-null-creds`) |
 | Additive `Client(transport=...)` / `Aura(client=...)` DI seam, zero-arg-compatible | Closes the old DI TODO without breaking any existing caller (`main.py`, live tests) | ✓ Good — both constructors stay zero-arg; live suite byte-identical after the change |
 | Fixture JSON authored entirely synthetic, not recorded from the live API | Safer sanitization posture — no real secret ever exists in a fixture to leak | ✓ Good — 5 fixtures pass model-hydration + fixture-validity tests |
+| `run_status()` returns an int exit code, never calls `sys.exit`; `main()` is the sole `sys.exit` boundary | Mirrors the v1.1 `Aura(client=...)` DI seam so CLI handlers stay synchronously testable via `capsys` without invoking `load_dotenv()` or process exit | ✓ Good — Phase 5's offline test suite drives all three exit paths (missing creds / success / login failure) without subprocess spawning |
+| Fix the verbose-loguru-stderr UAT gap from the CLI boundary, not `aura.py` | `Aura._init_logger()`'s `logger.remove()` is commented out and frozen (D-04); the CLI reconfigures loguru's sinks after `Aura()` construction instead of editing the frozen file | ✓ Good — quiet by default, `--debug` opt-in restores verbosity, file sink preserved in both modes; re-verified via real subprocess in 05-VERIFICATION.md |
+| Safety-first roadmap ordering: phases 5-7 touch only already-live-verified read endpoints; all new write-path risk sequenced into Phase 8 | The write path had never run in three years; concentrate the risk where it can be prepared for, rather than spreading it | ✓ Good — by the time Phase 8 ran, the diff engine and frame resolution were already live-proven, so a write failure could only be a write failure |
+| Dry-run is a *structural* default — separate `compute_plan()` / `execute_plan()` functions, not an `if apply:` branch | A flag can be inverted by a bug; a function that contains no mutating call cannot mutate | ✓ Good — Phase 7 shipped with no reachable mutating primitive at all (T-07-04), and the seam made `execute_plan` fully offline-testable with injected S3/SQS fakes |
+| Content-hash diffing on `md5_hash`, never filename | Filenames are not stable identity; the API already exposes a hash | ✓ Good — confirmed live byte-identical to local `S3Client.get_md5` base64-MD5. ⚠️ Scoped to photos: `md5_hash` is null for all video assets |
+| `remove_asset` (frame-scoped) is `--apply`'s destructive primitive; `delete_asset` (asset-scoped) left structurally unwired | Live probe proved `delete_asset` is broader — it removes the asset entirely, not just from the frame | ✓ Good — blast radius measured twice by inventory diff (Phase 8, re-confirmed Phase 10 at 158 → 157) |
+| Proactive client-side `WriteBudget` token bucket + geo pre-flight, rather than reacting to 429/475 | An anti-abuse trip had already locked writes once; the same trip does not reliably announce itself with a distinguishable status code | ⚠️ Revisit — the budget is sound and the status-agnostic consecutive-failure backstop is the real win, but Phase 10 disproved the geo half of the diagnosis: the lockout was transient token expiry, not a geofence. `check_geo` is fail-open and harmless, but it solves a problem that turned out not to exist |
+| Hide (`exclude_asset`) becomes `--apply`'s default removal mode; real deletion is opt-in and count-gated | The frame has no photo-count limit, so preservation is strictly safer — a mistaken sync should cost visibility, never photos (user decision) | ✓ Good — restoring a local file re-shows the photo without re-uploading it; reaching the irreversible tier now requires reading a number back |
+| Trust live probes over model assumptions — verify the mechanism before building on it | Phase 10-01's probe caught that visibility lives in `asset_settings[].selected`, not `Asset.selected`, before 10-02 built on the wrong signal | ✓ Good — this is the third time a cheap live spike (Phase 6 `md5_hash`, Phase 7 hash format, Phase 10 visibility flag) redirected a design before it cost a rewrite |
 
 ## Evolution
 
@@ -149,4 +297,8 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-05 after v1.1 milestone (Client Transport Seam for Offline Testability) shipped — added the `Client`/`Aura` DI seam and an offline `httpx.MockTransport` test harness, lifting most of `test_read_path.py` off the live network while keeping the `@live` suite as the drift oracle. Next: `/gsd-new-milestone` to scope the write/upload path, or continue the "lift tests off the live network" slice with candidates #2/#4.*
+*Last updated: 2026-09-02 after the **v2.0 Directory-to-Frame Sync** milestone (phases 5-10,
+17 plans, 160 commits, 51 days). Closed as a verified closeout: all 6 phases verified, 28/28
+requirements complete, 0 open artifacts. The write path is proven live and shipped as a real
+CLI. Next: `/gsd-new-milestone` — the strongest candidate is write-path reliability
+(retry-once-on-401), then placeholder-row reconciliation.*

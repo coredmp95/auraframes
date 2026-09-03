@@ -20,6 +20,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[project.scripts]
+aura-cli = "auraframes.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
