@@ -305,4 +305,145 @@ deliberately did not make unilaterally.
 
 ---
 
+## Plan 11-06 — Corrected age guard, and a live removal mechanism confirmed working
+
+Same day, later session, following directly from plan 11-05's Task 3 finding above. Task 1 of
+this plan corrected `find_placeholders`' age guard: a new keyword-only `unknown_age_policy`
+argument (default `'unknown_age'`, reproducing the prior behaviour byte-for-byte; opt-in
+`'stuck'` promotes an unresolvable-creation-time row into the removal-eligible bucket instead
+of parking it there unconditionally). The CLI exposes this as `--include-unknown-age`, required
+alongside `--remove` — bare `--remove` is unchanged. Task 1's commit and full offline test
+evidence (5 new tests, 18 pre-existing tests unmodified, 276/276 offline suite green) are on
+`auraframes/reconcile.py` / `tests/test_reconcile.py` directly; this section covers Task 2's
+live probe through the corrected gate.
+
+### A development-time bug, disclosed in full (T-11-17 discipline)
+
+While building the live probe script, its first run sent ONE real login request to the live
+API with `email=None, password=None` and received `HTTP 475` ("The email or password was
+incorrect"). Root cause: the probe script initially lived outside the project tree (a scratch
+path), and `python-dotenv`'s default `load_dotenv()` walks UP from the *calling script's own
+file location* looking for `.env` — starting from a scratch directory, it never reached the
+project root and silently loaded nothing, leaving `AURA_EMAIL`/`AURA_PASSWORD` unset. This was
+caught immediately (the very next command investigated why), fixed by resolving `.env` via
+`find_dotenv(usecwd=True)` instead (forcing the search to start from the process's actual
+working directory, which is always the project root here) plus a hard `assert` that both
+credentials are non-empty before any `aura.login()` call is ever reached again. A subsequent
+plain login (read-only, `get_frames()` only) confirmed the account was not left in a degraded
+state — no lasting lockout, normal 200 response, 1 frame returned. No removal mechanism was
+attempted before this was resolved; the bug never reached `apply_reconciliation`.
+
+### Read-only baseline (both policies), before any write
+
+```
+$ uv run python -c "... find_placeholders(assets) / find_placeholders(assets, unknown_age_policy='stuck') ..."
+2026-09-03T19:41 (approx)
+Assets scanned: 159
+Default policy: stuck= 0 recent= 0 unknown= 53
+Opt-in policy: stuck= 53 recent= 0 unknown= 0
+candidate: 22ec3b44-7b62-11f1-9969-0affe06aea17
+candidate: 4753fa3e-7ae1-11f1-97ca-0affe06aea17
+candidate: 47512b74-7ae1-11f1-97c9-0affe06aea17
+```
+
+Write budget headroom checked before any write (persisted state file): `{"tokens": 28.0,
+"updated_at": "2026-09-03T12:29:11Z"}`, refill rate 0.75 tokens/min, ~7h12m elapsed since —
+effectively at the 30-token capacity. Ample headroom for a probe costing at most 4 tokens
+(1 for a `remove` batch call, up to 3 more for `hard-delete` if it had been needed).
+
+### The probe: 3 rows, one script (`apply_reconciliation`, not a hand-rolled loop)
+
+Command (full script, one `uv run python <path>` invocation): selected the first 3 rows from
+the opt-in `stuck` bucket above, then attempted mechanisms in order — `remove`, `hard-delete`,
+`complete` — stopping early once a mechanism cleared every remaining target (so a later
+mechanism is never tried against a row the earlier one already removed). Every write went
+through `auraframes.reconcile.apply_reconciliation` itself — batched (`remove` is a native
+batch endpoint, one call for all 3 rows), throttled, and budgeted exactly as `reconcile
+--remove` would do it. Raw output, verbatim:
+
+```
+2026-09-03T19:46:13.978533+00:00 -- probe start
+Assets scanned: 159
+Default policy (unknown_age): stuck=0 recently_created=0 unknown_age=53
+Opt-in policy (stuck): stuck=53 recently_created=0 unknown_age=0
+Targeting 3 row(s) (hard cap 3):
+  - 22ec3b44-7b62-11f1-9969-0affe06aea17
+  - 4753fa3e-7ae1-11f1-97ca-0affe06aea17
+  - 47512b74-7ae1-11f1-97c9-0affe06aea17
+
+=== Mechanism: remove === (2026-09-03T19:46:14.833228+00:00)
+  apply_reconciliation returned: removed=['22ec3b44-7b62-11f1-9969-0affe06aea17', '4753fa3e-7ae1-11f1-97ca-0affe06aea17', '47512b74-7ae1-11f1-97c9-0affe06aea17'] failed=[]
+  Raw HTTP request(s)/response(s) for this mechanism:
+  POST /v5/frames/c063b384-38fa-4324-aaf8-319d17a5867a/remove_asset.json -> HTTP 200
+    raw body: {"number_failed":0}
+  Re-read verification (the only thing that counts):
+  22ec3b44-7b62-11f1-9969-0affe06aea17: GONE (absent from a fresh get_all_assets read)
+  4753fa3e-7ae1-11f1-97ca-0affe06aea17: GONE (absent from a fresh get_all_assets read)
+  47512b74-7ae1-11f1-97c9-0affe06aea17: GONE (absent from a fresh get_all_assets read)
+  Total assets after this mechanism: 156
+
+=== Mechanism: hard-delete === (2026-09-03T19:46:17.089722+00:00)
+  SKIPPED -- no remaining targets (already cleared by a prior mechanism).
+
+=== Mechanism: complete === (2026-09-03T19:46:17.089735+00:00)
+  SKIPPED -- no remaining targets (already cleared by a prior mechanism).
+
+2026-09-03T19:46:17.089739+00:00 -- probe end. Final remaining (unremoved) target ids: []
+```
+
+**Removal was confirmed by re-reading the frame and comparing counts, not by the HTTP 200
+alone** — per T-11-17 and this plan's explicit prohibition (`delete_asset` is already known to
+return 200 and remove nothing, so a 200 alone proves nothing about `remove_asset` either). Each
+of the 3 targeted ids was individually looked up in a fresh `get_all_assets()` call and found
+absent. `Assets scanned` dropped from 159 to 156 — exactly the 3 removed.
+
+### Independent follow-up confirmation
+
+```
+$ uv run aura-cli reconcile --frame "Cadre de Fabrice"
+2026-09-03T19:47 (approx)
+Frame: Cadre de Fabrice (id: c063b384-38fa-4324-aaf8-319d17a5867a)
+Assets scanned: 156
+Placeholder rows: 50
+  stuck (older than 24.0h): 0
+  recently created (may still be processing): 0
+  creation time unknown: 50
+```
+
+156 assets, 50 placeholder rows — consistent with the 3 removals: 159 → 156, 53 → 50. Bare
+`reconcile` (no `--include-unknown-age`) still reports 0 `stuck` / 50 `unknown_age`, confirming
+Task 1's default is unaffected by anything this probe did.
+
+Write budget after the probe: `{"tokens": 29.0, "updated_at": "2026-09-03T19:46:14Z"}` — one
+token consumed for the single batched `remove_asset` call, as expected. No rate-limit or
+anti-abuse response encountered during the probe itself.
+
+### Mechanism table (supersedes the table in plan 11-05's Task 3 section above)
+
+| Mechanism | HTTP status | Before count (targeted) | After count (targeted, re-read) | Verdict |
+|---|---|---|---|---|
+| `remove` (`remove_asset`) | `200 {"number_failed":0}` | 3 present, placeholder-shaped | 0 present (all 3 confirmed GONE) | **WORKS.** Confirmed live 2026-09-03 through the corrected age guard. Supersedes the Phase 10 UAT 404 finding, which never had a genuinely `stuck` row to send. |
+| `hard-delete` (`delete_asset`) | not attempted | — | — | Not needed — `remove` cleared every targeted row. Still unconfirmed on this account; Phase 10's "200 OK, removes nothing" finding stands as prior evidence, not reconfirmed. |
+| `complete` (unbuilt) | not attempted | — | — | Not needed for the same reason. Remains `NotImplementedError`, comment updated to record this dated reasoning (see `auraframes/reconcile.py`). |
+
+### Verdict
+
+**REL-05 is now genuinely, fully satisfied — both halves.** The reporting half was already
+unconditional (plan 11-05, and again here: 156/50 read live above). The removal half's own
+conditional — "removes them if a working mechanism is found" — is answered in the
+**affirmative**: `--mechanism remove` (the CLI default), reached through the
+`--include-unknown-age` opt-in that Task 1 of this plan added, removed all 3 targeted rows on
+the operator's live account, confirmed by re-read rather than by status code alone. This
+directly answers D-16, the open question this phase existed to answer.
+
+What remains genuinely open, and is explicitly NOT claimed here: whether `remove` continues to
+work at larger scale (only 3 of the account's 50 remaining placeholder rows were tested, per
+this plan's hard cap — the 25-row `RECONCILE_PROBE_CANDIDATE_LIMIT` was deliberately not
+raised); whether it works identically on other accounts or frames; and whether `hard-delete`
+or `complete` would also have worked, since neither was tried. None of these gaps block REL-05
+as written, which asks only whether "a working mechanism is found" — one was, and is named
+with evidence.
+
+---
+
 *Findings recorded 2026-09-03. Frame: "Cadre de Fabrice" (`c063b384-38fa-4324-aaf8-319d17a5867a`).*

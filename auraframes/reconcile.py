@@ -211,15 +211,22 @@ def find_placeholders(assets, *, now=None,
     return result
 
 
-# D-16: no removal mechanism is yet confirmed to work on these rows
-# (`delete_asset` returns 200 and removes nothing; `remove_asset` 404s), so
-# the first LIVE use of `apply_reconciliation` is a time-boxed probe, not a
-# bulk operation. A cap keeps a mechanism that silently does nothing from
-# burning the whole write budget before the operator notices, and keeps a
-# mechanism that turns out to be destructive from acting on all 58+ known
-# rows at once. `apply_reconciliation` raises when `len(result.stuck)`
-# exceeds this unless the caller explicitly passes a higher
-# `candidate_limit`.
+# D-16, UPDATED by plan 11-06 (2026-09-03): 'remove' (`FrameApi.remove_asset`)
+# is now CONFIRMED to clear these rows -- see 11-LIVE-FINDINGS.md's "Plan
+# 11-06" section for the command, raw HTTP response and follow-up-read
+# verification. Before that plan, no removal mechanism had been confirmed
+# to work (`delete_asset` returns 200 and removes nothing; `remove_asset`
+# had previously 404d -- Phase 10 UAT), because the age guard made
+# `result.stuck` permanently empty against this API (see
+# `find_placeholders`' `unknown_age_policy` docstring). The cap below
+# predates that finding and still applies: a first live attempt is a
+# bounded, time-boxed probe, not a bulk operation, regardless of which
+# mechanism the caller passes -- a cap keeps a mechanism that silently does
+# nothing from burning the whole write budget before the operator notices,
+# and keeps a mechanism that turns out to be destructive from acting on
+# every known row at once. `apply_reconciliation` raises when
+# `len(result.stuck)` exceeds this unless the caller explicitly passes a
+# higher `candidate_limit`.
 RECONCILE_PROBE_CANDIDATE_LIMIT = 25
 
 
@@ -228,38 +235,41 @@ def _complete_placeholder(aura, frame_id, chunk):
     as an incomplete upload to FINISH -- batch_update-ing it with real
     file_name/md5_hash/uploaded_at so it becomes an ordinary asset the
     existing hide/remove paths already handle -- rather than a bad row to
-    delete. Not yet implemented, and STILL UNTESTED as of plan 11-05
-    (2026-09-03) -- not because it was tried and failed, but because
-    plan 11-05's live run found ZERO eligible `stuck`-bucket candidates on
-    the live account to test any mechanism against: `/frames/{id}/assets.json`
-    never sends a `created_at` key at all (confirmed via the raw JSON
-    payload, not just the parsed model), so `_creation_instant` resolves
-    every placeholder row to `unknown_age`, never `stuck`, regardless of
-    `age_threshold_seconds`. All 53 placeholder rows observed that day
-    landed in `unknown_age`. Widening what counts as eligible (e.g. an
-    opt-in unknown-age policy) was explicitly considered and deferred to a
-    follow-up plan rather than decided inside 11-05 -- see
-    11-LIVE-FINDINGS.md for the full reasoning. This remains a genuinely
-    open question, not a probed dead end."""
+    delete. Not yet implemented, and remains UNTESTED as of plan 11-06
+    (2026-09-03) -- not because it failed, but because it was never needed:
+    plan 11-06's own live probe used `unknown_age_policy='stuck'` (this
+    module's new opt-in) to reach a non-empty `stuck` bucket for the first
+    time, tried 'remove' first, and 'remove' (`FrameApi.remove_asset`)
+    cleared all 3 targeted rows outright -- confirmed by a follow-up read,
+    not just an HTTP 200. With a working, non-destructive, already-built
+    mechanism in hand, the probe never proceeded to 'hard-delete' or
+    'complete' on those rows (see 11-LIVE-FINDINGS.md, "Plan 11-06"
+    section, for the full mechanism table and raw evidence). 'complete'
+    stays a reasonable idea for a future need (e.g. if 'remove' ever stops
+    working, or a caller wants FINISHED rows rather than absent ones), but
+    building and live-testing it is no longer this phase's blocking
+    question -- REL-05 already has a confirmed answer without it."""
     raise NotImplementedError(
-        "The 'complete' mechanism is not yet implemented, and was not live-probed by "
-        "plan 11-05 (2026-09-03): the live account had zero eligible 'stuck'-bucket "
-        "candidates to test it against (see the docstring above and 11-LIVE-FINDINGS.md)."
+        "The 'complete' mechanism is not yet implemented. It was not needed by plan 11-06 "
+        "(2026-09-03): 'remove' (FrameApi.remove_asset) already cleared the probed rows "
+        "outright once the age guard's unknown_age_policy='stuck' opt-in made them eligible "
+        "-- see the docstring above and 11-LIVE-FINDINGS.md."
     )
 
 
 # Dispatch table mirroring `auraframes/sync.py`'s `_REMOVAL_PRIMITIVE` shape.
-# 'remove' and 'hard-delete' were both KNOWN, from PRIOR (Phase 10 UAT / debug
-# session) live probing, NOT to clear these rows -- they are wired here
-# anyway so `apply_reconciliation` can prove (or, more likely given what's
-# already known, disprove) that on a small bounded batch, with the honest
-# outcome recorded either way. Plan 11-05 (2026-09-03) did NOT get to
-# re-probe 'remove'/'hard-delete' live either: the live account had zero
-# eligible 'stuck'-bucket candidates that day (see `_complete_placeholder`'s
-# docstring and 11-LIVE-FINDINGS.md) -- the prior findings stand as
-# historical evidence, not freshly reconfirmed.
-# 'complete' is the untried third option (D-16); it raises until a future
-# plan builds it out.
+# UPDATED by plan 11-06 (2026-09-03): 'remove' is CONFIRMED WORKING -- see
+# 11-LIVE-FINDINGS.md's "Plan 11-06" section for the command, raw HTTP
+# response (`{"number_failed":0}`) and the follow-up-read verification that
+# the 3 targeted rows were actually gone, not just acknowledged with a 200.
+# This supersedes the Phase 10 UAT finding that `remove_asset` 404d --
+# that prior probe never had a genuinely `stuck`-classified row to send,
+# because the age guard's pre-11-06 unconditional form made `result.stuck`
+# permanently empty against this API (see `find_placeholders`'
+# `unknown_age_policy` docstring). 'hard-delete' remains unconfirmed --
+# plan 11-06's probe never needed it, since 'remove' cleared every targeted
+# row. 'complete' is still the untried third option (D-16); it raises
+# until a future plan builds it out, though REL-05 no longer depends on it.
 _RECONCILE_PRIMITIVE = {
     'remove': lambda aura, frame_id, chunk: aura.frame_api.remove_asset(
         frame_id, [AssetPartialId(id=asset.id) for asset in chunk]),

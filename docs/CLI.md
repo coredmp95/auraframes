@@ -461,55 +461,67 @@ placeholders, since the two are indistinguishable from an API response alone.
 ### `--remove`
 
 `--remove` is required to attempt any write; without it, `reconcile` cannot mutate anything.
-**No removal mechanism is yet confirmed to clear these rows** — the two existing primitives
-are already known not to: `delete_asset` (`--mechanism hard-delete`) returns success and
-removes nothing, and `remove_asset` (`--mechanism remove`, the default) returns "not found".
-A third, untried option — `--mechanism complete` — is reserved for treating a stuck row as
-an unfinished upload to *finish* (filling in real `file_name`/`md5_hash`/`uploaded_at` so it
-becomes an ordinary asset the existing hide/remove paths already handle) rather than a bad
-row to delete; it is not yet implemented and raises until a future plan's live probe
-determines whether it's viable. Which mechanism will eventually work — if any — is the
-honest open question `--remove` exists to answer.
 
-**As of 2026-09-03, `--remove` has nothing to act on in practice**, independent of which
-mechanism eventually works: see [Known issues](#known-issues) — the live account's
-`stuck` bucket is currently empty because `created_at` is never sent by the assets listing
-endpoint, so every placeholder lands in `unknown_age` instead.
+**`--mechanism remove` (the default) is confirmed working, live, 2026-09-03 (plan 11-06).**
+Against 3 rows promoted from `unknown_age` to `stuck` via `--include-unknown-age` (see above),
+`remove_asset` returned `HTTP 200 {"number_failed":0}` and a follow-up read confirmed all 3
+rows genuinely gone — not just acknowledged. This supersedes the earlier Phase 10 UAT finding
+that `remove_asset` returned "not found": that earlier probe never had a genuinely
+`stuck`-classified row to send, because the age guard's pre-11-06 unconditional form made
+`result.stuck` permanently empty against this API (see [Known issues](#known-issues)).
+`--mechanism hard-delete` remains unconfirmed — the probe never needed it, since `remove`
+cleared every targeted row. `--mechanism complete` — reserved for treating a stuck row as an
+unfinished upload to *finish* (filling in real `file_name`/`md5_hash`/`uploaded_at`) rather
+than a bad row to delete — is still not implemented and still raises; it was never needed
+either, and REL-05 no longer depends on it.
 
 Only the **stuck** bucket is ever a removal candidate — recently-created and unknown-age
-rows are structurally unreachable from the removal code path, whatever `--mechanism` or
-confirmation you give.
+rows (the latter unless promoted by `--include-unknown-age`) are structurally unreachable from
+the removal code path, whatever `--mechanism` or confirmation you give.
 
 ```bash
-uv run aura-cli reconcile --frame "Living Room" --remove
+uv run aura-cli reconcile --frame "Living Room" --remove --include-unknown-age
+```
+
+On an account whose `created_at` is genuinely absent from the assets listing (as observed on
+the operator's account, see [Known issues](#known-issues)), `--include-unknown-age` is
+required to get any rows into the `stuck` bucket at all — otherwise `--remove` alone still has
+nothing to act on, exactly as before this flag existed:
+
+```
+Assets scanned: 156
+Placeholder rows: 50
+  stuck (older than 24.0h): 50
+  ...
+About to attempt removal of 50 stuck row(s) on "Living Room" (id: 00000000-...) using mechanism "remove". Proceed? [y/N]
 ```
 
 ```
-Assets scanned: 172
-Placeholder rows: 58
-  stuck (older than 24.0h): 58
-  ...
-About to attempt removal of 58 stuck row(s) on "Living Room" (id: 00000000-...) using mechanism "remove". Proceed? [y/N]
+Removed: 50 succeeded, 0 failed
 ```
 
-```
-Removed: 0 succeeded, 58 failed
-  ! e7f8a9b0-5555-7666-8777-0eeeeeeeeeee: Client error '404 Not Found' for url '...'
-  ...
-```
+**Historical failure mode, pre-11-06:** before the age-guard opt-in existed, `--remove`
+(without a way to reach `unknown_age` rows) had nothing eligible to send on this account, so
+`remove_asset` was never re-probed against a genuinely `stuck` row here after Phase 10. The
+Phase 10 UAT session that first probed it got `404 Not Found` — a different result from the
+`200 {"number_failed":0}` / confirmed-removed outcome above, from a different asset id shape.
+Neither result should be assumed to generalize to every account; `reconcile --remove` reports
+each attempt's real outcome rather than assuming either history.
 
 `--mechanism hard-delete` uses the same escalated, exact-count-typing confirmation
 `sync --hard-delete` does — irreversible, account-wide, no y/N shortcut — since a wrongly-run
-hard-delete destroys real photos, not placeholder rows.
+hard-delete destroys real photos, not placeholder rows. It remains unconfirmed on this
+account, since `--mechanism remove` (the default) already worked.
 
 Without a TTY, `--remove` requires `--yes` and fails closed exactly like `sync`/`push --apply`.
 
 **Candidate cap.** A single `--remove` run refuses to act on more than 25 stuck rows at
-once — no removal mechanism is confirmed to work, so a first live attempt is a bounded,
-time-boxed probe rather than a bulk operation that could either burn a large write budget on
-a mechanism that does nothing, or (if a mechanism turns out to be more destructive than
-expected) act on every stuck row on the frame in one run. `reconcile` reports this refusal
-as a named error rather than silently truncating the candidate list.
+once, regardless of which mechanism you pass or whether it is already confirmed working — a
+bounded, time-boxed probe rather than a bulk operation that could either burn a large write
+budget on a mechanism that turns out not to work on some other account, or (if a mechanism is
+more destructive than expected there) act on every stuck row on the frame in one run.
+`reconcile` reports this refusal as a named error rather than silently truncating the
+candidate list.
 
 `--remove` draws from the same account-wide write budget as `sync --apply`/`push --apply`
 (see [Write budget and geo guard](#write-budget-and-geo-guard)) and paces its requests the
@@ -593,23 +605,37 @@ and no hash — visible in `inspect` as `None | None`. They never display on the
 ignores them. They also appear to be the cause of the count mismatch above.
 
 Run `aura-cli reconcile --frame ...` to see exactly how many a frame has, split into stuck /
-recently-created / unknown-age. **No removal mechanism is yet confirmed to clear them**:
-`delete_asset` returns success without removing anything, and the frame-scoped removal
-returns "not found" (both observed live, Phase 10 UAT). `reconcile --remove` runs a bounded,
-gated probe of a removal mechanism — see [`reconcile`](#reconcile--account-for-stuck-placeholder-rows)
-for the honest current state.
+recently-created / unknown-age. **`--remove --mechanism remove` (the default) is a confirmed
+working removal mechanism as of 2026-09-03 (plan 11-06)** — see the next paragraph and
+[`reconcile`](#reconcile--account-for-stuck-placeholder-rows) for the command and evidence.
+On an account where the assets endpoint never sends `created_at` (see below), reaching any
+row to remove requires the explicit `--include-unknown-age` opt-in.
 
-**Live-verified 2026-09-03 (plan 11-05):** on the account tested, the `stuck` bucket is
-currently unreachable. `/frames/{id}/assets.json` never sends a `created_at` key at all
+**Live-verified 2026-09-03 (plan 11-05):** on the account tested, the `stuck` bucket was, at
+the time, unreachable. `/frames/{id}/assets.json` never sends a `created_at` key at all
 (confirmed against the raw JSON response, not just the parsed model) — every placeholder row
-therefore resolves to `unknown_age`, never `stuck`, regardless of `--max-age-hours`, because
-the age guard treats an unresolvable creation time exactly like a too-young row by design
+therefore resolved to `unknown_age`, never `stuck`, regardless of `--max-age-hours`, because
+the age guard treated an unresolvable creation time exactly like a too-young row by design
 (fail toward not deleting). That live run counted **53 placeholder rows across 157 scanned
 assets, all in `unknown_age`** — a different count from the 58 stuck rows recorded when this
-issue was first found (2026-08-25); the delta is not explained and neither number should be
-assumed current. Because there were zero `stuck` candidates, no removal mechanism was
-re-attempted live that day — the `remove`/`hard-delete` failures above are Phase 10's
-historical findings, not freshly reconfirmed, and `--mechanism complete` remains unbuilt and
-untested for the same reason. Widening what counts as an eligible candidate (e.g. an explicit,
-opt-in unknown-age policy) was considered and deliberately deferred to a follow-up plan rather
-than decided inside 11-05.
+issue was first found (2026-08-25); the delta was not explained and neither number should be
+assumed current. Because there were zero `stuck` candidates that day, no removal mechanism was
+attempted live — the `remove`/`hard-delete` results referenced then were Phase 10's historical
+findings, not freshly reconfirmed. Widening what counts as an eligible candidate (an explicit,
+opt-in `unknown_age` policy) was considered and deliberately deferred to a follow-up plan
+rather than decided inside 11-05.
+
+**Live-verified 2026-09-03 (plan 11-06), same day, later session:** the age guard's
+unconditional form was corrected — `find_placeholders` gained the `unknown_age_policy`
+opt-in (`--include-unknown-age` on the CLI) that promotes an unresolvable-creation-time row
+to `stuck` instead of parking it, with the default left byte-for-byte unchanged. Through that
+corrected gate, a time-boxed probe targeted 3 rows (the hard cap for a first live attempt) and
+`--mechanism remove` (`FrameApi.remove_asset`) cleared **all 3**, confirmed by re-reading the
+frame afterward (159 → 156 assets; the 3 targeted ids were genuinely absent, not merely
+acknowledged with a 200). A clean follow-up `reconcile` report then showed 156 assets scanned,
+50 placeholder rows, all still `unknown_age` by default (as expected — the default was
+unaffected by this run). This supersedes the Phase 10 UAT finding that `remove_asset` 404d:
+that earlier probe never had a genuinely `stuck` row to send, for the same structural reason
+plan 11-05 diagnosed. `--mechanism hard-delete` and `--mechanism complete` were not needed and
+remain unconfirmed/unbuilt respectively — `remove` cleared every targeted row on its own. Full
+command transcript and raw HTTP evidence: `11-LIVE-FINDINGS.md`, "Plan 11-06" section.
