@@ -109,7 +109,14 @@ class AssetApi(BaseApi):
                 successes.append(AssetPartialId(**entry))
             except ValidationError as e:
                 keys = sorted(entry.keys()) if isinstance(entry, dict) else type(entry).__name__
-                logger.warning(f"batch_update: skipping malformed successes entry (keys={keys}): {e}")
+                # T-11-06: pydantic v2's default ValidationError str/repr embeds
+                # each error's raw input_value (confirmed: constructing
+                # AssetPartialId(**{'user_id': '...'}) puts the whole dict --
+                # including user_id -- in str(e)). include_input=False strips
+                # that before it reaches the log sink; only keys + error
+                # type/message are logged, never entry values.
+                safe_errors = e.errors(include_url=False, include_input=False)
+                logger.warning(f"batch_update: skipping malformed successes entry (keys={keys}): {safe_errors}")
 
         acknowledged = {s.local_identifier for s in successes if s.local_identifier}
         unacknowledged = [
