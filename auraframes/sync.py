@@ -64,14 +64,29 @@ pillow_heif.register_heif_opener()
 # so videos/non-images are excluded here rather than diffed unsafely.
 ELIGIBLE_EXTENSIONS = frozenset({'.jpg', '.jpeg', '.png', '.heic'})
 
-# D-09/D-11: the `.heic` decoder (pillow-heif, registered above) is now
-# installed and `.png` has a verified-correct Apple UTI, so this table is
-# about to widen to cover all three. This suffix-keyed shape is superseded
-# by Task 3's `_DATA_UTI_BY_IMAGE_FORMAT`, keyed on `image.format` (the
-# decoded bytes) rather than the filename -- so a mislabeled file (a PNG
-# saved with a `.jpg` extension) can no longer be typed wrong. Left as-is
-# here; Task 3 replaces this table entirely rather than patching it.
-_DATA_UTI_BY_SUFFIX = {'.jpg': 'public.jpeg', '.jpeg': 'public.jpeg'}
+# D-11: maps the DECODED image's real format (Pillow's `image.format`,
+# read from the same `Image.open()` call `_prep_upload` already performs
+# for dimensions) to the Apple UTI the API expects in `data_uti` -- not
+# the filename or its extension. A `.jpg` that is really a PNG is typed
+# `public.png`; the bytes decide, the name is no longer a trust anchor.
+# Keyed on the exact strings Pillow returns on this installation (verified
+# empirically in Phase 11 Plan 04's Task 2, not assumed): 'JPEG', 'PNG',
+# 'HEIF'.
+#
+# D-12: deliberately narrower than any format Pillow/pillow-heif could
+# theoretically decode -- exactly JPEG/PNG/HEIF, matching
+# ELIGIBLE_EXTENSIONS. WebP was considered and deferred: Google Photos
+# does serve WebP in some paths, but shipping it here would be unverified
+# write surface before Phase 12 has established what bytes the album
+# mechanism actually delivers. An unmapped decoded format -- WebP or
+# anything else -- is never given a fallback UTI; `_prep_upload` fails
+# closed with a message naming the real decoded format, exactly as an
+# unmapped extension did before this table existed.
+_DATA_UTI_BY_IMAGE_FORMAT = {
+    'JPEG': 'public.jpeg',
+    'PNG': 'public.png',
+    'HEIF': 'public.heic',
+}
 
 # Seconds to pause before each write network call (select_asset /
 # batch_update / remove_asset) so a bulk apply is paced rather than fired as
@@ -418,21 +433,23 @@ def _chunked(items: list, size: int):
 
 
 def _prep_upload(path: Path, s3_client) -> AssetPartial:
-    """Per-file S3 prep phase for a single new local file: resolve the
-    Apple UTI, read image dimensions, upload the raw bytes to S3, and build
-    the `AssetPartial` that will be sent in the chunk's batched
-    `batch_update` call. Raises (fails closed) if the extension is
-    unmapped, `Image.open` fails, or the S3 upload fails -- the caller
-    catches this per file so one bad file never blocks the rest of the
-    chunk.
+    """Per-file S3 prep phase for a single new local file: decode the image
+    once to read both its dimensions and its real format (D-11), resolve
+    the Apple UTI from that decoded format -- not the filename -- upload
+    the raw bytes to S3, and build the `AssetPartial` that will be sent in
+    the chunk's batched `batch_update` call. Because the UTI comes from the
+    decoded bytes rather than the extension, a `.jpg` that is really a PNG
+    can no longer be mislabeled server-side; the bytes decide. Raises
+    (fails closed) if the decoded format is unmapped, `Image.open` fails,
+    or the S3 upload fails -- the caller catches this per file so one bad
+    file never blocks the rest of the chunk.
     """
-    data_uti = _DATA_UTI_BY_SUFFIX.get(path.suffix.lower())
-    if data_uti is None:
-        raise ValueError(f'Unsupported upload extension: {path.suffix}')
-
     local_identifier = str(uuid.uuid4())
     with Image.open(path) as image:
         width, height = image.size
+        data_uti = _DATA_UTI_BY_IMAGE_FORMAT.get(image.format)
+        if data_uti is None:
+            raise ValueError(f'Unsupported image format: {image.format} ({path.name})')
 
     filename, md5 = s3_client.upload_file(path.read_bytes(), path.suffix)
 
