@@ -1,179 +1,249 @@
 # Feature Research
 
-**Domain:** Directory-to-cloud-device sync CLI (mirror/inspect/status for the Aura Frames unofficial API)
-**Researched:** 2026-07-05
-**Confidence:** HIGH (sync-tool conventions; corroborated across rclone/aws-cli/rsync/gsutil docs) / HIGH (Aura-specific findings — verified directly against this repo's source, not inferred) / LOW (live behavior of the two unverified write endpoints this milestone depends on)
+**Domain:** Cloud photo-album → device/frame sync (Google Photos → Aura Frames CLI)
+**Researched:** 2026-09-03
+**Confidence:** HIGH on Google API mechanics and comparable-tool conventions (multiple independent sources, official docs); MEDIUM on exact UX polish choices (extrapolated from adjacent tools, not user-tested)
+
+## Headline Finding (reshapes everything below)
+
+Google restricted the Photos Library API's broad read scopes on **31 March 2025**
+(`photoslibrary`, `photoslibrary.readonly`, `photoslibrary.sharing` all now return
+403 `PERMISSION_DENIED` for anything the calling app didn't itself create). This is not
+a rumor — it is documented in Google's own migration notes, and it killed or crippled
+real tools: **`gphotos-sync` archived its repo** on 2024-10-24 citing the change as
+unworkable for a backup tool, and **rclone's Google Photos backend became read-only for
+app-created content only**, requiring `rclone config reconnect` and a rewrite around the
+new **Picker API**.
+[developers.google.com/photos/support/updates](https://developers.google.com/photos/support/updates),
+[developers.googleblog.com Picker API launch post](https://developers.googleblog.com/en/google-photos-picker-api-launch-and-library-api-updates/),
+[gilesknap/gphotos-sync](https://github.com/gilesknap/gphotos-sync),
+[rclone/docs googlephotos.md](https://github.com/rclone/rclone/blob/master/docs/content/googlephotos.md).
+
+The replacement, the **Picker API**, is fundamentally **session-based and interactive**,
+not a queryable album handle:
+
+- `sessions.create` → app shows the user a `pickerUri` → user picks in the Google Photos
+  app/web UI → app polls `sessions.get` until `mediaItemsSet: true` → app calls
+  `mediaItems.list(sessionId=...)` to get the picked items.
+  [developers.google.com/photos/picker/guides/sessions](https://developers.google.com/photos/picker/guides/sessions)
+- **The picker UI does not expose "albums" as a browsable/pickable unit.** It shows recent
+  photos plus a search box; a user can *search* by album title and multi-select the results,
+  but there is no "pick this whole album" primitive returned by the API — the API's return
+  type is `PickedMediaItem`, a flat list of individually selected media items.
+  [developers.google.com/photos/picker/guides/picking-experience](https://developers.google.com/photos/picker/guides/picking-experience)
+- **Once a session's picking is done (`Done` tapped), that `pickerUri` is dead.** A brand
+  new session + new browser round-trip is required to pick again — there is no
+  "reopen and add more" or "re-sync this same selection" mechanism.
+  [developers.google.com/photos/picker/reference/rest/v1/sessions](https://developers.google.com/photos/picker/reference/rest/v1/sessions)
+- Content access is doubly time-boxed: the **session** has an `expireTime`, and even within
+  an active session the **media item `baseUrl` is separately valid for only 60 minutes**
+  (shorter if the user revokes access). Media item **IDs** can be stored longer-term, but
+  practical re-fetch of content after the session/URL window closes is not a supported,
+  documented path. [developers.google.com/photos/picker/guides/media-items](https://developers.google.com/photos/picker/guides/media-items)
+
+**Consequence for this milestone:** there is no world in which `aura-cli` can silently
+"check the album for changes" the way `sync <dir>` checks a local directory. Branch (b)
+(Picker-only, which all current evidence says is the real branch — see FEASIBILITY notes
+in STACK research) requires **a human at a browser for every reconciliation run**, and each
+run's "album contents" is only ever what the human just re-selected, not a live queryable
+truth. This directly threatens the "N-album→N-frame mapping reconciled in a single
+[automated] run" phrasing in PROJECT.md and must be corrected in requirements: "reconciled
+in a single **CLI invocation with interactive picking steps**," not "single unattended run."
+
+---
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist for *any* tool that claims to "sync a directory to a remote." Missing these makes the tool feel unsafe or unfinished, especially since deletion is destructive to a live user's actual photo frame.
+Features users assume exist. Missing these = product feels incomplete or unsafe.
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Dry-run by default | Every reference tool (`rclone sync`, `aws s3 sync --delete`, `rsync --delete`, `gsutil rsync -d`) treats "preview before destructive delete" as the standard safety convention, not an opt-in extra. `rclone`/`gsutil` docs explicitly recommend running `-n`/`--dry-run` first "especially when working with important data." | LOW | Already the spec'd default (`sync` dry-runs unless `--apply`/`--yes`). Print the same plan that would run for real — never a different code path, or dry-run can lie. |
-| Explicit apply/execute flag | `rsync`/`aws s3`/`gsutil` all gate the *destructive* variant behind an explicit flag or separate invocation (`--delete` itself, or dry-run-then-rerun-without-`-n`). No mainstream sync tool auto-executes deletions without an explicit signal. | LOW | Spec already has `--apply`/`--yes`. Recommend requiring the flag be explicit even if `--frame` is passed — no "sync now" implicit default. |
-| Per-action plan output (add/delete/skip) before executing | rclone's dry-run verbose output lists files to copy, **FILES TO BE DELETED**, and files to update, then a summary — this three-bucket breakdown is the de facto standard shape for sync-preview output. | LOW-MED | Group output into "will upload N", "will delete N", "unchanged N" — mirrors what every reference tool prints. |
-| Content-based comparison key (not filename/mtime) | Content hashing "detects true duplicates even if files are renamed or moved, unlike methods comparing only filenames, sizes, or modification dates" — and this codebase's own `Asset.md5_hash` field (populated via `S3Client.get_md5`, a base64 MD5 digest, in `auraframes/aws/s3client.py:14-15`) is already the API's native comparison key. Filenames on Aura assets are server-rehashed on upload anyway, so filename-matching would be unreliable even if desired. | MED | **Grounded in code, not just convention**: `auraframes/models/asset.py:65` already has `md5_hash: Optional[str]`. Compute base64-MD5 of local file bytes (same algorithm as `get_md5()`) and compare to each asset's `md5_hash` returned by `get_assets()`. **Unverified assumption to confirm live early in the phase**: does `get_assets()` actually populate `md5_hash` for *pre-existing* frame assets (not just ones this client uploaded)? If the field is frequently null for legacy/device-uploaded assets, hash-matching degrades silently to "always looks new" — this is a concrete phase-1 spike, not a coding risk. |
-| Non-zero exit code on failure / plan-has-changes signal | AWS CLI convention: exit 0 on success, non-zero on failure, checked via `$?` in scripting. Standard CLI expectation for anything meant to be scriptable/cron-able. | LOW | Recommend: `0` = ran clean (dry-run or apply, nothing failed), non-zero = any upload/delete failure. Consider a distinct code for "dry-run found pending changes" only if scripting demand emerges — not required for MVP. |
-| Frame targeting by name OR id | Milestone spec requires `--frame <name|id>`. No API endpoint resolves name→id server-side (`FrameApi.get_frames()` only returns the full list); client must resolve locally. | LOW | Resolve by exact `id` match first, then case-sensitive `name` match against `get_frames()`. **Must handle duplicate names** (nothing stops two frames sharing a display name) — fail loudly with a "multiple frames named X, use --frame <id>" error rather than silently picking one. |
-| Progress indication for multi-file operations | Table-stakes UX for any tool moving many files; this codebase already has `tqdm` as a dependency and uses it in `download_images_from_assets()` (`auraframes/aura.py`). | LOW | Reuse the existing `tqdm` pattern already proven in the read path — no new dependency needed. |
-| Human-readable summary line at the end | Every reference tool (`rclone`, `aws s3 sync`, `rsync`) ends a run with a short totals line (files transferred, deleted, bytes, errors). Users expect "what just happened" without re-reading the whole log. | LOW | e.g. `12 uploaded, 3 deleted, 41 unchanged, 0 failed`. |
+| `aura-cli google link` (or similar) — OAuth loopback flow | Every comparable tool (rclone, `gcloud auth login`, gphotos-sync) does browser-based OAuth with a local redirect server; users expect "opens a browser, I approve, done" | MEDIUM | rclone runs a local webserver at `127.0.0.1:53682/auth` during `rclone authorize`; `google-auth-oauthlib`'s `InstalledAppFlow.run_local_server()` is the Python-standard equivalent. Persist refresh token like `AURA_EMAIL`/`AURA_PASSWORD` — out of VCS, same posture. |
+| `aura-cli status` extended to show Google link state | Existing `status` is the established "is everything healthy" surface (config/auth/frames); users will look there first for Google auth health too, not a separate command | LOW | Wire-up of an existing pattern, not new UX. Show: linked account email, token validity, last successful pick/sync per album mapping. |
+| Explicit re-auth / unlink path | Users need a way to fix a broken link (revoked/expired refresh token) without hand-editing files, and a way to disconnect | LOW–MEDIUM | Mirror `gcloud auth application-default revoke` — deletes the local credential, does not touch Google-side grant (user still must revoke in their Google Account settings for a *server-side* revoke). Docs should say this explicitly — "unlink" ≠ "Google forgets this app." |
+| Dry-run by default for the Google sync path too | This is the project's single strongest existing convention (`sync <dir>` is dry-run by default, structural not flag-based); a second sync command with different defaults would be a glaring inconsistency | LOW (reuse) | The compute/execute split already exists (`compute_plan`/`execute_plan`) — the new code should produce the *same* plan shape from a different data source, not invent new confirmation semantics. |
+| Reported skip count for videos/unsupported media, never silent | PROJECT.md already commits to this; users of any sync tool (rclone, immich-go) expect "N items skipped, see below" rather than a photo silently vanishing | LOW | `immich-go` explicitly reports what it discarded (lower-res duplicates, unsupported types) rather than silently dropping. |
+| Per-album/per-frame mapping persisted across runs | Nobody wants to re-type "which album goes to which frame" every invocation; this is exactly what a config file is for | LOW–MEDIUM | Same class of thing as rclone's `rclone.conf` remotes — a named, reusable mapping. Given Picker API's interactive nature, this config must store *frame identity + last-known picked-item-ID set*, not a live "album ID" (no such stable handle exists for a user's own album post-March-2025 restriction). |
+| Confirmation before hiding a large batch of photos | v2.0 already gates real deletion behind an exact-count prompt; hiding many photos in one run because of a bad/partial pick session is a plausible failure mode unique to this feature (see Sync Semantics below) | LOW (reuse pattern) | Extend the existing exact-count-gate pattern to "N photos will be hidden this run" — cheap because hide is already the safe default, but a huge N in one run is a new kind of surprising event worth a threshold prompt even in hide mode. |
+| Progress bar during download of a large album | `tqdm` is already a dependency and used for batch downloads; album sync will often move far more data than a local-directory sync | LOW (reuse) | Wire the existing `tqdm` usage pattern onto the new Google-side download loop. |
+| Disk-space sanity check before bulk download | Standard expectation for any tool that stages large media locally before uploading elsewhere; silent `ENOSPC` mid-run is a known bad experience across every download tool | LOW–MEDIUM | rclone and most backup tools warn/abort rather than fail obscurely mid-transfer; a simple `shutil.disk_usage()` check against estimated album size before starting is enough — no need for a live monitor. |
 
 ### Differentiators (Competitive Advantage)
 
-Not required for a minimally-safe sync tool, but valuable given this project's specific context (unofficial/undocumented API, unverified write paths, single-user CLI rather than a general-purpose sync product).
+Features that set the product apart. Not required, but valuable given this project's stated strengths (safety-first, dry-run discipline, reuse of a proven pipeline).
 
 | Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Prefer `remove_asset` (unassociate) over `delete_asset` (destroy) as the sync-delete primitive | `FrameApi.remove_asset()`'s own docstring says it "does not seem to remove the asset from S3/Glacier" — i.e. reversible/soft. `AssetApi.delete_asset()`'s docstring says **"currently unknown if this is used ... maybe this deletes it from S3/Glacier"** — i.e. the code author themselves flags it as unverified and possibly hard-destructive. For a mirror-delete feature whose whole risk profile is "irreversibly nukes a user's real photos," defaulting to the already-safer, already-documented-as-non-destructive primitive is a meaningful safety differentiator over a naive implementation that reaches for `delete_asset` because the name sounds more "sync --delete"-correct. | LOW (once decided) | **This is an explicit architectural decision for requirements, not just an implementation detail** — recommend `sync`'s delete action call `remove_asset`, not `delete_asset`, and document why in REQUIREMENTS.md/ADR. |
-| `--max-delete`-style safety guardrail | rsync's own best-practice guidance: "add a guardrail... If rsync would delete more than N files, it aborts before touching anything," recommended specifically for `--delete` pipelines. Directly transferable to a frame-mirror tool where a wrong `<dir>` argument (e.g., an empty or wrong-directory typo) could otherwise queue mass deletion of a real frame's entire photo set. | LOW | e.g. abort `--apply` if planned deletions exceed some threshold or percentage of the frame's assets, unless `--yes`/a stronger override is also given. Cheap insurance given the destructive stakes called out in the milestone itself. |
-| Machine-readable plan output (`--json`) | Useful for scripting/CI use of `sync --dry-run`, mirroring `rclone`'s `lsjson`/`lsf --format` pattern (human-readable by default, structured on request). | MED | Defer unless a concrete scripting need shows up — see Anti-Features/MVP notes; nice differentiator, not core value. |
-| Idempotent no-op reruns | Running `sync` twice in a row with no local changes should plan/report zero actions — this is what "mirror" *means*, and it's the natural side effect of hash-based comparison done right. Differentiator only in the sense that it must be explicitly tested, since it's exactly the case naive filename/mtime-based sync tools get wrong (mtime changes on file copy, git checkout, etc., even when content is identical). | LOW | Validate with a same-directory-twice UAT case in the phase's verification. |
-| `inspect` shows frame metadata beyond the bare asset list (owner, contributor/member count, `num_assets`) | Milestone spec explicitly asks for "member/contributor count, any stats-like fields" — confirmed available: `Frame.contributors: Optional[list[User]]` and `Frame.num_assets: int` already exist on the model (`auraframes/models/frame.py:47,62`), no new API surface needed. | LOW | Straightforward — this is already-hydrated data, just needs to be selected/printed, not fetched anew. |
-| `status` reports which *account* is authenticated (not just "auth OK") | Doctor/status commands across the ecosystem (Salesforce CLI, `cli doctor` for M365) report identity/scope info, not just a boolean — "auth mode, configuration, roles, and scopes" is the cited convention. Concretely available here via `AccountApi.login()`'s returned `User` (`email`, `name`, `id`) and `FrameApi.get_frames()` for "frames on the account." | LOW | All backed by already-verified read-path calls (`login`, `get_frames`) — zero new/unverified API risk for `status`. |
+|---------|--------------------|------------|-------|
+| Plan preview that works *without* a fresh Picker session every time | Most comparable tools force a full re-auth-and-re-pick dance to see "what would change." A cached last-known-picked-item-ID-set lets `aura-cli` show a **diff against the previous pick** as a dry-run, and only prompt for a fresh picker session when the user actually wants to reconcile new album state | MEDIUM | This is a genuine differentiator: it turns an interactive-only API into something that *feels* like a repeatable sync by separating "refresh what I know about the album" (interactive, occasional) from "show/apply the plan" (offline, cheap, dry-run-friendly) — directly aligned with the project's compute/execute philosophy. |
+| Reuse of the proven v2.0 content-hash diff/upload engine unchanged | Almost all the risky code (upload round-trip, hide/re-show, rate limiting, geo guard) is already live-verified; wiring a new source into an existing sink is much lower risk than a parallel implementation | LOW (already decided, just execution) | This *is* the project's stated strategy already — call it out as the safety differentiator versus a hypothetical from-scratch Google-native sync. |
+| Many-to-many album↔frame mapping in one config, one invocation | Comparable single-purpose tools (rclone remotes, gphotos-sync) are typically one-source-to-one-destination per invocation; reconciling several album→frame pairs in one CLI call with one combined report is more convenient than N separate tool invocations | MEDIUM | Real complexity is in aggregating N interactive pick steps (if Picker-only) into one coherent run report, not in the mapping data structure itself. |
+| Clear, itemized "why" for every hide/re-show decision, carried over from v2.0's 4-way classifier | v2.0 already built re-show / unchanged / removal-candidate / already-hidden classification for local-directory sync; extending the same classifier vocabulary to Google-sourced items keeps the mental model identical across both sync sources | LOW (reuse) | Users who already trust `sync <dir>`'s plan output get the same trust for `sync --google` without learning new semantics. |
+| Named, resumable local cache with content-hash reuse across albums | If the same photo appears in two synced albums, caching by hash rather than by album means it is downloaded once, not once per album — direct benefit of the "reuse the proven content-hash pipeline" decision | MEDIUM | Requires the cache key to be content-hash (or Google media item ID mapped to hash after first download), not per-album path, to realize this savings. |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that look like natural extensions of "sync a directory" but would be scope creep, unsafe, or unsupported by the actual API surface for this milestone.
+Features that seem good but create problems — flagged explicitly because PROJECT.md's own semantics choices touch several of these.
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|------------------|-------------|
-| Continuous/watch-mode sync (auto-run on filesystem change) | Feels like the "real" Google-Photos-style experience — background auto-upload. | No official/stable long-poll or push mechanism has been verified for this unofficial API; `SQSClient` long-polls and blocks (documented architectural constraint), and the whole write path is unverified live in the first place. Building a daemon on top of an unverified, reverse-engineered write path multiplies risk for zero validated value this milestone. | Ship one-shot `sync` invocable by hand or via cron/systemd timer; defer daemon/watch mode to a future milestone once the write path has live mileage. |
-| Two-way / bidirectional sync (pull frame-only photos back to disk too) | "Real sync tools like `rclone bisync` do this" — feels more complete. | Explicitly out of scope per PROJECT.md ("this is the first user-facing entry point," target is directory→frame mirror). Bidirectional sync also reintroduces conflict-resolution complexity (what if the frame and the directory both changed the "same" photo?) with no product need identified. | One-directional mirror only: local directory is the source of truth, frame is the destination. `dump_frame`/`download_images_from_assets` (already existing, read-only) remain the separate pull-path if ever needed. |
-| Default deletion via `AssetApi.delete_asset` (hard destroy) | Sounds more "thorough" / matches the `--delete` naming convention users know from `rsync`/`aws s3 sync`. | The method's own docstring flags it as unverified ("currently unknown if this is used") and possibly Glacier/S3-destructive and irreversible — exactly the failure mode the milestone's dry-run-by-default safety posture exists to prevent. | Use `FrameApi.remove_asset` (documented as non-destructive to S3/Glacier) as the sync-delete primitive; treat `delete_asset` as out of scope for this milestone's `sync` command. |
-| Storage/quota reporting in `status`/`inspect` | Every consumer cloud-storage CLI (Dropbox, Google Drive, iCloud) reports "X GB used of Y GB." | **Confirmed absent from this API's data model** — a full read of `auraframes/models/frame.py` and `auraframes/models/user.py` turns up no storage/quota-shaped field anywhere (only `Frame.num_assets: int`, a photo *count*, not a byte quota). Building UI/plumbing for a field that doesn't exist is wasted work and would have to be faked or omitted anyway. | Report `num_assets` (asset count) as the closest available "stats-like field" per the milestone's own fallback language; explicitly state in `status`/`inspect` output or docs that no storage-quota concept exists in this API, rather than silently omitting it and leaving the question open. |
-| Filename- or mtime-based change detection (skip files that "look" unchanged) | Simpler and faster than hashing every file on every run — the naive first implementation. | Well-established failure mode across the sync-tool ecosystem: mtimes change on copy/checkout/restore even when bytes are identical (causing false "changed" reclassification and wasted re-uploads), while renamed-but-byte-identical files get treated as an unrelated delete+add pair instead of a no-op. Filenames server-side are also rewritten/normalized by Aura's own upload flow, so local-filename-to-remote-filename matching is not even reliably meaningful here. | Content-hash comparison (base64 MD5, matching the API's own `Asset.md5_hash`/`get_md5()` convention) as the sole comparison key, per Table Stakes above. Optionally pre-filter by file size as a cheap first-pass bucket (mirrors the "bucket by byte size before hashing" tiered strategy used by dedup tooling) if hashing a very large directory proves slow — a performance optimization, not a correctness mechanism. |
-| Renaming/relabeling matched assets on the frame when the local file was renamed but content is identical | Feels like "proper" rename-handling, mirroring how some sync tools detect a rename as a move rather than delete+add. | No Aura API endpoint exists to rename/relabel an already-uploaded asset's display filename independent of re-uploading it (only `update_taken_at_date`, `crop_asset`, `batch_update` metadata fields are exposed, none of which target `file_name` post-upload in a documented way). Attempting this would mean inventing behavior against an undocumented API with no verification path. | Treat a renamed-but-identical-content local file as an exact hash match — no action taken, full stop. This is actually the *correct* mirror semantics (content is what matters), not a compromise. |
+| "Live" auto-syncing album (background watcher, no user action) | Users of consumer sync tools (Dropbox, Google Drive desktop) expect changes to propagate automatically without ever running a command | The Picker API has **no webhook, no change feed, no polling-for-membership-changes primitive** — Google removed exactly the capability (`albums.list`/`albumMediaItems`) that would make this possible for a general app. Building "auto" on top of a manual-pick API means either (a) silently re-showing the picker on a timer, which is not headless at all, or (b) faking liveness with a stale cache, which will surprise users when the frame doesn't reflect an album change they made minutes ago | Be explicit that sync is user-invoked ("run `aura-cli sync --google` to check for changes"), not automatic. Document this loudly — it is the single most likely source of user confusion given how "photo frame sync" reads on the tin. |
+| Real deletion as the default removal behavior | "Album is the source of truth" reads to some users as "delete anything not in the album," matching how Google Photos' own web UI trash behaves | PROJECT.md has already correctly rejected this (hide-by-default, deletion opt-in and count-gated) — flagging here only to confirm the decision matches the domain's own hard lessons: v2.0's Phase 8 live incident (a near-empty local dir triggering a 72-item delete plan) is exactly the failure mode a "album is truth, delete the rest" default would reproduce with Google as the source instead of a local dir | Keep hide-as-default; this decision is validated by the project's own history, not just external convention. |
+| Streaming Google Photos bytes straight into S3, skipping local disk | Seems more "elegant" / lower-latency than a local cache | PROJECT.md has already rejected this in favor of a pruned local cache — correctly, since it would mean *replacing* the proven v2.0 content-hash pipeline (which hashes local bytes) with a new streaming-hash strategy that has never been live-verified. It would also make interrupted-transfer resumability much harder (no partial file to inspect/resume; a half-streamed S3 object is a different failure mode than a half-downloaded local file) | Local cache dir + reuse of existing pipeline, exactly as decided. Flagging only as confirmation this decision avoids real, observed pitfalls. |
+| Enumerating a user's own existing albums via a "simple API call" (`albums.list`) | This is the most natural mental model — "just list my albums like the app does" — and is exactly what pre-2025 tools like `gphotos-sync` did | This scope was revoked for general apps in March 2025; building against it (or against undocumented workarounds) is building on sand — Google has already demonstrated willingness to pull this capability with a hard deadline, and `gphotos-sync`'s maintainers concluded there was no viable path and archived rather than chase it | Design for the Picker-only branch as the default assumption (see STACK research for exact verification); treat any working `albums.list` access as a bonus fallback, not the baseline plan. |
+| Full video sync via a fallback hashing mechanism | "Just handle video too, don't leave a gap" is a natural ask once photo sync works | PROJECT.md has already scoped this out correctly: frame-side `md5_hash` is null for all video assets, so the entire content-hash diff engine — the safety mechanism this whole tool is built around — cannot see video at all. A fallback (e.g., local-manifest hashing) is a second, unverified diffing strategy bolted onto a tool whose main strength is one proven strategy | Skip video, report the count, exactly as decided. Revisit only as a distinct future milestone with its own verification pass, not a rider on this one. |
+| Silent cache pruning with no re-download warning | "Just clean up after yourself" sounds purely beneficial | Pruning immediately after upload confirmation means the **next run's dry-run/plan step has nothing local to hash against** for items already on the frame — if the plan logic ever needs to re-verify a hash (e.g., after a partial failure, or to build a fresh "what's already there" comparison), it will silently re-download data that was *just* deleted, costing bandwidth and time the user won't expect. This is a real, non-obvious tension in the "download → hash → upload → prune" decision (see Caching section, Q6) | At minimum, document the tradeoff; consider pruning only entries confirmed both uploaded *and* unchanged from a prior successful run, or keep a lightweight hash-only manifest (not the image bytes) after pruning so a future plan step never needs to re-download purely to compute a hash it already knows. |
 
 ## Feature Dependencies
 
 ```
-sync (upload leg)
-    └──requires──> upload_image write path (select_asset → S3 → SQS → batch_update)
-                       └──STATUS: existing code, NEVER verified live (per PROJECT.md) — HIGH RISK dependency
+[Link a Google account (OAuth)]
+    └──requires──> [Refresh-token persistence, out of VCS]
 
-sync (delete leg)
-    └──requires──> FrameApi.remove_asset (unassociate)
-                       └──STATUS: existing code, NEVER verified live — HIGH RISK dependency
-    └──conflicts-with──> AssetApi.delete_asset (hard destroy) — do not use for sync's delete leg (see Anti-Features)
+[Discover/select album contents]
+    └──requires──> [Link a Google account]
+    └──conflicts-with──> [Fully unattended/scheduled re-run]
+                              (Picker API branch: session requires a live browser
+                               interaction; there is no headless re-poll of "current
+                               album contents")
 
-sync (diff/plan logic, both legs)
-    └──requires──> content-hash comparison (local MD5 vs Asset.md5_hash)
-                       └──requires──> get_all_assets() / FrameApi.get_assets() cursor pagination
-                                          └──STATUS: verified live (READ-03) ✓ low risk
-                       └──ASSUMPTION TO VERIFY: md5_hash populated on pre-existing (non-client-uploaded) assets
+[Persisted N-album↔N-frame mapping]
+    └──requires──> [Discover/select album contents]  (need something to map, even if
+                                                        that "something" is a picked-
+                                                        item-ID snapshot, not a live
+                                                        album handle)
 
-sync, inspect, status (frame targeting by name|id)
-    └──requires──> FrameApi.get_frames()
-                       └──STATUS: verified live (READ-02) ✓ low risk
+[Sync album → frame (download+diff+upload)]
+    └──requires──> [Persisted N-album↔N-frame mapping]
+    └──requires──> [v2.0 content-hash diff/upload engine]   (reused unchanged)
+    └──requires──> [Local cache dir with prune-after-confirm]
 
-inspect
-    └──requires──> FrameApi.get_frame() + get_assets()  [STATUS: verified live ✓]
-    └──enhances-with──> Frame.contributors, Frame.num_assets (already-hydrated fields, no new call)
+[Mirror semantics: hide removed-from-album photos]
+    └──requires──> [v2.0 hide/re-show 4-way classifier (Phase 10)]   (reused unchanged)
+    └──enhances──> [Sync album → frame]
 
-status
-    └──requires──> AccountApi.login()  [STATUS: verified live ✓]
-    └──requires──> FrameApi.get_frames()  [STATUS: verified live ✓]
-    └──does NOT require──> any unverified write-path method (status is read-only by nature)
+[Photos-only, skip video with reported count]
+    └──requires──> [v2.0 md5_hash-based content-hash diffing]        (reused unchanged;
+                                                                        video is invisible
+                                                                        to it by design)
+
+[Write-path reliability: 401 retry, data_uti fix]
+    └──enhances──> [Sync album → frame]   (Google albums routinely contain .png/.heic,
+                                            making the data_uti bug load-bearing for the
+                                            first time)
+
+["Live" auto-sync, no user action]  ──conflicts-with──> [Picker API's session model]
+    (anti-feature; not buildable against the documented API without a fully separate,
+     unsupported change-detection mechanism)
 ```
 
 ### Dependency Notes
 
-- **`sync`'s upload leg requires the unverified `upload_image` flow:** this is the single biggest schedule/complexity risk in the whole milestone. `select_asset` → S3 upload → SQS poll → `batch_update` is multi-step, stateful, and has never been exercised against the live API. Recommend the roadmap put a "verify one live upload round-trip" spike *before* building the full `sync` command around it, so API drift (auth, payload shape, SQS queue behavior) surfaces early and cheaply rather than inside a half-built CLI feature.
-- **`sync`'s delete leg requires `remove_asset`, not `delete_asset`:** also never verified live. Same spike-first recommendation applies — confirm `remove_asset` actually detaches the asset from the frame's asset list (and doesn't error/no-op silently, given this codebase's known pattern of swallowing API `error` fields) before wiring it into a `--apply` code path.
-- **`status` and `inspect` have zero new-risk dependencies:** both compose exclusively from already-live-verified read-path calls (`login`, `get_frames`, `get_frame`, `get_assets`) plus fields already present on hydrated models. These can be built and shipped with high confidence independent of the upload/delete spikes landing — good candidates for an earlier phase.
-- **Content-hash comparison requires confirming `md5_hash` population on the read side**, not just the write side. This is a data-availability question (does the API return it for assets it didn't just receive from this client?), answerable with a single live `get_assets()` call inspected for the field — cheap to de-risk early, alongside the read-path phase's existing verified calls.
-- **Frame name/id resolution has no dependency risk** (pure client-side logic over `get_frames()`), but needs an explicit decision on duplicate-name handling (see Table Stakes) — a design question, not an API risk.
+- **Discover/select album contents conflicts with fully unattended re-run:** this is the
+  load-bearing dependency conflict for the whole milestone. If STACK research confirms the
+  Picker-only branch (which all current external evidence points to), then "reconciled in a
+  single run" must be redefined at the requirements stage as "one CLI invocation that may
+  pause for interactive picking steps," not a cron-friendly headless operation. This should
+  be resolved as a requirements-writing decision, not deferred further — it changes what
+  "many-to-many mapping reconciled in a single run" can honestly promise users.
+- **Sync album → frame requires the v2.0 engine unchanged:** this is deliberate and already
+  decided (PROJECT.md), and it is the single biggest complexity-reduction available in this
+  milestone — almost all the hash-matching, upload, hide/re-show, rate-limit, and geo-guard
+  code is already live-proven. New code is confined to: OAuth, the picker/download step, and
+  the mapping config. Keep it that way; do not let Google-specific logic leak into
+  `compute_plan`/`execute_plan`.
+- **Write-path reliability enhances the Google sync feature non-optionally:** the
+  `data_uti='public.jpeg'` hardcoding (previously a nice-to-have finding) becomes a real bug
+  the moment Google-sourced `.png`/`.heic` files reach the upload path — this is why
+  PROJECT.md sequences Part 1 (reliability) before Part 2 (Google integration) rather than
+  treating them as independent workstreams.
 
 ## MVP Definition
 
-### Launch With (v1)
+### Launch With (v1 of this milestone)
 
-Minimum viable set — proves the write path live and delivers the milestone's stated "done" bar (a real round-trip on the user's live frame, verified via `inspect`).
+Minimum viable product for "sync a Google Photos album to a frame" — validates the concept
+end-to-end without over-building around an interactive API that may still shift.
 
-- [ ] `status` — creds/login/account check (zero new API risk; build first, use it to sanity-check the environment before spiking upload/delete)
-- [ ] `inspect` — list frame assets + name/owner/contributor-count/num_assets (zero new API risk; also doubles as the verification tool for `sync`'s results, per the milestone's own "verified visually + via inspect" done bar)
-- [ ] `sync <dir> --frame <name|id>` dry-run mode (content-hash diff plan: uploads/deletes/unchanged, no mutation) — the core value differentiator, buildable and testable without touching the unverified write endpoints at all
-- [ ] `sync ... --apply`/`--yes` real execution — upload leg via existing `upload_image` flow, delete leg via `remove_asset` — this is where live write-path verification actually happens
-- [ ] Frame targeting by name or id, with duplicate-name error handling
-- [ ] Per-run summary output (N uploaded / N deleted / N unchanged / N failed) and non-zero exit on any failure
+- [ ] OAuth loopback link/status/unlink — essential, matches existing credential-handling
+      posture, and every dependent feature needs it
+- [ ] One album → one frame, single mapping, manually re-triggered each run (interactive
+      pick step accepted, not hidden) — essential to prove the mechanism works at all before
+      generalizing to N:N
+- [ ] Download to local cache, reuse v2.0 diff/upload pipeline unchanged — essential; this
+      is the whole point of the milestone's chosen strategy (proven pipeline, new source)
+- [ ] Hide-by-default mirror semantics, reusing the Phase 10 classifier — essential; matches
+      the project's established safety posture, and building a second removal-semantics
+      model would be pure risk with no payoff
+- [ ] Skip video, print a count — essential per PROJECT.md's explicit scoping and the
+      md5_hash technical constraint
+- [ ] Dry-run plan visible before any Google-sourced hide/upload executes — essential,
+      matches the project's core convention
 
 ### Add After Validation (v1.x)
 
-Trigger: the v1 write path has run cleanly against the live account/frame at least once and the team wants to make repeated/scripted use safer or more transparent.
+Features to add once the one-album, one-frame path is proven live.
 
-- [ ] `--max-delete` safety guardrail — add once real usage patterns (directory sizes, typical delete volumes) are known, so the threshold is calibrated rather than guessed
-- [ ] `--json` machine-readable plan/result output — add if/when `sync` starts getting invoked from scripts or CI rather than interactively
-- [ ] Size-based pre-filter before hashing — add only if hashing a real user's directory proves slow enough to matter (performance optimization, not correctness)
+- [ ] N-album ↔ N-frame persisted mapping, reconciled in one invocation — add once the
+      single-pair path's interactive-picking UX is validated; the multi-pair aggregation is
+      mostly UX/reporting work layered on a proven mechanism, not new risk
+- [ ] Cached last-known-picked-item-ID diff (the differentiator that lets dry-run work
+      without a fresh browser round-trip every time) — valuable, but only once the basic
+      picked-then-download-then-diff loop is trustworthy on its own
+- [ ] Disk-space guard and cache-size reporting — genuinely useful once album sizes in
+      practice are known from v1 usage, rather than guessed upfront
 
 ### Future Consideration (v2+)
 
-Defer until the one-shot CLI has real mileage and a clear signal that more automation is wanted.
+Features to defer until the Picker-only constraint's practical impact is well understood
+from real usage.
 
-- [ ] Watch-mode / daemon auto-sync — defer until the one-shot write path has proven stable over repeated live runs; building a background process on an unverified reverse-engineered API compounds risk
-- [ ] Bidirectional sync (pull frame-only assets back to local dir) — explicitly out of scope for this milestone (PROJECT.md); the existing `dump_frame`/`download_images_from_assets` read path already covers "get things off the frame" separately
-- [ ] Multi-frame fan-out sync (one directory to many frames at once) — no evidence of demand; adds cross-frame consistency questions not needed for the stated core value
+- [ ] Any workaround for closer-to-live album tracking (e.g., detecting Google's own
+      allowlist/verified-app path for broader scopes) — defer; chasing broader API access is
+      exactly the trap that made `gphotos-sync` unmaintainable; only worth revisiting if
+      Google's policy changes again
+- [ ] Video sync via an alternate hashing/manifest strategy — explicitly out of scope per
+      PROJECT.md; would need its own verification milestone since it bypasses the tool's
+      core safety mechanism (content-hash diffing)
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|----------------------|----------|
-| `status` (auth/account health check) | MEDIUM | LOW | P1 |
-| `inspect` (frame listing + metadata) | HIGH | LOW | P1 |
-| `sync` dry-run diff (content-hash plan) | HIGH | MEDIUM | P1 |
-| `sync --apply` upload leg | HIGH | HIGH (unverified dependency) | P1 |
-| `sync --apply` delete leg (`remove_asset`) | HIGH | HIGH (unverified dependency) | P1 |
-| Frame name/id targeting + duplicate-name handling | MEDIUM | LOW | P1 |
-| Per-run summary + exit codes | MEDIUM | LOW | P1 |
-| `--max-delete` guardrail | MEDIUM | LOW | P2 |
-| `--json` output mode | LOW-MEDIUM | MEDIUM | P2 |
-| Size-prefilter before hashing | LOW | LOW | P3 |
-| Watch-mode / daemon sync | LOW (unvalidated demand) | HIGH | P3 |
-| Bidirectional sync | LOW (out of scope) | HIGH | P3 |
-
-**Priority key:**
-- P1: Must have for launch (this milestone)
-- P2: Should have, add when possible
-- P3: Nice to have, future consideration
+| OAuth link/status/unlink | HIGH | MEDIUM | P1 |
+| Single album→frame sync via reused v2.0 pipeline | HIGH | LOW–MEDIUM (mostly wiring) | P1 |
+| Hide-by-default mirror semantics (reused classifier) | HIGH | LOW (reuse) | P1 |
+| Photos-only with reported video skip count | HIGH | LOW | P1 |
+| Dry-run plan before Google-sourced execute | HIGH | LOW (reuse pattern) | P1 |
+| Write-path reliability (401 retry, `data_uti` fix) | HIGH (blocks correctness of P1 items) | LOW–MEDIUM | P1 (sequenced first per PROJECT.md) |
+| N-album↔N-frame mapping, one invocation | MEDIUM–HIGH | MEDIUM | P2 |
+| Cached-pick diff (dry-run without fresh browser round-trip) | MEDIUM–HIGH (real differentiator) | MEDIUM | P2 |
+| Disk-space guard / cache size reporting | MEDIUM | LOW–MEDIUM | P2 |
+| "Live" unattended auto-sync | LOW (given API reality) — HIGH user *expectation* mismatch risk | N/A — not feasible against documented API | Anti-feature, not prioritized |
+| Video sync | LOW (explicitly descoped) | HIGH (needs new diff strategy) | P3 / explicitly out of scope |
 
 ## Competitor Feature Analysis
 
-Reference tools chosen because they define the standard conventions users bring to any "mirror a directory to a remote" tool.
-
-| Feature | rclone `sync` | `aws s3 sync --delete` | `rsync --delete` | gphotos-sync (photo-specific) | Our Approach |
-|---------|---------------|------------------------|-------------------|-------------------------------|--------------|
-| Dry-run default | Opt-in `--dry-run` flag, but docs strongly push it as the mandatory first step before any `--delete` run | Opt-in `--dryrun` flag, same "always run first" guidance | Opt-in `-n`/`--dry-run`, same guidance | N/A (read-only backup tool, no delete/mirror leg) | Dry-run **on by default**, not opt-in — stronger safety posture given a single real (non-abstracted) live photo frame is the destination |
-| Comparison key | Size + mtime by default, optional checksum (`--checksum`) for true content comparison | Size + mtime | Size + mtime by default, optional `--checksum` | Google's own hash-based duplicate detection server-side | Content hash (base64 MD5) as the **sole** key from day one — matches the API's own already-existing `md5_hash` field rather than defaulting to the weaker mtime/size heuristic these tools use out of the box |
-| Delete primitive | Single `delete` operation, explicitly warns "sync can cause data loss" | Single `delete` (removes object from bucket) | Single `--delete`, with `--max-delete` as an available guardrail | N/A | Deliberately picks the **less destructive** of two available primitives (`remove_asset` over `delete_asset`) — a distinction these generic tools don't have to make since they only expose one delete operation each |
-| Output format | Human-readable by default; separate machine-readable commands (`lsjson`, `lsf --format`) for scripting | Human-readable list of operations; `--quiet` to suppress | Human-readable, `--itemize-changes` for detail | N/A | Human-readable summary + per-action list for MVP; `--json` deferred to v1.x (same phased approach as rclone) |
-| Safety guardrail on mass delete | None built-in beyond dry-run | None built-in beyond dry-run | `--max-delete=N` explicitly recommended | N/A | Deferred to v1.x as `--max-delete`-style guardrail — flagged as valuable but not blocking MVP |
+| Feature | rclone (Google Photos backend) | gphotos-sync | immich-go | Our Approach |
+|---------|-------------------------------|--------------|-----------|--------------|
+| Auth | OAuth loopback (`rclone authorize`), shared client ID being retired 2026, recommends own client ID | OAuth (pre-2025 broad scope; now unmaintained/archived) | No live Google API — works from **Takeout export files**, sidestepping the API restriction entirely | OAuth loopback, own client ID from day one (avoid the shared-ID retirement rclone is now dealing with) |
+| Album access post-March-2025 | Read-only, **app-created content only**; must reconnect via Picker API for user-library access | Archived — maintainers concluded no viable path under new scopes | N/A (doesn't use the live API at all — Takeout is a static export a user downloads manually) | Picker API, one-time-pick-per-run model; explicitly *not* pursuing `albums.list` |
+| "Live" sync | No — user-triggered `rclone sync` runs, idempotent re-run (skips already-transferred files) | Was cron-friendly pre-2025 (incremental sync via `albums.list`); this exact pattern is what the API change killed | No — one-shot import of a point-in-time export | User-triggered `aura-cli sync --google` per mapping; loudly document it is not automatic given Picker's interactive requirement |
+| Unsupported media handling | Read-only limitation surfaced as an error/warning during sync | N/A (archived before this mattered much) | Explicitly reports discarded/lower-res duplicates rather than silently dropping | Skip video, print count — never silent, matching immich-go's stated philosophy |
+| Credential storage | `rclone.conf`, optional OS keyring integration, config-file encryption option | Local token file | N/A | Match existing project posture (env-var-adjacent, out of VCS); consider keyring as a stretch, not a blocker |
 
 ## Sources
 
-- [rclone sync](https://rclone.org/commands/rclone_sync/) — HIGH confidence, official docs
-- [rclone delete](https://rclone.org/commands/rclone_delete/) — HIGH confidence, official docs
-- [rclone ls](https://rclone.org/commands/rclone_ls/), [rclone lsl](https://rclone.org/commands/rclone_lsl/), [rclone lsjson](https://rclone.org/commands/rclone_lsjson/), [rclone lsf](https://rclone.org/commands/rclone_lsf/) — HIGH confidence, official docs
-- [Mastering Rclone Dry Run](https://www.go2share.net/article/rclone-dry-run) — MEDIUM confidence, third-party explainer, corroborates official docs
-- [AWS CLI `s3 sync` reference](https://docs.aws.amazon.com/cli/latest/reference/s3/sync.html) — HIGH confidence, official docs
-- [`s3 sync --delete` issue #6000](https://github.com/aws/aws-cli/issues/6000) — MEDIUM confidence, official repo issue thread (real-world edge cases)
-- [rsync(1) man page](https://linux.die.net/man/1/rsync) — HIGH confidence, canonical reference
-- [Rsync Best Practices — Always Test New Options With Dry-Run](https://eduvola.com/blog/rsync-best-practices-always-test) — MEDIUM confidence, third-party best-practices writeup (source of `--max-delete`/`--delete-after` guidance)
-- [gsutil rsync command](https://cloud.google.com/storage/docs/gsutil/commands/rsync) — HIGH confidence, official docs
-- [gsutil rsync.py source](https://github.com/GoogleCloudPlatform/gsutil/blob/master/gslib/commands/rsync.py) — HIGH confidence, primary source
-- [Hash-based duplicate file detection overview](https://itoolkit.co/blog/2023/08/which-is-a-more-accurate-method-of-duplicate-file-detection/) — MEDIUM confidence, third-party but consistent with primary hashing literature
-- [gphotos-sync (gilesknap)](https://github.com/gilesknap/gphotos-sync) — MEDIUM confidence, official repo README, read-only tool (informs what's *not* directly transferable — no delete/mirror leg to compare)
-- [cli doctor — CLI for Microsoft 365](https://pnp.github.io/cli-microsoft365/cmd/cli/cli-doctor/) — HIGH confidence, official docs, source of "doctor reports auth mode/config/roles/scopes" convention
-- **This repository's own source** (highest-confidence source for all Aura-specific findings, verified by direct code read, not inference):
-  - `auraframes/models/asset.py` — confirms `md5_hash` field exists on `Asset`
-  - `auraframes/aws/s3client.py` — confirms base64-MD5 (`get_md5()`) is the API's native hashing convention
-  - `auraframes/models/frame.py`, `auraframes/models/user.py` — confirms **no** storage/quota field exists anywhere in the data model; confirms `contributors` and `num_assets` are available for `inspect`
-  - `auraframes/api/frameApi.py` — confirms `remove_asset` is documented as non-destructive to S3/Glacier; confirms `get_frames()`/`get_frame()`/`get_assets()` are the only frame-listing primitives (no server-side name lookup)
-  - `auraframes/api/assetApi.py` — confirms `delete_asset`'s docstring flags it as unverified/possibly-destructive ("currently unknown if this is used ... maybe this deletes it from S3/Glacier")
-  - `auraframes/aura.py` — confirms the exact `upload_image` call sequence (`select_asset` → S3 upload → SQS poll → `batch_update`) this milestone must verify live
-  - `.planning/PROJECT.md` — milestone scope, constraints, and explicit "never verified live" status of upload/delete/remove/crop methods
+- Google Photos API policy change (authoritative): [developers.google.com/photos/support/updates](https://developers.google.com/photos/support/updates), [Google Developers Blog — Picker API launch and Library API changes](https://developers.googleblog.com/en/google-photos-picker-api-launch-and-library-api-updates/)
+- Picker API mechanics: [Get started with the Picker API](https://developers.google.com/photos/picker/guides/get-started-picker), [Create and manage sessions](https://developers.google.com/photos/picker/guides/sessions), [Photo picking: what users see](https://developers.google.com/photos/picker/guides/picking-experience), [List and retrieve media items](https://developers.google.com/photos/picker/guides/media-items), [sessions REST resource](https://developers.google.com/photos/picker/reference/rest/v1/sessions)
+- `gphotos-sync` — archived due to March 2025 scope change: [github.com/gilesknap/gphotos-sync](https://github.com/gilesknap/gphotos-sync)
+- rclone Google Photos backend, post-2025 limitations, OAuth loopback UX: [rclone.org/googlephotos](https://rclone.org/googlephotos/), [rclone forum — Add the new Google Photos Picker API to rclone](https://forum.rclone.org/t/add-the-new-google-photos-picker-api-to-rclone/47938), [rclone forum — Google photo picker](https://forum.rclone.org/t/google-photo-picker/52944)
+- `immich-go` — Takeout-based workaround approach and unsupported-media reporting philosophy: [github.com/simulot/immich-go](https://github.com/simulot/immich-go)
+- `gcloud auth login`/ADC as a comparable CLI OAuth link/status/revoke UX pattern: [Google Cloud — Set up ADC for local development](https://docs.cloud.google.com/docs/authentication/set-up-adc-local-dev-environment), [Best practices for mitigating compromised OAuth tokens](https://docs.cloud.google.com/architecture/bps-for-mitigating-gcloud-oauth-tokens)
+- Resumable/idempotent sync conventions: general cloud-sync-tool re-run behavior (rclone compare-before-transfer model), corroborated across rclone documentation and forum discussion
+- Project context: `/home/fabrice/dev/auraframes/.planning/PROJECT.md` (v3.0 milestone scope, existing v2.0 capabilities, key decisions)
 
 ---
-*Feature research for: directory-to-cloud-device sync CLI (Aura Frames unofficial API)*
-*Researched: 2026-07-05*
+*Feature research for: Google Photos album → Aura Frame sync (v3.0 milestone)*
+*Researched: 2026-09-03*
