@@ -15,6 +15,7 @@ from auraframes.aws.sqsclient import SQSClient
 from auraframes.client import RateLimitError
 from auraframes.models.frame import Frame
 from auraframes.ratelimit import WriteBudget, check_geo, _default_resolver, GeoMismatchError, BudgetExhausted
+from auraframes.reconcile import find_placeholders
 from auraframes.sync import scan_directory, compute_plan, execute_plan, ConsecutiveWriteFailureError
 from auraframes.utils.settings import (
     AURA_WRITE_BUDGET_CAPACITY,
@@ -99,6 +100,27 @@ def build_parser() -> argparse.ArgumentParser:
     push_parser.add_argument('--no-wait', action='store_true', default=False, help='Stop immediately instead of waiting when the write budget is exhausted')
     push_parser.add_argument('--country', default=None, help='Override the expected account country for the geo pre-flight guard (default from AURA_COUNTRY)')
     push_parser.add_argument('--ignore-budget', action='store_true', default=False, dest='ignore_budget', help='Escape hatch: bypass the write budget entirely for this run')
+
+    # `reconcile` = data hygiene on EXISTING stuck placeholder rows (REL-05,
+    # D-13) -- deliberately outside the sync/push loop. Report-only by
+    # default; `--remove` is required to attempt any write, mirroring
+    # `--apply`'s report-vs-mutate split.
+    reconcile_parser = subparsers.add_parser(
+        'reconcile', help='Report (and optionally remove) stuck placeholder rows on a frame')
+    reconcile_parser.add_argument('--frame', required=True, help='Frame name (substring) or id')
+    reconcile_parser.add_argument(
+        '--remove', action='store_true', default=False,
+        help='Attempt removal of stuck placeholder rows instead of only reporting them')
+    reconcile_parser.add_argument(
+        '--yes', action='store_true', default=False,
+        help='Skip the confirmation prompt (required for --remove when running non-interactively)')
+    reconcile_parser.add_argument(
+        '--mechanism', choices=['remove', 'hard-delete', 'complete'], default='remove',
+        help='Which removal mechanism to attempt -- no mechanism is yet confirmed to work on these rows')
+    reconcile_parser.add_argument(
+        '--max-age-hours', type=float, default=24.0, dest='max_age_hours',
+        help='Minimum age in hours for a placeholder row to be reported as stuck rather than '
+             'recently created (default 24)')
     return parser
 
 
@@ -265,10 +287,91 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
         remaining = len(assets) - len(shown)
         if remaining > 0:
             print(f'  ... +{remaining} more')
+        # REL-05, D-13: computed via the exact same pure function
+        # `run_reconcile` calls, so the two counts can never disagree.
+        print(f'Placeholder rows: {find_placeholders(assets).placeholder_count} '
+              f'(run `aura-cli reconcile --frame ...` for detail)')
     except Exception as e:
         # WR-01 fail-loud (D-05): surface post-login API drift instead of a
         # raw traceback.
         print(f'Failed to inspect frame: {e}')
+        return 1
+
+    return 0
+
+
+def run_reconcile(frame_arg: str, *, remove: bool = False, yes: bool = False, mechanism: str = 'remove',
+                   max_age_hours: float = 24.0, aura=None, debug: bool = False) -> int:
+    """Reconcile command handler (REL-05, D-13) -- data hygiene on EXISTING
+    stuck placeholder rows, deliberately outside the sync/push loop. Reports
+    how many placeholder rows a frame carries unconditionally, whether or
+    not any removal mechanism works, and (only when `remove=True`) attempts
+    a bounded, gated removal. Returns a process exit code (0 success, 1
+    failure) -- never calls sys.exit directly. Accepts an optional injected
+    `Aura` (dependency-injection seam), mirroring `run_inspect`.
+    """
+    aura = aura or Aura()
+    # Must run after Aura() construction (which registers the noisy sinks)
+    # and before login/get_frames (the HTTP calls that trigger them).
+    _configure_cli_logging(debug)
+
+    try:
+        aura.login()
+    except Exception as e:
+        print(f'Login failed: {e}')
+        return 1
+
+    try:
+        frames = aura.frame_api.get_frames()
+        resolved = resolve_frame(frame_arg, frames)
+
+        if resolved.status == 'ambiguous':
+            print(f"'{frame_arg}' matches more than one frame name — re-run with --frame <id>:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        if resolved.status == 'not_found':
+            print(f"No frame matches name or id '{frame_arg}'. Available frames:")
+            for candidate in resolved.candidates:
+                print(f'  - {candidate.name} (id: {candidate.id})')
+            return 1
+
+        frame = resolved.frame
+        assets = aura.get_all_assets(frame.id)
+
+        if not assets:
+            # T-11-11: an empty listing cannot be distinguished from a
+            # frame with genuinely no placeholders -- refuse to report a
+            # reassuring zero on no data.
+            print(f'No assets returned for "{frame.name}" (id: {frame.id}) -- an empty asset '
+                  f'listing cannot be distinguished from a frame with no placeholders. Refusing '
+                  f'to report zero placeholders on no data.')
+            return 1
+
+        # REL-05, D-13: the exact same pure function `run_inspect` calls, so
+        # the two counts can never disagree.
+        result = find_placeholders(assets, age_threshold_seconds=max_age_hours * 3600)
+
+        print(f'Frame: {frame.name} (id: {frame.id})')
+        print(f'Assets scanned: {result.total_scanned}')
+        print(f'Placeholder rows: {result.placeholder_count}')
+        print(f'  stuck (older than {max_age_hours}h): {len(result.stuck)}')
+        print(f'  recently created (may still be processing): {len(result.recently_created)}')
+        print(f'  creation time unknown: {len(result.unknown_age)}')
+        for asset in result.stuck:
+            print(f'    - {asset.id}')
+
+        if not remove:
+            # D-13: reconcile without --remove performs no write of any
+            # kind -- return here, before any write path is reachable.
+            return 0
+
+        # Task 3 (11-03) adds the --remove continuation here.
+    except Exception as e:
+        # WR-01 fail-loud (D-05 convention): surface post-login API drift
+        # instead of a raw traceback.
+        print(f'Failed to reconcile frame: {e}')
         return 1
 
     return 0
@@ -624,6 +727,11 @@ def main(argv=None) -> int:
             chunk_delay=args.chunk_delay, verb='push',
             max_wait=args.max_wait, no_wait=args.no_wait,
             country=args.country, ignore_budget=args.ignore_budget,
+        )
+    if args.command == 'reconcile':
+        return run_reconcile(
+            args.frame, remove=args.remove, yes=args.yes, mechanism=args.mechanism,
+            max_age_hours=args.max_age_hours, debug=args.debug,
         )
     raise ValueError(f'Unhandled command: {args.command}')
 

@@ -16,6 +16,7 @@ talks to the frame over your local network — everything goes through your Aura
 - [`inspect`](#inspect--look-at-one-frame)
 - [`sync`](#sync--make-a-frame-match-a-directory)
 - [`push`](#push--upload-only-never-removes)
+- [`reconcile`](#reconcile--account-for-stuck-placeholder-rows)
 - [Choosing between `sync` and `push`](#choosing-between-sync-and-push)
 - [Environment variables](#environment-variables)
 - [Exit codes](#exit-codes)
@@ -115,6 +116,7 @@ Assets: 172
 Photos (showing 10 of 154, API order):
   - a1b2c3d4-1111-11f1-8000-0aaaaaaaaaaa | b5c6d7e8-2222-4333-9444-0bbbbbbbbbbb.jpg | 2026-07-04 19:41:13.922000
   - c9d0e1f2-3333-7444-8555-0ccccccccccc | None | None
+Placeholder rows: 58 (run `aura-cli reconcile --frame ...` for detail)
 ```
 
 Two things in that output are worth understanding, and both are server-side quirks rather
@@ -375,6 +377,75 @@ The geo check only runs if `AURA_COUNTRY` (or `--country`) is set; unset means s
 > These flags live on `push` only. `sync --apply` still gets the same budget and geo
 > protection — it just takes its settings from the environment rather than per-run flags.
 
+## `reconcile` — account for stuck placeholder rows
+
+```
+usage: aura-cli reconcile [-h] --frame FRAME [--remove] [--yes]
+                          [--mechanism {remove,hard-delete,complete}]
+                          [--max-age-hours MAX_AGE_HOURS]
+
+options:
+  --frame FRAME         Frame name (substring) or id
+  --remove              Attempt removal of stuck placeholder rows instead of
+                        only reporting them
+  --yes                 Skip the confirmation prompt (required for --remove
+                        when running non-interactively)
+  --mechanism {remove,hard-delete,complete}
+                        Which removal mechanism to attempt -- no mechanism is
+                        yet confirmed to work on these rows
+  --max-age-hours MAX_AGE_HOURS
+                        Minimum age in hours for a placeholder row to be
+                        reported as stuck rather than recently created
+                        (default 24)
+```
+
+`reconcile` is **data hygiene on existing frame state**, deliberately separate from `sync`/
+`push`: it accounts for the placeholder rows described in
+[Known issues](#known-issues) — rows a failed or abandoned upload left behind, with no
+filename, no upload date and no content hash.
+
+A placeholder is identified narrowly: `uploaded_at`, `file_name` and `md5_hash` must **all**
+be null. A video (hashless by design, but it does have a filename and an upload date) or a
+row still mid-upload-processing trips at most one of the three and is never counted.
+
+### Report (the default)
+
+```bash
+uv run aura-cli reconcile --frame "Living Room"
+```
+
+```
+Frame: Living Room (id: 00000000-...)
+Assets scanned: 172
+Placeholder rows: 58
+  stuck (older than 24.0h): 58
+  recently created (may still be processing): 0
+  creation time unknown: 0
+    - e7f8a9b0-5555-7666-8777-0eeeeeeeeeee
+    - ...
+```
+
+Rows younger than `--max-age-hours` (24h default) are reported separately as **recently
+created** and are never treated as removable — a row created seconds ago by a legitimate
+in-progress upload has the exact same null shape as a genuinely stuck one. A row whose
+creation time cannot be determined at all is treated the same way: reported, never
+removable. This is `inspect`'s single placeholder-count line in detail, computed by the
+exact same function so the two numbers can never disagree.
+
+Without `--remove`, `reconcile` performs **no write of any kind** — it only reads.
+
+An empty asset listing is refused with a named error rather than reported as zero
+placeholders, since the two are indistinguishable from an API response alone.
+
+### `--remove`
+
+`--remove` is required to attempt any write; without it, `reconcile` cannot mutate anything.
+**No removal mechanism is yet confirmed to work on these rows** — the two existing
+primitives are already known not to clear them (`delete_asset` returns success and removes
+nothing; `remove_asset` returns "not found"). `--remove` runs a bounded, gated probe of a
+removal mechanism, capped so it cannot burn a large write budget on a mechanism that turns
+out to do nothing, and draws from the same account-wide write budget as `sync`/`push`.
+
 ## Choosing between `sync` and `push`
 
 |  | `sync` | `push` |
@@ -446,10 +517,15 @@ The operation is safe to repeat: uploads dedupe by md5, and hides are idempotent
 `inspect` can report e.g. `Assets: 172` while listing `154`. The frame's own counter and the
 asset listing disagree server-side. The listing is the number sync acts on.
 
-### Placeholder rows accumulate and cannot be removed
+### Placeholder rows accumulate
 
 An asset registered by a failed or abandoned upload leaves a row with no image, no filename
 and no hash — visible in `inspect` as `None | None`. They never display on the frame and sync
-ignores them, but they cannot be cleaned up: the delete endpoint returns success without
-removing them, and the frame-scoped removal returns "not found". They also appear to be the
-cause of the count mismatch above.
+ignores them. They also appear to be the cause of the count mismatch above.
+
+Run `aura-cli reconcile --frame ...` to see exactly how many a frame has, split into stuck /
+recently-created / unknown-age. **No removal mechanism is yet confirmed to clear them**:
+`delete_asset` returns success without removing anything, and the frame-scoped removal
+returns "not found". `reconcile --remove` runs a bounded, gated probe of a removal
+mechanism — see [`reconcile`](#reconcile--account-for-stuck-placeholder-rows) for the honest
+current state.

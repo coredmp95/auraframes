@@ -1,0 +1,239 @@
+"""Offline tests for `aura-cli reconcile` (auraframes.cli.run_reconcile) and
+the placeholder-count line `run_inspect` gained alongside it (Phase 11 Plan
+03, Task 2). Calls the handlers directly (never main()), copying
+tests/test_cli_inspect.py's conventions exactly.
+
+Unmarked (no @pytest.mark.live) -- this is the default pytest suite, runs
+with zero network access and no real credentials.
+"""
+import copy
+import json
+
+import httpx
+import pytest
+from loguru import logger
+
+from auraframes.cli import build_parser, run_inspect, run_reconcile
+from auraframes.reconcile import find_placeholders
+from tests.offline import FIXTURES_DIR, offline_aura
+
+FRAME_ID = 'frame-fake-0001'
+ASSETS_PATH = f'/v5/frames/{FRAME_ID}/assets.json'
+SELECT_ASSET_PATH = f'/v5/frames/{FRAME_ID}/select_asset.json'
+REMOVE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/remove_asset.json'
+EXCLUDE_ASSET_PATH = f'/v5/frames/{FRAME_ID}/exclude_asset'
+BATCH_UPDATE_PATH = '/v5/assets/batch_update.json'
+DELETE_ASSET_PATH_PREFIX = '/v5/assets/'
+
+RECENT_TOKEN = '__RECENT_CREATED_AT_TOKEN__'
+_OLD_FILL = '2020-01-01T00:00:00.000Z'
+
+
+@pytest.fixture(autouse=True)
+def _reset_loguru():
+    # loguru's `logger` is a process-global singleton; reset around each
+    # test so the stderr/capsys assertions stay deterministic.
+    logger.remove()
+    yield
+    logger.remove()
+
+
+def _placeholder_assets_payload(recent_created_at: str = _OLD_FILL) -> dict:
+    """Load tests/fixtures/assets_placeholders.json, substituting the
+    recently-created row's placeholder token for `recent_created_at` (a
+    hardcoded date would age -- see the fixture's own _comment)."""
+    data = json.loads((FIXTURES_DIR / 'assets_placeholders.json').read_text())
+    for entry in data['assets']:
+        if entry.get('created_at') == RECENT_TOKEN:
+            entry['created_at'] = recent_created_at
+    return data
+
+
+def _placeholder_assets_response(recent_created_at: str = _OLD_FILL) -> httpx.Response:
+    return httpx.Response(200, json=_placeholder_assets_payload(recent_created_at))
+
+
+def _empty_assets_response() -> httpx.Response:
+    return httpx.Response(200, json={'assets': [], 'next_page_cursor': None})
+
+
+def _write_paths_hit(aura) -> list:
+    """Every POST/PUT/DELETE request recorded in aura._client.history
+    against a frame/asset MUTATION path -- used to prove a report-only run
+    never reaches a write path. `login.json` is itself a POST but is not a
+    frame/asset mutation, so it is deliberately excluded here."""
+    return [
+        r.request for r in aura._client.history
+        if r.request.method in ('POST', 'PUT', 'DELETE')
+        and r.request.url.path != '/v5/login.json'
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Test 8: run_reconcile reports stuck/recently-created/unknown-age counts.
+# ---------------------------------------------------------------------------
+
+def test_run_reconcile_reports_bucket_counts(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    aura = offline_aura(overrides={ASSETS_PATH: _placeholder_assets_response()})
+
+    rc = run_reconcile('Fake', aura=aura)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'Placeholder rows:' in out
+    assert 'stuck (older than' in out
+    assert 'recently created' in out
+    assert 'creation time unknown' in out
+
+
+# ---------------------------------------------------------------------------
+# Test 9: run_reconcile without remove=True makes no write request at all.
+# ---------------------------------------------------------------------------
+
+def test_run_reconcile_report_only_makes_no_write_request(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    aura = offline_aura(overrides={ASSETS_PATH: _placeholder_assets_response()})
+
+    rc = run_reconcile('Fake', aura=aura, remove=False)
+
+    assert rc == 0
+    assert _write_paths_hit(aura) == []
+
+
+# ---------------------------------------------------------------------------
+# Test 10: run_inspect's placeholder-count line equals find_placeholders'
+# count for the same fixture -- one function, two callers.
+# ---------------------------------------------------------------------------
+
+def test_run_inspect_placeholder_count_matches_find_placeholders(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    payload = _placeholder_assets_payload()
+    aura = offline_aura(overrides={ASSETS_PATH: httpx.Response(200, json=payload)})
+
+    rc = run_inspect('Fake', aura=aura)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+
+    from auraframes.models.asset import Asset
+    assets = [Asset(**a) for a in payload['assets']]
+    expected_count = find_placeholders(assets).placeholder_count
+
+    assert f'Placeholder rows: {expected_count}' in out
+
+
+# ---------------------------------------------------------------------------
+# Test 11: run_reconcile shares run_inspect's ambiguous/not_found branches.
+# ---------------------------------------------------------------------------
+
+def _single_frame():
+    data = json.loads((FIXTURES_DIR / 'frames.json').read_text())
+    return copy.deepcopy(data['frames'][0])
+
+
+def _frames_response(*frames):
+    return httpx.Response(200, json={'frames': list(frames)})
+
+
+def test_run_reconcile_ambiguous_name_lists_candidates_and_returns_1(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    kitchen = _single_frame()
+    kitchen['id'] = 'frame-fake-kitchen'
+    kitchen['name'] = 'Kitchen'
+    kitchen_upstairs = _single_frame()
+    kitchen_upstairs['id'] = 'frame-fake-kitchen-2'
+    kitchen_upstairs['name'] = 'Kitchen 2 Upstairs'
+
+    aura = offline_aura(overrides={'/v5/frames.json': _frames_response(kitchen, kitchen_upstairs)})
+
+    rc = run_reconcile('kitchen', aura=aura)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Kitchen' in out
+    assert 'Kitchen 2 Upstairs' in out
+    assert 'frame-fake-kitchen' in out
+
+
+def test_run_reconcile_not_found_lists_available_frames_and_returns_1(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    rc = run_reconcile('does-not-exist-xyz', aura=offline_aura())
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Fake Frame' in out
+
+
+# ---------------------------------------------------------------------------
+# Test 12: an empty asset listing aborts with a named error, not a zero.
+# ---------------------------------------------------------------------------
+
+def test_run_reconcile_empty_listing_refuses_to_report_zero(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+
+    aura = offline_aura(overrides={ASSETS_PATH: _empty_assets_response()})
+
+    rc = run_reconcile('Fake', aura=aura)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Placeholder rows: 0' not in out
+    assert 'cannot be distinguished' in out
+
+
+# ---------------------------------------------------------------------------
+# Test 13: build_parser's reconcile defaults.
+# ---------------------------------------------------------------------------
+
+def test_reconcile_parser_defaults():
+    args = build_parser().parse_args(['reconcile', '--frame', 'x'])
+
+    assert args.remove is False
+    assert args.yes is False
+    assert args.mechanism == 'remove'
+    assert args.max_age_hours == 24.0
+
+
+def test_reconcile_parser_flags_are_settable():
+    args = build_parser().parse_args([
+        'reconcile', '--frame', 'x', '--remove', '--yes',
+        '--mechanism', 'hard-delete', '--max-age-hours', '2.5',
+    ])
+
+    assert args.remove is True
+    assert args.yes is True
+    assert args.mechanism == 'hard-delete'
+    assert args.max_age_hours == 2.5
+
+
+def test_reconcile_listed_in_root_help(capsys):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(['--help'])
+    out = capsys.readouterr().out
+    assert 'reconcile' in out
+
+
+def test_run_reconcile_login_failure_exits_nonzero(monkeypatch, capsys):
+    monkeypatch.setenv('AURA_EMAIL', 'you@example.invalid')
+    monkeypatch.setenv('AURA_PASSWORD', 'super-secret-pw')
+    aura = offline_aura(overrides={
+        '/v5/login.json': httpx.Response(200, json={'error': 'invalid_credentials', 'message': 'Bad login'})
+    })
+
+    rc = run_reconcile('Fake', aura=aura)
+
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert 'Login failed' in out
