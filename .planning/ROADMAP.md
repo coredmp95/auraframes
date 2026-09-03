@@ -78,7 +78,7 @@ Two locked sequencing decisions shape this roadmap. **Reliability comes first** 
   4. `aura-cli` reports how many stuck placeholder rows the frame carries (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found — reporting the count either way.
   5. The default test suite passes with zero failures — `test_read_03_pagination` no longer asserts equality between two counts the server itself does not keep consistent.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -96,7 +96,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 11-05-PLAN.md — live PNG/HEIC verification, the D-10 branch decision, and the placeholder-removal probe (FMT-02, FMT-03, REL-05, REL-08) — wave 4
+- [x] 11-05-PLAN.md — live PNG/HEIC verification, the D-10 branch decision, and the placeholder-removal probe (FMT-02, FMT-03, REL-05, REL-08) — wave 4
 
 **Notes**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg` — this is a hard blocker for Phase 14, not debt, because `_prep_upload` currently raises closed on both `.png` and `.heic`. MOD-03's typed exceptions land here because the 401 classification (`AuthExpiredError`) is what makes REL-01 and REL-04 distinguishable in the first place. Placeholder reconciliation stays outside the sync loop (data hygiene on existing bad state, per `research/ARCHITECTURE.md`).
 
@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Write-Path Reliability & Format Support | 4/5 | In Progress|  |
+| 11. Write-Path Reliability & Format Support | 5/5 | In Progress|  |
 | 12. Album-Access Mechanism Spike | 0/? | Not started | - |
 | 13. Google Link & Album Selection | 0/? | Not started | - |
 | 14. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |

@@ -32,18 +32,18 @@ programmatic trigger.
 - [x] **REL-02**: A 401 retry cannot create a duplicate frame asset — an upload that actually succeeded but whose response was lost must not be re-uploaded blindly
 - [x] **REL-03**: Retry accounting against `WriteBudget` is explicit and documented — a retry's token consumption is a deliberate decision, not an accident
 - [x] **REL-04**: A genuine authentication failure is still reported as one; the retry must not mask it as transient
-- [ ] **REL-05**: `aura-cli` detects and reports the stuck placeholder rows (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found
+- [x] **REL-05**: `aura-cli` detects and reports the stuck placeholder rows (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found
 - [x] **REL-06**: `AssetPartialId`'s cross-field validator actually validates on the common construction path
 - [x] **REL-07**: `batch_update`'s partial-success response is validated against the requested id list
-- [ ] **REL-08**: `test_read_03_pagination` no longer asserts equality between two counts the server does not keep consistent
+- [x] **REL-08**: `test_read_03_pagination` no longer asserts equality between two counts the server does not keep consistent
 
 ### Image Format Support (FMT)
 
 <!-- Promoted from debt to blocker: Google albums routinely contain PNG and HEIC. -->
 
 - [x] **FMT-01**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg`
-- [ ] **FMT-02**: `.png` files upload end-to-end and are verified live on a real frame
-- [ ] **FMT-03**: `.heic` is either supported via a decoder dependency or refused with a clear, actionable message — decided explicitly, never a silent failure
+- [x] **FMT-02**: `.png` files upload end-to-end and are verified live on a real frame
+- [x] **FMT-03**: `.heic` is either supported via a decoder dependency or refused with a clear, actionable message — decided explicitly, never a silent failure
 
 ### Mechanism Spikes (SPK)
 
@@ -141,13 +141,13 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | REL-02 | Phase 11 | Complete |
 | REL-03 | Phase 11 | Complete |
 | REL-04 | Phase 11 | Complete |
-| REL-05 | Phase 11 | Pending |
+| REL-05 | Phase 11 | Complete |
 | REL-06 | Phase 11 | Complete |
 | REL-07 | Phase 11 | Complete |
-| REL-08 | Phase 11 | Pending |
+| REL-08 | Phase 11 | Complete |
 | FMT-01 | Phase 11 | Complete |
-| FMT-02 | Phase 11 | Pending |
-| FMT-03 | Phase 11 | Pending |
+| FMT-02 | Phase 11 | Complete |
+| FMT-03 | Phase 11 | Complete |
 | SPK-01 | Phase 12 | Pending |
 | SPK-02 | Phase 12 | Pending |
 | SPK-03 | Phase 12 | Pending |

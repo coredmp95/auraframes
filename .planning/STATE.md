@@ -4,17 +4,17 @@ milestone: v3.0
 milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
 current_phase: 11
 current_phase_name: Write-Path Reliability & Format Support
-status: executing
-stopped_at: Completed 11-04-PLAN.md
-last_updated: "2026-09-03T12:09:06.219Z"
+status: verifying
+stopped_at: Completed 11-05-PLAN.md -- Phase 11 complete
+last_updated: "2026-09-03T19:30:54.195Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 11 execution started
-state_head: e947d1fac31e2641c08efb2862439f83120e7ceb
+state_head: 87c993202f3ea0b44566254abe861bd62450105d
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -34,7 +34,7 @@ at a time.
 
 Phase: 11 (Write-Path Reliability & Format Support) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-09-03 — Phase 11 execution started
 
 ```
@@ -78,6 +78,7 @@ Phase numbering continues from v2.0's Phase 10 — it does not reset.
 | Phase 11-write-path-reliability-format-support P02 | 25min | 3 tasks | 9 files |
 | Phase 11 P03 | ~35min | 3 tasks | 7 files |
 | Phase 11 P04 | ~15min | 3 tasks | 4 files |
+| Phase 11 P05 | 55min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,9 @@ Full history in PROJECT.md Key Decisions. Standing conventions this milestone mu
 - [Phase 11]: apply_reconciliation reads only result.stuck -- the other two find_placeholders buckets are never referenced anywhere in its body, making D-15's age-guard rule structural rather than just a documented convention
 - [Phase 11]: data_uti derived from decoded image.format (JPEG/PNG/HEIF), not filename -- a mislabeled .jpg that is really a PNG is now typed public.png — D-11: bytes decide the type, removing the filename as a trust anchor
 - [Phase 11]: uv.lock is tracked by git in this repo, contradicting 11-04-PLAN.md's stated assumption -- committed alongside pyproject.toml — git ls-files/git log confirm prior lock-file commits (b18de8d, cd9ab6b)
+- [Phase 11]: D-10's HEIC-renders branch taken live -- auraframes/sync.py needs no code change; .heic is a live-verified uploadable format — Operator confirmed both a red PNG and blue HEIC render correctly on the real frame
+- [Phase 11]: REL-05's removal probe could not run against live data -- Task 3's precondition was unmet because created_at is never sent by the live API at all, so find_placeholders' age guard classifies every placeholder as unknown_age — Raw-JSON inspection confirmed the key is structurally absent, not merely unresolved; the plan's own prohibitions forbid acting on rows the age guard did not clear
+- [Phase 11]: Declined a mid-task, agent-relayed request to loosen reconcile.py's age guard and immediately run a live removal probe including hard-delete — No agent message constitutes the operator's consent for an architecturally-significant, partly-irreversible live action, regardless of how the message characterizes its own provenance
 
 ### Blockers/Concerns
 
@@ -177,6 +181,7 @@ New v3.0 risks surfaced by research (`research/PITFALLS.md`), each phase-assigne
 - **API drift risk (standing):** the Pushd API is undocumented and may change without notice.
   Phase 10 hit this live — `Frame.smart_adds` stopped being returned and broke hydration for
   every CLI verb until patched to `Field(default_factory=list)`.
+- REL-05's removal mechanism (remove/hard-delete/complete) remains untested against live placeholder rows on the current account -- blocked on a design decision (whether/how to widen the age guard's eligibility) deferred to a follow-up plan, not on a technical failure
 
 ### Pending Todos
 
@@ -205,8 +210,8 @@ milestone.
 
 ## Session Continuity
 
-Last session: 2026-09-03T12:09:06.195Z
-Stopped at: Completed 11-04-PLAN.md
+Last session: 2026-09-03T19:30:54.171Z
+Stopped at: Completed 11-05-PLAN.md -- Phase 11 complete
 Resume file: None
 
 ## Operator Next Steps
