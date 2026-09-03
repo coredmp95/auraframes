@@ -94,8 +94,18 @@ def _creation_instant(asset):
         return None
 
 
+#: Valid values for `find_placeholders`' `unknown_age_policy` keyword-only
+#: argument (Plan 11-06, Task 1). `'unknown_age'` is the default and
+#: reproduces D-15's original behaviour byte-for-byte. `'stuck'` is the
+#: explicit opt-in that supersedes D-15's *unconditional* form -- see the
+#: `unknown_age_policy` docstring section below for why the unconditional
+#: form needed correcting.
+UNKNOWN_AGE_POLICIES = frozenset({'unknown_age', 'stuck'})
+
+
 def find_placeholders(assets, *, now=None,
-                       age_threshold_seconds: float = RECONCILE_AGE_THRESHOLD_SECONDS) -> ReconcileResult:
+                       age_threshold_seconds: float = RECONCILE_AGE_THRESHOLD_SECONDS,
+                       unknown_age_policy: str = 'unknown_age') -> ReconcileResult:
     """Classify `assets` into stuck / recently-created / unknown-age
     placeholders (D-13/D-14/D-15). Pure -- no I/O, no network, no mutation
     of `assets` or any element of it.
@@ -109,13 +119,48 @@ def find_placeholders(assets, *, now=None,
     `uploaded_at`, so it trips at most one of the three conditions here and
     is excluded. A partially-hydrated asset (e.g. only `md5_hash` null,
     mid-server-side processing) likewise trips at most one condition and is
-    excluded.
+    excluded. This predicate is UNCHANGED by `unknown_age_policy` below --
+    a row that never matched the three-way conjunction in the first place
+    is not affected by anything past this point, no matter which policy is
+    in effect.
 
-    D-15: a matching row's creation time decides which bucket it lands in.
-    An unresolvable creation time (`_creation_instant` returns `None`) is
-    treated EXACTLY like a too-young row -- `unknown_age`, never `stuck` --
-    because being wrong here means proposing to remove a real photo, and the
-    failure direction must be toward not deleting.
+    D-15, corrected by plan 11-06 (2026-09-03): a matching row's creation
+    time decides which bucket it lands in -- but only WHEN a creation time
+    is actually resolvable. `_creation_instant` returning `None` used to be
+    handled unconditionally: parked in `unknown_age`, exactly like a
+    too-young row, no matter what. Plan 11-05 established live, from the
+    raw JSON payload rather than the parsed model, that
+    `/frames/{id}/assets.json` NEVER sends a `created_at` key at all -- not
+    "sometimes unresolvable while processing", but structurally absent on
+    every asset, including fully-processed ones. Against that API, the
+    unconditional form does not fail *conservatively* -- it fails *inertly*:
+    every placeholder row, no matter how old, is permanently unreachable by
+    the removal path, and no `age_threshold_seconds` value can ever change
+    that. A guard that can never let a genuinely stuck row through is not
+    doing D-15's job of telling old rows from young ones; it is silently
+    disabling the feature it guards.
+
+    `unknown_age_policy` corrects this without touching what made D-15
+    correct in the first place:
+
+    - `'unknown_age'` (the default): reproduces the original, unconditional
+      behaviour EXACTLY -- an unresolvable creation time lands in
+      `unknown_age`, never `stuck`. A call to `find_placeholders` that does
+      not pass this argument is byte-for-byte identical to before this
+      correction existed. Nothing becomes eligible for removal by accident.
+    - `'stuck'`: an explicit, caller-named opt-in. An unresolvable creation
+      time is now treated as eligible (`stuck`) rather than parked. This
+      argument is keyword-only and takes an explicit string naming what it
+      does -- there is no positional slot a stray argument could fall into,
+      and no bare boolean whose meaning depends on reading the call site.
+      Choosing this policy is a decision the CALLER makes deliberately, not
+      a mode `find_placeholders` defaults into.
+
+    The strict three-way-null predicate above is untouched by either
+    policy. `recently_created` semantics are also untouched: a row with a
+    RESOLVABLE instant that is simply too young still lands in
+    `recently_created` regardless of `unknown_age_policy` -- the policy
+    governs only the unresolvable case, never the "young but known" case.
 
     :param assets: The frame's assets (e.g. from `Aura.get_all_assets`).
     :param now: The current instant, injected (mirrors `execute_plan`'s
@@ -124,10 +169,19 @@ def find_placeholders(assets, *, now=None,
     :param age_threshold_seconds: Minimum age (in seconds) for a matching
         row to be reported as `stuck` rather than `recently_created`. See
         `RECONCILE_AGE_THRESHOLD_SECONDS`.
+    :param unknown_age_policy: `'unknown_age'` (default) or `'stuck'`. See
+        above. Any other value raises `ValueError` -- fails closed on a
+        typo rather than silently falling back to a default that changes
+        classification.
     :return: A `ReconcileResult` with `stuck`/`recently_created`/
         `unknown_age` populated and `removed`/`failed` left empty (this
         function never mutates anything).
     """
+    if unknown_age_policy not in UNKNOWN_AGE_POLICIES:
+        raise ValueError(
+            f"unknown_age_policy={unknown_age_policy!r} is not one of {sorted(UNKNOWN_AGE_POLICIES)!r}"
+        )
+
     if now is None:
         now = get_utc_now()
 
@@ -142,7 +196,10 @@ def find_placeholders(assets, *, now=None,
 
         instant = _creation_instant(asset)
         if instant is None:
-            result.unknown_age.append(asset)
+            if unknown_age_policy == 'stuck':
+                result.stuck.append(asset)
+            else:
+                result.unknown_age.append(asset)
             continue
 
         age_seconds = (now - instant).total_seconds()

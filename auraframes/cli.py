@@ -121,6 +121,21 @@ def build_parser() -> argparse.ArgumentParser:
         '--max-age-hours', type=float, default=24.0, dest='max_age_hours',
         help='Minimum age in hours for a placeholder row to be reported as stuck rather than '
              'recently created (default 24)')
+    # Plan 11-06, Task 1: explicit opt-in on `find_placeholders`'
+    # `unknown_age_policy` -- corrects D-15's unconditional form now that
+    # plan 11-05 established live that `created_at` is never sent by this
+    # API, which made the unconditional form permanently inert rather than
+    # conservative (see auraframes/reconcile.py's find_placeholders
+    # docstring). Bare `--remove` (this flag omitted) is BYTE-FOR-BYTE
+    # unchanged: an unresolvable creation time still lands in unknown_age
+    # and is never a removal candidate. Keyword-only on the Python side and
+    # its own explicitly named flag here -- nothing promotes a row by
+    # accident.
+    reconcile_parser.add_argument(
+        '--include-unknown-age', action='store_true', default=False, dest='include_unknown_age',
+        help='Explicit opt-in: treat placeholder rows whose creation time this API never sends '
+             '(unknown_age) as eligible for removal too, not just rows old enough per '
+             '--max-age-hours. Without this flag, --remove cannot touch unknown-age rows.')
     return parser
 
 
@@ -301,7 +316,8 @@ def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
 
 
 def run_reconcile(frame_arg: str, *, remove: bool = False, yes: bool = False, mechanism: str = 'remove',
-                   max_age_hours: float = 24.0, aura=None, debug: bool = False) -> int:
+                   max_age_hours: float = 24.0, include_unknown_age: bool = False,
+                   aura=None, debug: bool = False) -> int:
     """Reconcile command handler (REL-05, D-13) -- data hygiene on EXISTING
     stuck placeholder rows, deliberately outside the sync/push loop. Reports
     how many placeholder rows a frame carries unconditionally, whether or
@@ -309,6 +325,11 @@ def run_reconcile(frame_arg: str, *, remove: bool = False, yes: bool = False, me
     a bounded, gated removal. Returns a process exit code (0 success, 1
     failure) -- never calls sys.exit directly. Accepts an optional injected
     `Aura` (dependency-injection seam), mirroring `run_inspect`.
+
+    `include_unknown_age` (plan 11-06, Task 1, CLI-side `--include-unknown-age`)
+    is the explicit opt-in on `find_placeholders`' `unknown_age_policy` --
+    default `False` reproduces today's behaviour exactly (an unresolvable
+    creation time stays in `unknown_age`, never a removal candidate).
     """
     aura = aura or Aura()
     # Must run after Aura() construction (which registers the noisy sinks)
@@ -350,8 +371,12 @@ def run_reconcile(frame_arg: str, *, remove: bool = False, yes: bool = False, me
             return 1
 
         # REL-05, D-13: the exact same pure function `run_inspect` calls, so
-        # the two counts can never disagree.
-        result = find_placeholders(assets, age_threshold_seconds=max_age_hours * 3600)
+        # the two counts can never disagree. `unknown_age_policy` defaults
+        # to 'unknown_age' -- 'stuck' only when --include-unknown-age was
+        # explicitly passed (plan 11-06, Task 1).
+        unknown_age_policy = 'stuck' if include_unknown_age else 'unknown_age'
+        result = find_placeholders(assets, age_threshold_seconds=max_age_hours * 3600,
+                                    unknown_age_policy=unknown_age_policy)
 
         print(f'Frame: {frame.name} (id: {frame.id})')
         print(f'Assets scanned: {result.total_scanned}')
@@ -780,7 +805,8 @@ def main(argv=None) -> int:
     if args.command == 'reconcile':
         return run_reconcile(
             args.frame, remove=args.remove, yes=args.yes, mechanism=args.mechanism,
-            max_age_hours=args.max_age_hours, debug=args.debug,
+            max_age_hours=args.max_age_hours, include_unknown_age=args.include_unknown_age,
+            debug=args.debug,
         )
     raise ValueError(f'Unhandled command: {args.command}')
 

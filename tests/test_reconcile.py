@@ -175,6 +175,65 @@ def test_unresolvable_creation_time_still_excludes_unparseable_string():
 
 
 # ---------------------------------------------------------------------------
+# Plan 11-06, Task 1: `unknown_age_policy` opt-in, default provably unchanged.
+# ---------------------------------------------------------------------------
+
+def test_unknown_age_policy_default_still_parks_unresolvable_row_in_unknown_age():
+    # No unknown_age_policy passed at all -- must be byte-for-byte identical
+    # to the pre-11-06 behaviour: unresolvable -> unknown_age, never stuck.
+    assets = _load_placeholder_assets()
+
+    result = find_placeholders(assets, now=NOW)
+
+    assert 'asset-fake-unknown-age-001' in _ids(result.unknown_age)
+    assert 'asset-fake-unknown-age-001' not in _ids(result.stuck)
+
+
+def test_unknown_age_policy_stuck_promotes_unresolvable_row_to_stuck():
+    assets = _load_placeholder_assets()
+
+    result = find_placeholders(assets, now=NOW, unknown_age_policy='stuck')
+
+    assert 'asset-fake-unknown-age-001' in _ids(result.stuck)
+    assert 'asset-fake-unknown-age-001' not in _ids(result.unknown_age)
+
+
+def test_unknown_age_policy_stuck_does_not_promote_a_resolvable_too_young_row():
+    # The opt-in governs only the UNRESOLVABLE case. A row with a resolvable
+    # but too-young instant must still land in recently_created regardless
+    # of unknown_age_policy.
+    one_hour_ago = format_dt_to_aura(NOW - timedelta(hours=1))
+    assets = _load_placeholder_assets(recent_created_at=one_hour_ago)
+
+    result = find_placeholders(assets, now=NOW, unknown_age_policy='stuck')
+
+    assert 'asset-fake-recent-001' in _ids(result.recently_created)
+    assert 'asset-fake-recent-001' not in _ids(result.stuck)
+    # The unresolvable row in this same fixture IS promoted, proving the
+    # opt-in is active for this call -- it just doesn't reach the young row.
+    assert 'asset-fake-unknown-age-001' in _ids(result.stuck)
+
+
+def test_unknown_age_policy_stuck_still_excludes_video_shaped_asset():
+    # The three-way-null predicate runs before unknown_age_policy is ever
+    # consulted -- a video (hashless but named and uploaded) must stay
+    # excluded from every bucket under the opt-in too.
+    assets = _load_placeholder_assets()
+
+    result = find_placeholders(assets, now=NOW, unknown_age_policy='stuck')
+
+    every_bucket = _ids(result.stuck) | _ids(result.recently_created) | _ids(result.unknown_age)
+    assert 'asset-fake-video-001' not in every_bucket
+
+
+def test_unknown_age_policy_rejects_unrecognized_value():
+    assets = _load_placeholder_assets()
+
+    with pytest.raises(ValueError, match='unknown_age_policy'):
+        find_placeholders(assets, now=NOW, unknown_age_policy='delete-immediately')
+
+
+# ---------------------------------------------------------------------------
 # Test 7: find_placeholders([]) returns a well-defined, non-crashing result.
 # ---------------------------------------------------------------------------
 

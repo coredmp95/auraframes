@@ -383,6 +383,7 @@ The geo check only runs if `AURA_COUNTRY` (or `--country`) is set; unset means s
 usage: aura-cli reconcile [-h] --frame FRAME [--remove] [--yes]
                           [--mechanism {remove,hard-delete,complete}]
                           [--max-age-hours MAX_AGE_HOURS]
+                          [--include-unknown-age]
 
 options:
   --frame FRAME         Frame name (substring) or id
@@ -397,6 +398,12 @@ options:
                         Minimum age in hours for a placeholder row to be
                         reported as stuck rather than recently created
                         (default 24)
+  --include-unknown-age
+                        Explicit opt-in: treat rows whose creation time this
+                        API never sends (unknown_age) as eligible for
+                        removal too, not just rows old enough per
+                        --max-age-hours. Bare --remove (this flag omitted)
+                        cannot touch unknown-age rows.
 ```
 
 `reconcile` is **data hygiene on existing frame state**, deliberately separate from `sync`/
@@ -427,10 +434,24 @@ Placeholder rows: 58
 
 Rows younger than `--max-age-hours` (24h default) are reported separately as **recently
 created** and are never treated as removable — a row created seconds ago by a legitimate
-in-progress upload has the exact same null shape as a genuinely stuck one. A row whose
-creation time cannot be determined at all is treated the same way: reported, never
-removable. This is `inspect`'s single placeholder-count line in detail, computed by the
-exact same function so the two numbers can never disagree.
+in-progress upload has the exact same null shape as a genuinely stuck one.
+
+A row whose creation time cannot be determined at all is, **by default**, treated the same
+way as a too-young row: reported, never removable. This is `inspect`'s single
+placeholder-count line in detail, computed by the exact same function so the two numbers can
+never disagree.
+
+**Why this matters more than it sounds (`--include-unknown-age`, plan 11-06).**
+`/frames/{id}/assets.json` never sends a `created_at` key on this account at all (confirmed
+live 2026-09-03, against the raw JSON response, not just the parsed model) — so every
+placeholder row's creation time is unresolvable, unconditionally. Left unconditional, the
+"unknown age" guard doesn't just fail *conservatively* toward not deleting; it makes the
+`stuck` bucket permanently empty and the removal path permanently unreachable, no matter how
+old a row genuinely is or what `--max-age-hours` is set to. `--include-unknown-age` is the
+deliberate, explicitly-named way to widen eligibility past that dead end: pass it alongside
+`--remove` to treat unresolvable-age rows as `stuck` too. Omitting it keeps every prior
+guarantee — no row becomes eligible by accident, and the reported counts without the flag are
+identical to before it existed.
 
 Without `--remove`, `reconcile` performs **no write of any kind** — it only reads.
 
