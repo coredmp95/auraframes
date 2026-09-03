@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v3.0
 milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
-current_phase: 11
-current_phase_name: Write-Path Reliability & Format Support
-status: verifying
-stopped_at: Completed 11-06-PLAN.md (gap closure) -- Phase 11 fully complete, REL-05 removal half confirmed live
-last_updated: "2026-09-03T19:59:30.000Z"
+current_phase: 12
+current_phase_name: Album-Access Mechanism Spike
+status: planning
+stopped_at: Phase 11 complete, ready to plan Phase 12
+last_updated: "2026-09-03T20:19:52.497Z"
 last_activity: 2026-09-03
-last_activity_desc: Phase 11 gap-closure plan 11-06 executed -- age-guard opt-in + live removal probe
-state_head: 6fc724ddc77c073f535c8e0e571b24262ee9546a
+last_activity_desc: Phase 11 complete, transitioned to Phase 12
+state_head: 0df140f8b8c3913135d660664e1879147ffed39c
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 5
-  completed_plans: 5
-  percent: 0
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 6
+  percent: 20
 ---
 
 # Project State
@@ -32,10 +32,10 @@ at a time.
 
 ## Current Position
 
-Phase: 11 (Write-Path Reliability & Format Support) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-09-03 — Phase 11 execution started
+Phase: 12 — Album-Access Mechanism Spike
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-09-03 — Phase 11 complete, transitioned to Phase 12
 
 ```
 Phases  [                                        ]  0/5   (0%)
@@ -186,6 +186,7 @@ New v3.0 risks surfaced by research (`research/PITFALLS.md`), each phase-assigne
 - **API drift risk (standing):** the Pushd API is undocumented and may change without notice.
   Phase 10 hit this live — `Frame.smart_adds` stopped being returned and broke hydration for
   every CLI verb until patched to `Field(default_factory=list)`.
+
 ### Pending Todos
 
 - None currently pending.
@@ -214,7 +215,7 @@ milestone.
 ## Session Continuity
 
 Last session: 2026-09-03T19:30:54.171Z
-Stopped at: Completed 11-05-PLAN.md -- Phase 11 complete
+Stopped at: Phase 11 complete, ready to plan Phase 12
 Resume file: None
 
 ## Operator Next Steps

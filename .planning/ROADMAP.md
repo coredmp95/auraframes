@@ -57,7 +57,7 @@ Research: [`research/`](./research/) — `SUMMARY.md`, `ARCHITECTURE.md`, `ALBUM
 
 Two locked sequencing decisions shape this roadmap. **Reliability comes first** (user decision): every later phase's live testing otherwise runs through a ~4-in-10 spurious-401 noise floor that did not need to be there. **The mechanism spike gates every Google implementation phase**: Google permanently withdrew `photoslibrary.readonly` on 2025-03-31 and the replacement Picker API is interactive and per-photo (rejected by the user — album granularity is the requirement), so three album-level mechanisms are probed live before one is committed to.
 
-- [ ] **Phase 11: Write-Path Reliability & Format Support** - Kill the spurious 401 failures, reconcile the stuck placeholder rows, and accept the file types a Google album actually contains
+- [x] **Phase 11: Write-Path Reliability & Format Support** - Kill the spurious 401 failures, reconcile the stuck placeholder rows, and accept the file types a Google album actually contains (completed 2026-09-03)
 - [ ] **Phase 12: Album-Access Mechanism Spike** - Probe all three album-level mechanisms live and record a written decision that selects one — gates every phase below
 - [ ] **Phase 13: Google Link & Album Selection** - Link Google once, name an album by album (never photo by photo), and list every photo in it
 - [ ] **Phase 14: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame — correct on the second run, safe when the listing lies
@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Write-Path Reliability & Format Support | 6/6 | Complete | 2026-09-03 |
+| 11. Write-Path Reliability & Format Support | 6/6 | Complete    | 2026-09-03 |
 | 12. Album-Access Mechanism Spike | 0/? | Not started | - |
 | 13. Google Link & Album Selection | 0/? | Not started | - |
 | 14. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |
