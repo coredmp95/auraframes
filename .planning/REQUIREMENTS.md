@@ -33,8 +33,8 @@ programmatic trigger.
 - [x] **REL-03**: Retry accounting against `WriteBudget` is explicit and documented — a retry's token consumption is a deliberate decision, not an accident
 - [x] **REL-04**: A genuine authentication failure is still reported as one; the retry must not mask it as transient
 - [ ] **REL-05**: `aura-cli` detects and reports the stuck placeholder rows (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found
-- [ ] **REL-06**: `AssetPartialId`'s cross-field validator actually validates on the common construction path
-- [ ] **REL-07**: `batch_update`'s partial-success response is validated against the requested id list
+- [x] **REL-06**: `AssetPartialId`'s cross-field validator actually validates on the common construction path
+- [x] **REL-07**: `batch_update`'s partial-success response is validated against the requested id list
 - [ ] **REL-08**: `test_read_03_pagination` no longer asserts equality between two counts the server does not keep consistent
 
 ### Image Format Support (FMT)
@@ -142,8 +142,8 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | REL-03 | Phase 11 | Complete |
 | REL-04 | Phase 11 | Complete |
 | REL-05 | Phase 11 | Pending |
-| REL-06 | Phase 11 | Pending |
-| REL-07 | Phase 11 | Pending |
+| REL-06 | Phase 11 | Complete |
+| REL-07 | Phase 11 | Complete |
 | REL-08 | Phase 11 | Pending |
 | FMT-01 | Phase 11 | Pending |
 | FMT-02 | Phase 11 | Pending |

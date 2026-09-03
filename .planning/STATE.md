@@ -5,16 +5,16 @@ milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
 current_phase: 11
 current_phase_name: Write-Path Reliability & Format Support
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-09-03T08:39:09.191Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-09-03T08:56:19.175Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 11 execution started
-state_head: a75f6884078deb06d809237672c56869ac726b78
+state_head: be1f354e901ce610f8b394cfd031a127139a5fda
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ at a time.
 ## Current Position
 
 Phase: 11 (Write-Path Reliability & Format Support) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-09-03 — Phase 11 execution started
 
@@ -75,6 +75,7 @@ Phase numbering continues from v2.0's Phase 10 — it does not reset.
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 11 P01 | ~20min | 3 tasks | 7 files |
+| Phase 11-write-path-reliability-format-support P02 | 25min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,9 @@ Full history in PROJECT.md Key Decisions. Standing conventions this milestone mu
   of scope.
 - [Phase 11]: 401 retry logic lives inline in execute_plan via a nested try wrapping each write loop, not as a client-level interceptor — Keeps budget accounting and per-file attribution in the one place that already owns them (D-03)
 - [Phase 11]: AuthenticationError/BudgetExhausted/ConsecutiveWriteFailureError each need an explicit except-and-raise in every retry-extended write loop — Python except-clause exclusivity means an exception raised inside one except's body is never re-matched against sibling excepts of the same try -- without the explicit branch it silently falls to the generic per-chunk Exception handler
+- [Phase 11]: batch_update returns a named BatchUpdateResult (unacknowledged set) instead of raising on partial success — A partial successes list is the endpoint's documented normal batch signal, not an error
+- [Phase 11]: REL-06 closed by proving test, not by rewriting AssetPartialId's validator — The validator already fires on the ordinary construction path under pydantic v2, verified in this plan
+- [Phase 11]: test_read_03_pagination now asserts client-controlled invariants instead of drained-count-equals-total — The server itself does not keep num_assets and drained count consistent (171 vs 149 measured live)
 
 ### Blockers/Concerns
 
@@ -195,8 +199,8 @@ milestone.
 
 ## Session Continuity
 
-Last session: 2026-09-03T08:39:09.172Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-09-03T08:56:19.155Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

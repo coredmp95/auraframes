@@ -87,7 +87,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — `batch_update`'s unacknowledged-id set, inbound tolerance, and the honest pagination assertions (REL-06..08) — wave 2
+- [x] 11-02-PLAN.md — `batch_update`'s unacknowledged-id set, inbound tolerance, and the honest pagination assertions (REL-06..08) — wave 2
 - [ ] 11-03-PLAN.md — `auraframes/reconcile.py` plus the `reconcile` CLI verb and the `inspect` count line (REL-05) — wave 2
 
 **Wave 3** *(blocked on Wave 2 completion)*
