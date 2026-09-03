@@ -6,7 +6,7 @@
     {
       "number": "11",
       "name": "Write-Path Reliability & Format Support",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "12",
@@ -31,8 +31,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (verify)",
-    "reason": "Phase 11 of 5 · 0% · ready to verify"
+    "label": "Advance to the next step (plan phase 12)",
+    "reason": "Phase 12 of 5 — needs a plan"
   },
-  "updated_at": "2026-09-03T19:30:34.693Z"
+  "updated_at": "2026-09-03T20:19:52.507Z"
 }
