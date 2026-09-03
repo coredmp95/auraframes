@@ -171,22 +171,38 @@ def _complete_placeholder(aura, frame_id, chunk):
     as an incomplete upload to FINISH -- batch_update-ing it with real
     file_name/md5_hash/uploaded_at so it becomes an ordinary asset the
     existing hide/remove paths already handle -- rather than a bad row to
-    delete. Not yet implemented: plan 11-05's live probe determines whether
-    it is viable at all before this is built out."""
+    delete. Not yet implemented, and STILL UNTESTED as of plan 11-05
+    (2026-09-03) -- not because it was tried and failed, but because
+    plan 11-05's live run found ZERO eligible `stuck`-bucket candidates on
+    the live account to test any mechanism against: `/frames/{id}/assets.json`
+    never sends a `created_at` key at all (confirmed via the raw JSON
+    payload, not just the parsed model), so `_creation_instant` resolves
+    every placeholder row to `unknown_age`, never `stuck`, regardless of
+    `age_threshold_seconds`. All 53 placeholder rows observed that day
+    landed in `unknown_age`. Widening what counts as eligible (e.g. an
+    opt-in unknown-age policy) was explicitly considered and deferred to a
+    follow-up plan rather than decided inside 11-05 -- see
+    11-LIVE-FINDINGS.md for the full reasoning. This remains a genuinely
+    open question, not a probed dead end."""
     raise NotImplementedError(
-        "The 'complete' mechanism is not yet implemented -- plan 11-05's live probe "
-        "determines whether completing a stuck row (batch_update-ing it with real "
-        "file_name/md5_hash/uploaded_at) is viable before this is built out."
+        "The 'complete' mechanism is not yet implemented, and was not live-probed by "
+        "plan 11-05 (2026-09-03): the live account had zero eligible 'stuck'-bucket "
+        "candidates to test it against (see the docstring above and 11-LIVE-FINDINGS.md)."
     )
 
 
 # Dispatch table mirroring `auraframes/sync.py`'s `_REMOVAL_PRIMITIVE` shape.
-# 'remove' and 'hard-delete' are both KNOWN, from live probing, NOT to clear
-# these rows -- they are wired here anyway so `apply_reconciliation` can
-# prove (or, more likely given what's already known, disprove) that on a
-# small bounded batch, with the honest outcome recorded either way.
-# 'complete' is the untried third option (D-16); it raises until plan 11-05
-# builds it out.
+# 'remove' and 'hard-delete' were both KNOWN, from PRIOR (Phase 10 UAT / debug
+# session) live probing, NOT to clear these rows -- they are wired here
+# anyway so `apply_reconciliation` can prove (or, more likely given what's
+# already known, disprove) that on a small bounded batch, with the honest
+# outcome recorded either way. Plan 11-05 (2026-09-03) did NOT get to
+# re-probe 'remove'/'hard-delete' live either: the live account had zero
+# eligible 'stuck'-bucket candidates that day (see `_complete_placeholder`'s
+# docstring and 11-LIVE-FINDINGS.md) -- the prior findings stand as
+# historical evidence, not freshly reconfirmed.
+# 'complete' is the untried third option (D-16); it raises until a future
+# plan builds it out.
 _RECONCILE_PRIMITIVE = {
     'remove': lambda aura, frame_id, chunk: aura.frame_api.remove_asset(
         frame_id, [AssetPartialId(id=asset.id) for asset in chunk]),

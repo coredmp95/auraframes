@@ -450,6 +450,11 @@ row to delete; it is not yet implemented and raises until a future plan's live p
 determines whether it's viable. Which mechanism will eventually work — if any — is the
 honest open question `--remove` exists to answer.
 
+**As of 2026-09-03, `--remove` has nothing to act on in practice**, independent of which
+mechanism eventually works: see [Known issues](#known-issues) — the live account's
+`stuck` bucket is currently empty because `created_at` is never sent by the assets listing
+endpoint, so every placeholder lands in `unknown_age` instead.
+
 Only the **stuck** bucket is ever a removal candidate — recently-created and unknown-age
 rows are structurally unreachable from the removal code path, whatever `--mechanism` or
 confirmation you give.
@@ -569,6 +574,21 @@ ignores them. They also appear to be the cause of the count mismatch above.
 Run `aura-cli reconcile --frame ...` to see exactly how many a frame has, split into stuck /
 recently-created / unknown-age. **No removal mechanism is yet confirmed to clear them**:
 `delete_asset` returns success without removing anything, and the frame-scoped removal
-returns "not found". `reconcile --remove` runs a bounded, gated probe of a removal
-mechanism — see [`reconcile`](#reconcile--account-for-stuck-placeholder-rows) for the honest
-current state.
+returns "not found" (both observed live, Phase 10 UAT). `reconcile --remove` runs a bounded,
+gated probe of a removal mechanism — see [`reconcile`](#reconcile--account-for-stuck-placeholder-rows)
+for the honest current state.
+
+**Live-verified 2026-09-03 (plan 11-05):** on the account tested, the `stuck` bucket is
+currently unreachable. `/frames/{id}/assets.json` never sends a `created_at` key at all
+(confirmed against the raw JSON response, not just the parsed model) — every placeholder row
+therefore resolves to `unknown_age`, never `stuck`, regardless of `--max-age-hours`, because
+the age guard treats an unresolvable creation time exactly like a too-young row by design
+(fail toward not deleting). That live run counted **53 placeholder rows across 157 scanned
+assets, all in `unknown_age`** — a different count from the 58 stuck rows recorded when this
+issue was first found (2026-08-25); the delta is not explained and neither number should be
+assumed current. Because there were zero `stuck` candidates, no removal mechanism was
+re-attempted live that day — the `remove`/`hard-delete` failures above are Phase 10's
+historical findings, not freshly reconfirmed, and `--mechanism complete` remains unbuilt and
+untested for the same reason. Widening what counts as an eligible candidate (e.g. an explicit,
+opt-in unknown-age policy) was considered and deliberately deferred to a follow-up plan rather
+than decided inside 11-05.
