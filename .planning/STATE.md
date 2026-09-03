@@ -4,17 +4,17 @@ milestone: v3.0
 milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
 current_phase: 11
 current_phase_name: Write-Path Reliability & Format Support
-status: roadmapped
-stopped_at: Phase 11 context gathered
-last_updated: "2026-09-03T08:07:43.088Z"
+status: executing
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-09-03T08:39:09.191Z"
 last_activity: 2026-09-03
-last_activity_desc: v3.0 roadmap created, 43/43 requirements mapped
-state_head: 44d6a37f4cc2dc10f1df989541ba282e24758b1c
+last_activity_desc: Phase 11 execution started
+state_head: a75f6884078deb06d809237672c56869ac726b78
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -28,14 +28,14 @@ See: .planning/PROJECT.md (updated 2026-09-03)
 album behind it — selected at **album** granularity, mirrored headlessly, never one photo
 at a time.
 
-**Current focus:** Roadmap for v3.0 created (Phases 11-15). Next: `/gsd-plan-phase 11`.
+**Current focus:** Phase 11 — Write-Path Reliability & Format Support
 
 ## Current Position
 
-Phase: 11 (Write-Path Reliability & Format Support) — READY TO EXECUTE
-Plan: —
-Status: Roadmapped, awaiting phase planning
-Last activity: 2026-09-03 — v3.0 roadmap created, 43/43 requirements mapped
+Phase: 11 (Write-Path Reliability & Format Support) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-09-03 — Phase 11 execution started
 
 ```
 Phases  [                                        ]  0/5   (0%)
@@ -70,6 +70,11 @@ Phase numbering continues from v2.0's Phase 10 — it does not reset.
 | 11-15 | v3.0 | TBD | Not started |
 
 *Per-plan timings for v1.0/v1.1/v2.0 are archived in `milestones/`.*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 11 P01 | ~20min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -120,6 +125,8 @@ Full history in PROJECT.md Key Decisions. Standing conventions this milestone mu
 - Concurrency is confined to Google-side downloads; the Aura write client stays synchronous
   and paced by `WRITE_CHUNK_DELAY_SECONDS` (MOD-05). MOD-01's full async migration stays out
   of scope.
+- [Phase 11]: 401 retry logic lives inline in execute_plan via a nested try wrapping each write loop, not as a client-level interceptor — Keeps budget accounting and per-file attribution in the one place that already owns them (D-03)
+- [Phase 11]: AuthenticationError/BudgetExhausted/ConsecutiveWriteFailureError each need an explicit except-and-raise in every retry-extended write loop — Python except-clause exclusivity means an exception raised inside one except's body is never re-matched against sibling excepts of the same try -- without the explicit branch it silently falls to the generic per-chunk Exception handler
 
 ### Blockers/Concerns
 
@@ -188,9 +195,9 @@ milestone.
 
 ## Session Continuity
 
-Last session: 2026-09-03T07:30:39.716Z
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-write-path-reliability-format-support/11-CONTEXT.md
+Last session: 2026-09-03T08:39:09.172Z
+Stopped at: Completed 11-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

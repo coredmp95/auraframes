@@ -28,10 +28,10 @@ programmatic trigger.
 
 ### Write-Path Reliability (REL)
 
-- [ ] **REL-01**: `sync --apply` retries once with a fresh login when a write returns HTTP 401, before attributing the item as failed
-- [ ] **REL-02**: A 401 retry cannot create a duplicate frame asset — an upload that actually succeeded but whose response was lost must not be re-uploaded blindly
-- [ ] **REL-03**: Retry accounting against `WriteBudget` is explicit and documented — a retry's token consumption is a deliberate decision, not an accident
-- [ ] **REL-04**: A genuine authentication failure is still reported as one; the retry must not mask it as transient
+- [x] **REL-01**: `sync --apply` retries once with a fresh login when a write returns HTTP 401, before attributing the item as failed
+- [x] **REL-02**: A 401 retry cannot create a duplicate frame asset — an upload that actually succeeded but whose response was lost must not be re-uploaded blindly
+- [x] **REL-03**: Retry accounting against `WriteBudget` is explicit and documented — a retry's token consumption is a deliberate decision, not an accident
+- [x] **REL-04**: A genuine authentication failure is still reported as one; the retry must not mask it as transient
 - [ ] **REL-05**: `aura-cli` detects and reports the stuck placeholder rows (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found
 - [ ] **REL-06**: `AssetPartialId`'s cross-field validator actually validates on the common construction path
 - [ ] **REL-07**: `batch_update`'s partial-success response is validated against the requested id list
@@ -99,7 +99,7 @@ programmatic trigger.
 <!-- Existing IDs retained from the v1.1-era debt register. -->
 
 - [ ] **MOD-02**: AWS pool IDs and bucket name moved out of hardcoded constants into config
-- [ ] **MOD-03**: Typed exception hierarchy replacing bare `RuntimeError`/status discriminators where it pays
+- [x] **MOD-03**: Typed exception hierarchy replacing bare `RuntimeError`/status discriminators where it pays
 - [ ] **MOD-04**: `Aura._init_logger()` no longer leaks loguru sinks on repeated construction
 - [ ] **MOD-05**: Concurrency confined to Google-side downloads; the Aura write client stays synchronous
 
@@ -137,10 +137,10 @@ one phase; phase numbering continues from v2.0's Phase 10.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REL-01 | Phase 11 | Pending |
-| REL-02 | Phase 11 | Pending |
-| REL-03 | Phase 11 | Pending |
-| REL-04 | Phase 11 | Pending |
+| REL-01 | Phase 11 | Complete |
+| REL-02 | Phase 11 | Complete |
+| REL-03 | Phase 11 | Complete |
+| REL-04 | Phase 11 | Complete |
 | REL-05 | Phase 11 | Pending |
 | REL-06 | Phase 11 | Pending |
 | REL-07 | Phase 11 | Pending |
@@ -177,11 +177,12 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | TEST-01 | Phase 15 | Pending |
 | TEST-02 | Phase 13 | Pending |
 | MOD-02 | Phase 15 | Pending |
-| MOD-03 | Phase 11 | Pending |
+| MOD-03 | Phase 11 | Complete |
 | MOD-04 | Phase 15 | Pending |
 | MOD-05 | Phase 14 | Pending |
 
 **Coverage:**
+
 - v3.0 requirements: 43 total
 - Mapped to phases: 43 ✓ (100% — no orphans, no duplicates)
 

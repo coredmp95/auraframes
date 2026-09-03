@@ -78,12 +78,12 @@ Two locked sequencing decisions shape this roadmap. **Reliability comes first** 
   4. `aura-cli` reports how many stuck placeholder rows the frame carries (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found — reporting the count either way.
   5. The default test suite passes with zero failures — `test_read_03_pagination` no longer asserts equality between two counts the server itself does not keep consistent.
 
-**Plans**: 5 plans
+**Plans**: 1/5 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — 401 verify-then-retry in `execute_plan` plus the `AuraError` hierarchy (REL-01..04, MOD-03) — wave 1
+- [x] 11-01-PLAN.md — 401 verify-then-retry in `execute_plan` plus the `AuraError` hierarchy (REL-01..04, MOD-03) — wave 1
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Write-Path Reliability & Format Support | 0/? | Not started | - |
+| 11. Write-Path Reliability & Format Support | 1/5 | In Progress|  |
 | 12. Album-Access Mechanism Spike | 0/? | Not started | - |
 | 13. Google Link & Album Selection | 0/? | Not started | - |
 | 14. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |
