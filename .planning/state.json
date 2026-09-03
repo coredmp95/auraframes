@@ -1,48 +1,38 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v3.0",
+  "milestone": "v3.0 — Google Photos Album Sync (Phases 11-15) — IN PROGRESS",
   "phases": [
     {
-      "number": 11,
+      "number": "11",
       "name": "Write-Path Reliability & Format Support",
-      "status": "not_started",
-      "plans_total": 0,
-      "plans_complete": 0
+      "status": "pending"
     },
     {
-      "number": 12,
+      "number": "12",
       "name": "Album-Access Mechanism Spike",
-      "status": "not_started",
-      "plans_total": 0,
-      "plans_complete": 0
+      "status": "pending"
     },
     {
-      "number": 13,
+      "number": "13",
       "name": "Google Link & Album Selection",
-      "status": "not_started",
-      "plans_total": 0,
-      "plans_complete": 0
+      "status": "pending"
     },
     {
-      "number": 14,
+      "number": "14",
       "name": "Album → Frame Mirror Sync (Single Pair)",
-      "status": "not_started",
-      "plans_total": 0,
-      "plans_complete": 0
+      "status": "pending"
     },
     {
-      "number": 15,
+      "number": "15",
       "name": "Many-to-Many Mapping & Debt Closeout",
-      "status": "not_started",
-      "plans_total": 0,
-      "plans_complete": 0
+      "status": "pending"
     }
   ],
   "next": {
-    "command": "/gsd:plan-phase 11",
-    "label": "Plan Phase 11: Write-Path Reliability & Format Support",
-    "reason": "Roadmap created — 5 phases (11-15), 43/43 requirements mapped"
+    "command": "/gsd:progress",
+    "label": "Show progress",
+    "reason": "Unsure of state — showing progress"
   },
-  "updated_at": "2026-09-03T07:00:00.000Z"
+  "updated_at": "2026-09-03T08:07:43.099Z"
 }
