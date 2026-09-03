@@ -75,7 +75,14 @@ Two locked sequencing decisions shape this roadmap. **Reliability comes first** 
   3. A directory containing `.png` files uploads end-to-end and is verified on a real frame; `.heic` either uploads for real or is refused with a message naming the missing decoder and what to do about it — decided explicitly, never a silent failure.
   4. `aura-cli` reports how many stuck placeholder rows the frame carries (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found — reporting the count either way.
   5. The default test suite passes with zero failures — `test_read_03_pagination` no longer asserts equality between two counts the server itself does not keep consistent.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 11-01-PLAN.md — 401 verify-then-retry in `execute_plan` plus the `AuraError` hierarchy (REL-01..04, MOD-03) — wave 1
+- [ ] 11-02-PLAN.md — `batch_update`'s unacknowledged-id set, inbound tolerance, and the honest pagination assertions (REL-06..08) — wave 2
+- [ ] 11-03-PLAN.md — `auraframes/reconcile.py` plus the `reconcile` CLI verb and the `inspect` count line (REL-05) — wave 2
+- [ ] 11-04-PLAN.md — `pillow-heif` and content-derived `data_uti` for JPEG/PNG/HEIF (FMT-01, FMT-03) — wave 3
+- [ ] 11-05-PLAN.md — live PNG/HEIC verification, the D-10 branch decision, and the placeholder-removal probe (FMT-02, FMT-03, REL-05, REL-08) — wave 4
 
 **Notes**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg` — this is a hard blocker for Phase 14, not debt, because `_prep_upload` currently raises closed on both `.png` and `.heic`. MOD-03's typed exceptions land here because the 401 classification (`AuthExpiredError`) is what makes REL-01 and REL-04 distinguishable in the first place. Placeholder reconciliation stays outside the sync loop (data hygiene on existing bad state, per `research/ARCHITECTURE.md`).
 
