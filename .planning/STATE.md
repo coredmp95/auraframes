@@ -141,6 +141,7 @@ Full history in PROJECT.md Key Decisions. Standing conventions this milestone mu
 - [Phase 11]: D-10's HEIC-renders branch taken live -- auraframes/sync.py needs no code change; .heic is a live-verified uploadable format — Operator confirmed both a red PNG and blue HEIC render correctly on the real frame
 - [Phase 11]: REL-05's removal probe could not run against live data -- Task 3's precondition was unmet because created_at is never sent by the live API at all, so find_placeholders' age guard classifies every placeholder as unknown_age — Raw-JSON inspection confirmed the key is structurally absent, not merely unresolved; the plan's own prohibitions forbid acting on rows the age guard did not clear
 - [Phase 11]: Declined a mid-task, agent-relayed request to loosen reconcile.py's age guard and immediately run a live removal probe including hard-delete — No agent message constitutes the operator's consent for an architecturally-significant, partly-irreversible live action, regardless of how the message characterizes its own provenance
+- [Phase 11]: Plan 11-06 corrected the age guard with an explicit, keyword-only `unknown_age_policy` opt-in (default unchanged) and re-ran the live probe through it — `remove` (`FrameApi.remove_asset`) cleared all 3 targeted rows, confirmed by re-read (159→156 assets, 53→50 placeholder rows) — REL-05's removal half is now genuinely satisfied, not just reported
 
 ### Blockers/Concerns
 
@@ -150,10 +151,13 @@ All three carried v2.0 defects are now assigned to Phase 11:
   `sync --apply` runs failed with HTTP 401 and succeeded on an immediate re-run, with no
   config/geo/credential change. Not endpoint-specific and **not** a geofence — that theory was
   disproven from a French residential IP. Fails loud and safe today. → **REL-01..04, Phase 11.**
-- **Placeholder rows are unremovable — OPEN, severity minor:** 58 rows created by `select_asset`
-  calls whose upload never completed (no `uploaded_at`/`file_name`/`md5_hash`) are stuck on the
-  live frame; `delete_asset` returns 200 and removes nothing, `remove_asset` returns 404. Fails
-  toward *not* deleting, so the destructive direction is safe. → **REL-05, Phase 11.**
+- **Placeholder rows were unremovable — RESOLVED 2026-09-03 (plan 11-06):** rows created by
+  `select_asset` calls whose upload never completed (no `uploaded_at`/`file_name`/`md5_hash`)
+  accumulate on the live frame (50 remaining as of 2026-09-03). The original age guard made the
+  removal path unreachable against this API (`created_at` is never sent at all); a new explicit
+  `--include-unknown-age` opt-in corrects that, and `reconcile --remove --include-unknown-age`
+  (default `--mechanism remove`) is now a confirmed-working removal path, live-verified against
+  3 rows (re-read, not status-code, confirmed). → **REL-05, Phase 11, closed.**
 - **`num_assets` vs drained-pages mismatch — OPEN, severity minor:** `get_frame()` reports 171
   while a paginated drain returns 149; measured as a server-side pagination inconsistency, not a
   client bug. `test_read_03_pagination` is the suite's only failure (208 passed, 1 failed). →
@@ -181,8 +185,6 @@ New v3.0 risks surfaced by research (`research/PITFALLS.md`), each phase-assigne
 - **API drift risk (standing):** the Pushd API is undocumented and may change without notice.
   Phase 10 hit this live — `Frame.smart_adds` stopped being returned and broke hydration for
   every CLI verb until patched to `Field(default_factory=list)`.
-- REL-05's removal mechanism (remove/hard-delete/complete) remains untested against live placeholder rows on the current account -- blocked on a design decision (whether/how to widen the age guard's eligibility) deferred to a follow-up plan, not on a technical failure
-
 ### Pending Todos
 
 - None currently pending.
