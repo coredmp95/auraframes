@@ -5,16 +5,16 @@ milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
 current_phase: 11
 current_phase_name: Write-Path Reliability & Format Support
 status: executing
-stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-09-03T09:24:49.519Z"
+stopped_at: Completed 11-04-PLAN.md
+last_updated: "2026-09-03T12:09:06.219Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 11 execution started
-state_head: 296dae52434bbb9ab49dc1d18999d1c6d3b15465
+state_head: e947d1fac31e2641c08efb2862439f83120e7ceb
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -33,7 +33,7 @@ at a time.
 ## Current Position
 
 Phase: 11 (Write-Path Reliability & Format Support) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-03 — Phase 11 execution started
 
@@ -77,6 +77,7 @@ Phase numbering continues from v2.0's Phase 10 — it does not reset.
 | Phase 11 P01 | ~20min | 3 tasks | 7 files |
 | Phase 11-write-path-reliability-format-support P02 | 25min | 3 tasks | 9 files |
 | Phase 11 P03 | ~35min | 3 tasks | 7 files |
+| Phase 11 P04 | ~15min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -134,6 +135,8 @@ Full history in PROJECT.md Key Decisions. Standing conventions this milestone mu
 - [Phase 11]: test_read_03_pagination now asserts client-controlled invariants instead of drained-count-equals-total — The server itself does not keep num_assets and drained count consistent (171 vs 149 measured live)
 - [Phase 11]: reconcile.py imports _chunked/WRITE_THROTTLE_SECONDS/WRITE_BATCH_SIZE from sync.py rather than duplicating them -- the isolation rule is one-directional (sync.py must never import from reconcile.py); the plan's own signature names these exact symbols
 - [Phase 11]: apply_reconciliation reads only result.stuck -- the other two find_placeholders buckets are never referenced anywhere in its body, making D-15's age-guard rule structural rather than just a documented convention
+- [Phase 11]: data_uti derived from decoded image.format (JPEG/PNG/HEIF), not filename -- a mislabeled .jpg that is really a PNG is now typed public.png — D-11: bytes decide the type, removing the filename as a trust anchor
+- [Phase 11]: uv.lock is tracked by git in this repo, contradicting 11-04-PLAN.md's stated assumption -- committed alongside pyproject.toml — git ls-files/git log confirm prior lock-file commits (b18de8d, cd9ab6b)
 
 ### Blockers/Concerns
 
@@ -202,8 +205,8 @@ milestone.
 
 ## Session Continuity
 
-Last session: 2026-09-03T09:24:49.496Z
-Stopped at: Completed 11-03-PLAN.md
+Last session: 2026-09-03T12:09:06.195Z
+Stopped at: Completed 11-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -78,7 +78,7 @@ Two locked sequencing decisions shape this roadmap. **Reliability comes first** 
   4. `aura-cli` reports how many stuck placeholder rows the frame carries (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found — reporting the count either way.
   5. The default test suite passes with zero failures — `test_read_03_pagination` no longer asserts equality between two counts the server itself does not keep consistent.
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -92,7 +92,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 11-04-PLAN.md — `pillow-heif` and content-derived `data_uti` for JPEG/PNG/HEIF (FMT-01, FMT-03) — wave 3
+- [x] 11-04-PLAN.md — `pillow-heif` and content-derived `data_uti` for JPEG/PNG/HEIF (FMT-01, FMT-03) — wave 3
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Write-Path Reliability & Format Support | 3/5 | In Progress|  |
+| 11. Write-Path Reliability & Format Support | 4/5 | In Progress|  |
 | 12. Album-Access Mechanism Spike | 0/? | Not started | - |
 | 13. Google Link & Album Selection | 0/? | Not started | - |
 | 14. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |

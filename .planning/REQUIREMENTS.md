@@ -41,7 +41,7 @@ programmatic trigger.
 
 <!-- Promoted from debt to blocker: Google albums routinely contain PNG and HEIC. -->
 
-- [ ] **FMT-01**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg`
+- [x] **FMT-01**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg`
 - [ ] **FMT-02**: `.png` files upload end-to-end and are verified live on a real frame
 - [ ] **FMT-03**: `.heic` is either supported via a decoder dependency or refused with a clear, actionable message — decided explicitly, never a silent failure
 
@@ -145,7 +145,7 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | REL-06 | Phase 11 | Complete |
 | REL-07 | Phase 11 | Complete |
 | REL-08 | Phase 11 | Pending |
-| FMT-01 | Phase 11 | Pending |
+| FMT-01 | Phase 11 | Complete |
 | FMT-02 | Phase 11 | Pending |
 | FMT-03 | Phase 11 | Pending |
 | SPK-01 | Phase 12 | Pending |
