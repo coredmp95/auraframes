@@ -39,6 +39,37 @@ Python toolchain, so we know exactly what survives before building anything new.
 > surfaced transient 401s, unremovable placeholder rows, and a server-side pagination
 > inconsistency that a tool people actually depend on should absorb rather than expose.
 
+## Current Milestone: v3.0 Google Photos Album Sync
+
+**Goal:** Sync Google Photos albums to Aura frames, on a write path that no longer fails
+spuriously.
+
+**Target features:**
+
+- **Write-path reliability (foundation, sequenced first)** — retry once on HTTP 401 with a
+  fresh login inside `execute_plan`; reconcile the 58 stuck placeholder rows; triage the 3
+  open Phase 8 code-review findings (the hardcoded `data_uti='public.jpeg'` one is now
+  load-bearing — Google albums contain `.png`/`.heic`)
+- **Link a Google account** — OAuth loopback flow (browser on the same machine as `aura-cli`),
+  refresh token persisted alongside the existing credential handling
+- **Discover albums** — ⚠️ *mechanism unresolved.* Google restricted the Photos Library API's
+  broad read scope around March 2025; enumerating a user's own albums may no longer be
+  available to a general app. Research must settle whether this is a true `albums.list`, a
+  Picker-API "choose once, remember it" flow, or an allowlist application. This is the
+  milestone's single biggest unknown and it may reshape the requirement.
+- **Sync album → frame** — download to a local cache dir, then reuse the proven v2.0
+  content-hash diff/upload pipeline unchanged; cache pruned once uploads confirm
+- **Mirror semantics** — the Google album is source of truth. Photos removed from the album
+  are **hidden** on the frame (`exclude_asset`), never deleted by default; real deletion stays
+  opt-in and exact-count-gated exactly as in v2.0
+- **Many-to-many mapping** — a persisted config file maps N albums to N frames, reconciled in
+  a single run
+- **Photos only** — videos skipped with a reported count (frame-side `md5_hash` is null for
+  every video asset; content-hash diffing cannot see them)
+- **Carried debt** — MOD-02 (config-ize AWS pool IDs/bucket), MOD-03 (typed exceptions),
+  MOD-04 (loguru sink leak); concurrent downloads on the Google side only, *not* the full
+  MOD-01 async migration; finish the lift-tests-off-network slice (candidates #2 + #4)
+
 ## Current State
 
 **Shipped:** v2.0 Directory-to-Frame Sync (2026-09-02) — phases 5-10, 17 plans, 160 commits.
@@ -56,16 +87,10 @@ Python toolchain, so we know exactly what survives before building anything new.
 Underneath: a `WriteBudget` token bucket (persisted per account, reconciled on real
 anti-abuse trips) and a fail-open `check_geo` pre-flight guard protect every `--apply`.
 
-**Next milestone goals (candidates, not yet committed):**
+**PR #1 merged 2026-09-03** — the whole v2.0 milestone is landed on `master`.
 
-1. **Write-path reliability** — retry-once-on-401-with-fresh-login inside `execute_plan`
-   (the single highest-value fix; ~4 in 10 live runs currently fail spuriously)
-2. **Placeholder-row reconciliation** — 58 stuck rows on the live frame from `select_asset`
-   calls whose upload never completed; neither `delete_asset` nor `remove_asset` clears them
-3. **Triage the 3 open Phase 8 code-review findings** — `AssetPartialId`'s no-op validator,
-   unvalidated `batch_update` partial-success, hardcoded `data_uti='public.jpeg'`
-4. **Finish the lift-tests-off-network slice** — candidates #2 (authenticated value) and
-   #4 (injected config), carried since v1.1
+**Now building (v3.0):** Google Photos album sync, on top of a reliability pass. See
+`## Current Milestone` above and `.planning/REQUIREMENTS.md`.
 
 ## Requirements
 
@@ -106,26 +131,49 @@ anti-abuse trips) and a fail-open `check_geo` pre-flight guard protect every `--
 ### Active
 
 <!-- v1.0, v1.1, v2.0 and v2.x (Phase 9 anti-abuse, Phase 10 hide-by-default) all
-     validated — see Validated above. The items below are the carry-forward set for
-     the next milestone, ordered by value. -->
+     validated — see Validated above. The items below are v3.0's scope, ordered by
+     sequence: reliability first, then the Google Photos integration, then debt. -->
 
 - _All v1.0, v1.1, v2.0 and v2.x requirements validated — see Validated above._
+
+**Part 1 — write-path reliability (sequenced first; the integration lands on top of it)**
+
 - **[reliability, highest value] Retry once on HTTP 401 with a fresh login inside `execute_plan`** — Phase 10 UAT measured ~4 of ~10 live `sync --apply` runs failing with a 401 that cleared on an immediate re-run, with no config/geo/credential change. Not endpoint-specific and not the geofence; the client has no retry, so users see spurious failures and a non-zero exit. Same signature as the Phase 8 mid-batch token-expiry incident.
 - **[correctness] Placeholder-row reconciliation** — 58 rows created by `select_asset` calls whose upload never completed (no `uploaded_at`/`file_name`/`md5_hash`) are permanently stuck on the live frame: `delete_asset` returns 200 and removes nothing, `remove_asset` returns 404. These are also the cause of the `num_assets` (171) vs paginated-drain (149) mismatch that fails `tests/test_read_path.py::test_read_03_pagination` — measured as a server-side pagination inconsistency, not a client bug. Operational lesson already learned: never call `select_asset` with a `local_identifier` you do not intend to upload.
-- **[correctness] Triage the 3 unresolved Phase 8 code-review findings** (see `08-REVIEW.md`): `AssetPartialId`'s cross-field validator is a no-op for the common construction path; `batch_update`'s partial-success response isn't validated against the requested id list; hardcoded `data_uti='public.jpeg'` will silently mis-tag/fail `.png`/`.heic` uploads (Pillow has no HEIC decoder in this environment).
+- **[correctness] Triage the 3 unresolved Phase 8 code-review findings** (see `08-REVIEW.md`): `AssetPartialId`'s cross-field validator is a no-op for the common construction path; `batch_update`'s partial-success response isn't validated against the requested id list; hardcoded `data_uti='public.jpeg'` will silently mis-tag/fail `.png`/`.heic` uploads (Pillow has no HEIC decoder in this environment). The `data_uti` finding is promoted from nice-to-have to load-bearing by this milestone — Google Photos albums routinely contain `.png` and `.heic`.
+
+**Part 2 — Google Photos album sync (the headline)**
+
+- **[integration] Link a Google account** — OAuth loopback flow with a browser on the same machine as `aura-cli`; refresh token persisted, secrets out of version control (same posture as `AURA_EMAIL`/`AURA_PASSWORD`).
+- **[integration, ⚠️ unresolved mechanism] Discover Google Photos albums** — Google restricted the Photos Library API's broad read scope around March 2025, so enumerating a user's *own* albums may not be available to a general app. Research must settle the actual mechanism (true `albums.list` / Picker-API "choose once, remember it" / allowlist application) before this requirement can be written precisely. Highest-uncertainty item in the milestone.
+- **[integration] Sync an album to a frame** — download the album to a local cache dir, then reuse the v2.0 content-hash diff/upload pipeline unchanged; prune the cache once uploads confirm. Reusing the proven pipeline is deliberate: almost all the risky code is already live-verified.
+- **[integration] Mirror semantics** — the Google album is source of truth. Photos removed from the album are **hidden** on the frame via `exclude_asset`; re-adding to the album re-shows without re-uploading. Real deletion stays opt-in and exact-count-gated, exactly as v2.0 shipped it.
+- **[integration] Many-to-many album↔frame mapping** — a persisted config file maps N albums to N frames and reconciles them in a single run.
+- **[integration] Photos only, skipped videos reported** — frame-side `md5_hash` is null for every video asset, so content-hash diffing cannot see them. Skip video, print the count; never silent.
+
+**Part 3 — carried debt**
+
 - **[testing] Finish the "lift tests off the live network" slice** — candidates #2 (authenticated value) and #4 (injected config), carried since v1.1.
-- **[hardening] Deferred code smells** — MOD-01 async, MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, MOD-04 `Aura._init_logger()` loguru sink leak on repeated construction.
+- **[hardening] Deferred code smells** — MOD-02 config-ize AWS pool IDs/bucket, MOD-03 typed exceptions, MOD-04 `Aura._init_logger()` loguru sink leak on repeated construction. Plus concurrent downloads on the **Google side only** — MOD-01's full async migration of the Aura client stays out of scope (see Out of Scope).
 
 ### Out of Scope
 
 - Device-on-LAN / MITM traffic capture — deferred to a later reverse-engineering milestone
 - Reversing the frame's own rendering process / firmware — later milestone
 - SQS push-flow deep-dive (the TODO to map the real SQS behaviour) — later milestone
-- Async migration of the HTTP client — still not required; the sync client remains adequate
-  even under batched writes, which are paced deliberately (`WRITE_CHUNK_DELAY_SECONDS`) rather
-  than parallelised. Tracked as MOD-01 debt, not a goal.
+- Async migration of the HTTP client (MOD-01) — still not required; the sync client remains
+  adequate even under batched writes, which are paced deliberately
+  (`WRITE_CHUNK_DELAY_SECONDS`) rather than parallelised. Tracked as debt, not a goal.
+  **v3.0 exception (user decision):** concurrent *downloads on the Google Photos side* are in
+  scope, because that is the one place in this milestone where concurrency actually pays — it
+  does not pull the Aura write client into an async rewrite.
 - Video sync — `md5_hash` is null for all video assets on the live frame, so content-hash
   diffing cannot see them; would need a local-manifest fallback. Photos only, by design.
+  Reaffirmed for v3.0: Google albums do contain video, and it is skipped with a reported count
+  rather than silently dropped.
+- Streaming Google Photos straight to S3 without touching disk — rejected for v3.0 in favour of
+  a pruned local cache dir, so the already-live-verified v2.0 content-hash pipeline is reused
+  unchanged rather than replaced by a new diff strategy.
 - Removing the accumulated placeholder rows via the existing primitives — measured in Phase 10
   as impossible with `delete_asset`/`remove_asset`; needs a different mechanism (see Active).
 
@@ -297,8 +345,10 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-02 after the **v2.0 Directory-to-Frame Sync** milestone (phases 5-10,
-17 plans, 160 commits, 51 days). Closed as a verified closeout: all 6 phases verified, 28/28
-requirements complete, 0 open artifacts. The write path is proven live and shipped as a real
-CLI. Next: `/gsd-new-milestone` — the strongest candidate is write-path reliability
-(retry-once-on-401), then placeholder-row reconciliation.*
+*Last updated: 2026-09-03 after starting the **v3.0 Google Photos Album Sync** milestone.
+v2.0 shipped 2026-09-02 as a verified closeout (6 phases, 17 plans, 160 commits, 51 days;
+28/28 requirements, 0 open artifacts) and PR #1 merged to `master` on 2026-09-03. v3.0
+sequences write-path reliability first, then Google account linking → album discovery →
+album-to-frame mirroring via a pruned local cache, then the carried debt. Biggest open
+unknown: whether Google's post-March-2025 Photos API still permits enumerating a user's own
+albums, or whether album selection has to go through the Picker API.*

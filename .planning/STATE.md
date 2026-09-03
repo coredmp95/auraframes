@@ -1,21 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: Directory-to-Frame Sync
-status: Awaiting next milestone
-stopped_at: v2.0 archived — awaiting /gsd-new-milestone
-last_updated: "2026-09-02T19:16:40.936Z"
-last_activity: 2026-09-02
-last_activity_desc: Milestone v2.0 completed and archived
-state_head: f41f3f5729b747ebf0e007df74573418f79b2419
+milestone: v3.0
+milestone_name: Google Photos Album Sync
+status: planning
+last_updated: "2026-09-03T05:56:52.034Z"
+last_activity: 2026-09-03
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 17
-  completed_plans: 17
-  percent: 100
-current_phase: null
-current_phase_name: null
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -31,14 +26,10 @@ stuck placeholder rows, and server-side pagination inconsistency the live runs s
 
 ## Current Position
 
-Milestone: **v2.0 Directory-to-Frame Sync — SHIPPED 2026-09-02** (verified closeout)
-Phase: none active — all 6 phases (5-10) complete and archived
-Last activity: 2026-09-02 — v2.0 archived; ROADMAP collapsed, REQUIREMENTS reset
-
-Progress: [██████████] 100% (17/17 plans, 28/28 requirements)
-
-Open PR: #1 (https://github.com/coredmp95/auraframes/pull/1) carries the whole milestone
-against `master` — merge there rather than locally.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-09-03 — Milestone v3.0 started
 
 ## Performance Metrics
 
