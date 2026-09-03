@@ -172,7 +172,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 11. Write-Path Reliability & Format Support | 5/5 | In Progress|  |
+| 11. Write-Path Reliability & Format Support | 6/6 | Complete | 2026-09-03 |
 | 12. Album-Access Mechanism Spike | 0/? | Not started | - |
 | 13. Google Link & Album Selection | 0/? | Not started | - |
 | 14. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |
