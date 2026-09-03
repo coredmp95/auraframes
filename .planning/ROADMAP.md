@@ -66,78 +66,104 @@ Two locked sequencing decisions shape this roadmap. **Reliability comes first** 
 ## Phase Details
 
 ### Phase 11: Write-Path Reliability & Format Support
+
 **Goal**: `sync --apply` stops failing spuriously, the frame's stuck data is accounted for, and uploads accept the file types Google albums routinely contain
 **Depends on**: Nothing (first phase of v3.0; builds on shipped v2.0)
 **Requirements**: REL-01, REL-02, REL-03, REL-04, REL-05, REL-06, REL-07, REL-08, FMT-01, FMT-02, FMT-03, MOD-03
 **Success Criteria** (what must be TRUE):
+
   1. A `sync --apply` run that hits a transient HTTP 401 completes without operator intervention and creates no duplicate frame asset for the retried item; the retry's `WriteBudget` cost is a stated, documented decision rather than an accident.
   2. Write failures are attributed honestly: a genuine authentication failure is still reported as one (never masked as transient), a `batch_update` response that silently drops ids is reported as a failure, and an asset identity carrying neither `id` nor `local_id` is rejected at construction instead of being sent.
   3. A directory containing `.png` files uploads end-to-end and is verified on a real frame; `.heic` either uploads for real or is refused with a message naming the missing decoder and what to do about it — decided explicitly, never a silent failure.
   4. `aura-cli` reports how many stuck placeholder rows the frame carries (no `uploaded_at`/`file_name`/`md5_hash`), and removes them if a working mechanism is found — reporting the count either way.
   5. The default test suite passes with zero failures — `test_read_03_pagination` no longer asserts equality between two counts the server itself does not keep consistent.
+
 **Plans**: 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 11-01-PLAN.md — 401 verify-then-retry in `execute_plan` plus the `AuraError` hierarchy (REL-01..04, MOD-03) — wave 1
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 11-02-PLAN.md — `batch_update`'s unacknowledged-id set, inbound tolerance, and the honest pagination assertions (REL-06..08) — wave 2
 - [ ] 11-03-PLAN.md — `auraframes/reconcile.py` plus the `reconcile` CLI verb and the `inspect` count line (REL-05) — wave 2
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 11-04-PLAN.md — `pillow-heif` and content-derived `data_uti` for JPEG/PNG/HEIF (FMT-01, FMT-03) — wave 3
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 11-05-PLAN.md — live PNG/HEIC verification, the D-10 branch decision, and the placeholder-removal probe (FMT-02, FMT-03, REL-05, REL-08) — wave 4
 
 **Notes**: `data_uti` is derived from the actual file type instead of the hardcoded `public.jpeg` — this is a hard blocker for Phase 14, not debt, because `_prep_upload` currently raises closed on both `.png` and `.heic`. MOD-03's typed exceptions land here because the 401 classification (`AuthExpiredError`) is what makes REL-01 and REL-04 distinguishable in the first place. Placeholder reconciliation stays outside the sync loop (data hygiene on existing bad state, per `research/ARCHITECTURE.md`).
 
 ### Phase 12: Album-Access Mechanism Spike
+
 **Goal**: Know — from live evidence, not assumption — which album-level mechanism this milestone builds on, and whether its bytes are diffable at all
 **Depends on**: Phase 11 (user decision: reliability is sequenced first)
 **Requirements**: SPK-01, SPK-02, SPK-03, SPK-04, SPK-05
 **Success Criteria** (what must be TRUE):
+
   1. A written decision record names one selected mechanism, the live evidence behind it, and the reason each rejected alternative was rejected — this document is the gate that unblocks every GP requirement.
   2. The Pushd/Ambient path has been probed against the live API with its verdict recorded: either Pushd exposes Google-album-linking endpoints (which dissolves the entire Google-side problem, since the frame would pull server-side) or it demonstrably does not.
   3. The shared-album-link path has been probed against the user's own real target albums, with their actual item counts recorded against the suspected ~500-item lazy-load ceiling.
   4. The browser-automation path has been probed end-to-end once — a one-time cookie bootstrap from a real logged-in Chrome profile plus one internal `batchexecute` album listing — with its permanent local-only, never-CI-able cost stated plainly rather than discovered mid-build.
   5. Byte fidelity is settled: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame is downloaded back through the candidate mechanism and its base64-MD5 compared directly against the frame's reported `md5_hash`.
+
 **Plans**: TBD
 
 **Notes**: Decision-producing, not feature-producing. Success Criterion 5 is load-bearing for the whole milestone: if downloaded bytes do not match the frame's `md5_hash` convention, every sync run re-uploads every photo forever and burns the anti-abuse budget on ordinary usage — that must be known here, not discovered in Phase 14. Follows this project's three-times-vindicated precedent (Phase 6 `md5_hash`, Phase 7 hash format, Phase 10 visibility flag) of letting a cheap live probe redirect a design before it costs a rewrite. Closed dead ends are not to be re-opened: Picker API per-photo picking (user-rejected), app-created albums, Takeout as the mechanism, and the restricted-scope allowlist.
 
 ### Phase 13: Google Link & Album Selection
+
 **Goal**: The user links Google once, names an album at album granularity, and the CLI can enumerate every photo inside it
 **Depends on**: Phase 12 (SPK-05's decision record determines this phase's mechanism), Phase 11
 **Requirements**: GP-01, GP-02, GP-03, GP-04, TEST-02
 **Success Criteria** (what must be TRUE):
+
   1. The user runs one documented command to authorize/link Google; the credential or session persists across runs, stays out of version control, and re-linking is that same single command.
   2. `aura-cli status` reports whether Google is linked and for which account, without ever printing the credential or session token.
   3. An album is selected at **album granularity** — by link, id, or name — with no step anywhere that asks the user to pick individual photos.
   4. Listing a selected album returns every photo in it, including albums larger than one page, and the returned count matches what the user sees in Google Photos.
   5. Every Google-side component above is exercised by the offline test suite through an injected transport or fixture-backed fake — no component is testable only against live Google.
+
 **Plans**: TBD
 
 **Notes**: Written mechanism-agnostically on purpose so SPK-05's outcome does not invalidate it. If SPK-05 selects the browser-automation path, the browser dependency is isolated behind a leaf module that never appears in an import graph the test suite touches (per `research/BROWSER-AUTOMATION.md`), and its live correctness becomes a documented recurring manual check rather than a solvable CI gap. TEST-02 lands here rather than later because a component that is only testable against live Google would be a regression against the v1.1 DI seam.
 
 ### Phase 14: Album → Frame Mirror Sync (Single Pair)
+
 **Goal**: One Google album mirrors onto one Aura frame — still correct on the second run after the cache is pruned, and safe when the album listing lies
 **Depends on**: Phase 13
 **Requirements**: GP-05, GP-06, GP-07, GP-08, GP-09, GP-10, GP-11, GP-12, GP-13, SAFE-01, SAFE-02, SAFE-03, SAFE-04, MOD-05
 **Success Criteria** (what must be TRUE):
+
   1. `aura-cli` prints a full upload / re-show / unchanged / hide plan for one album→frame pair without touching the frame at all, with skipped videos counted and named rather than silently dropped, and progress reported while the album downloads.
   2. Album photos download concurrently into a local cache while every write to the frame stays sequential and paced by the existing `WriteBudget` — concurrency never reaches the Aura write client.
   3. Running the same sync twice against an unchanged album reports zero to upload on the second run **even though the cache was pruned after the first**, because the plan is rebuilt from the album listing plus a persisted `google_media_id → md5_hash` manifest, never from a directory walk of the pruned cache.
   4. Removing a photo from the Google album and re-running **hides** it on the frame; re-adding it to the album and re-running re-shows it without re-uploading a byte.
   5. An empty or truncated album listing aborts with an error instead of producing a plan; a plan whose removals exceed a threshold share of the frame requires explicit confirmation; real deletion stays opt-in and exact-count-gated exactly as v2.0 shipped it; and a failed or partial download is reported as failed rather than uploaded as junk bytes.
+
 **Plans**: TBD
 
 **Notes**: The crux of the milestone. Dry-run stays a **structural** default — the plan-computing path contains no mutating call, as in Phase 7 — rather than an `if apply:` branch. Success Criterion 3 is the load-bearing correctness point from `research/ARCHITECTURE.md`: a pruned cache makes "already synced, still in album" indistinguishable from "removed from album", and a naive `scan_directory()` on the pruned cache dir would classify every photo on the frame as a removal candidate. Success Criterion 5 is the catastrophic failure mode of every mirror-mode sync tool and ships **with** the hide capability, never after it. Criterion 4 only manifests over two runs, which makes it the single most important live UAT in the milestone.
 
 ### Phase 15: Many-to-Many Mapping & Debt Closeout
+
 **Goal**: One run reconciles every configured album↔frame pair, and the carried testing/hardening debt is closed so the milestone ships clean
 **Depends on**: Phase 14 (the single pair must be proven live before the layer that multiplies it)
 **Requirements**: MAP-01, MAP-02, MAP-03, MAP-04, TEST-01, MOD-02, MOD-04
 **Success Criteria** (what must be TRUE):
+
   1. A TOML config file maps N Google albums to N Aura frames, holds no secrets, and is safe to commit.
   2. One `aura-cli` run reconciles every configured pair; a pair that fails is reported and the remaining pairs still run to completion.
   3. Every pair in a run draws from a single shared `WriteBudget`, so the account-wide anti-abuse surface is respected no matter how many pairs are configured.
   4. The default test suite runs green with no credentials and no network, including the two lift-tests-off-network candidates carried since v1.1 (authenticated value, injected config).
   5. AWS pool IDs and the bucket name come from configuration rather than hardcoded constants, and repeatedly constructing `Aura()` in one process no longer accumulates duplicate loguru sinks or log files.
+
 **Plans**: TBD
 
 **Notes**: Mirrors v2.0's own precedent — Phase 8 proved single-item write, Phase 9 added the batching/anti-abuse layer on top. Many-to-many is additive risk, not foundational risk, and must not be built before the foundation it multiplies is trusted. The debt items (TEST-01, MOD-02, MOD-04) are folded here rather than given a thin standalone maintenance phase; MOD-01's full async migration stays out of scope, MOD-05 having already confined concurrency to the Google download side in Phase 14.
