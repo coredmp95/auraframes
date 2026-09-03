@@ -13,7 +13,7 @@ from auraframes.api.frameApi import FrameApi
 from auraframes.api.peopleApi import PeopleApi
 from auraframes.aws.s3client import S3Client
 from auraframes.aws.sqsclient import SQSClient
-from auraframes.client import Client
+from auraframes.client import Client, WriteEndpointError
 from auraframes.exif import ExifWriter
 from auraframes.export import get_image_from_asset
 from auraframes.models.asset import Asset, AssetPartialId
@@ -104,6 +104,18 @@ class Aura:
         pass
 
     def upload_image(self, frame_id: str, image_path: str, asset: Asset):
+        """
+        Uploads a single image to S3 and associates it with the given frame via the legacy
+        single-item path (`select_asset` + `batch_update`), distinct from the batched multi-file
+        path `sync.execute_plan` uses.
+
+        :param frame_id: The frame to associate the uploaded asset with.
+        :param image_path: Local filesystem path to the image file to upload.
+        :param asset: Asset metadata to update after the S3 upload lands.
+        :raises WriteEndpointError: if `batch_update` does not acknowledge this asset's
+            local_identifier -- REL-07/D-18: `batch_update`'s `unacknowledged` set is a real
+            per-item failure signal, not something this legacy caller may silently discard.
+        """
         try:
             image = Image.open(image_path)
         except Exception as e:
@@ -123,7 +135,12 @@ class Aura:
         asset.height = image.height
         asset.width = image.width
 
-        self.asset_api.batch_update(asset)
+        batch_result = self.asset_api.batch_update(asset)
+        if batch_result.unacknowledged:
+            raise WriteEndpointError(
+                f"upload_image: frame {frame_id} -- batch_update did not acknowledge "
+                f"local_identifier(s) {batch_result.unacknowledged}"
+            )
         message = self.sqsClient.receive_message(queue_url, wait_time_seconds=5)
         print(message)
 

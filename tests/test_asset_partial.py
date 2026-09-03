@@ -5,8 +5,21 @@ all-Optional variant of `Asset` used to send new-upload metadata through
 
 Unmarked (no @pytest.mark.live) — pure model-construction tests, zero
 network access and no credentials required.
+
+REL-06 finding (Phase 11 Plan 02, Task 2): `AssetPartialId`'s
+`model_validator(mode='after')` (`auraframes/models/asset.py`) already fires
+on the ordinary construction path under the installed pydantic v2 -- both on
+`AssetPartialId()` (no args) and on keyword-expanded construction
+(`AssetPartialId(**entry)`, the shape `AssetApi.batch_update` uses to parse
+an inbound `successes` entry). REL-06 is therefore closed by the proving
+tests below plus `batch_update`'s inbound tolerance (Task 1's
+try/except ValidationError around each entry), not by rewriting the
+validator. `auraframes/models/asset.py` is unmodified by this plan.
 """
-from auraframes.models.asset import Asset, AssetPartial
+import pytest
+from pydantic import ValidationError
+
+from auraframes.models.asset import Asset, AssetPartial, AssetPartialId
 
 # The exact allowlist AssetApi.batch_update uses for its `.dict(include=...)`
 # call (auraframes/api/assetApi.py:19-38) -- AssetPartial must serialize to
@@ -71,3 +84,43 @@ def test_asset_partial_is_subclass_of_asset():
     partial = AssetPartial(local_identifier='x')
 
     assert isinstance(partial, Asset)
+
+
+def test_asset_partial_id_no_args_raises_validation_error():
+    """Test 7: AssetPartialId() raises pydantic.ValidationError, naming both
+    fields, when neither id nor local_identifier is provided."""
+    with pytest.raises(ValidationError) as exc_info:
+        AssetPartialId()
+
+    message = str(exc_info.value)
+    assert 'id' in message
+    assert 'local_identifier' in message
+
+
+def test_asset_partial_id_keyword_expanded_all_none_raises_validation_error():
+    """Test 8: AssetPartialId(**{'id': None, 'local_identifier': None,
+    'user_id': 'u'}) -- the inbound dict-expansion shape AssetApi.batch_update
+    uses to parse a `successes` entry -- also raises, proving the validator
+    fires on keyword-expansion construction, not only on the no-argument
+    path."""
+    with pytest.raises(ValidationError):
+        AssetPartialId(**{'id': None, 'local_identifier': None, 'user_id': 'u'})
+
+
+def test_asset_partial_id_single_field_constructions_succeed():
+    """Test 9: AssetPartialId(id='a') and AssetPartialId(local_identifier='b')
+    each construct successfully -- the validator rejects only the genuinely
+    identity-less case."""
+    by_id = AssetPartialId(id='a')
+    by_local_id = AssetPartialId(local_identifier='b')
+
+    assert by_id.id == 'a'
+    assert by_local_id.local_identifier == 'b'
+
+
+def test_asset_partial_id_to_request_format_unchanged_by_this_phase():
+    """Test 10: to_request_format()'s outbound wire shape is unchanged --
+    id-based construction sends {'asset_id': ...}, local_identifier-based
+    construction sends {'asset_local_identifier': ...}."""
+    assert AssetPartialId(id='a').to_request_format() == {'asset_id': 'a'}
+    assert AssetPartialId(local_identifier='b').to_request_format() == {'asset_local_identifier': 'b'}
