@@ -41,6 +41,15 @@ Python toolchain, so we know exactly what survives before building anything new.
 
 ## Current Milestone: v3.0 Google Photos Album Sync
 
+> **⚠ 2026-09-28 — SCOPE CHANGE:** the Google Photos album-sync goal below is
+> **abandoned** (user decision). Aura's own restored server-side Google sync — which the
+> v3.0 spike phase was going to investigate around — **does not work in practice**, and
+> nothing will be built on it. Phases 12-15 are cancelled; any future Google album sync
+> will be a **local** sync built from scratch (own mechanism, local cache with disk
+> minimisation, periodic re-auth accepted), replanned in a fresh milestone together with
+> the carried debt (MOD-02, MOD-04, TEST-01). Phase 11 (write-path reliability, completed
+> and verified 2026-09-03) is this milestone's delivered value.
+
 **Goal:** Sync Google Photos albums to Aura frames, on a write path that no longer fails
 spuriously.
 
@@ -89,8 +98,11 @@ anti-abuse trips) and a fail-open `check_geo` pre-flight guard protect every `--
 
 **PR #1 merged 2026-09-03** — the whole v2.0 milestone is landed on `master`.
 
-**Now building (v3.0):** Google Photos album sync, on top of a reliability pass. See
-`## Current Milestone` above and `.planning/REQUIREMENTS.md`.
+**Now building (v3.0):** ~~Google Photos album sync, on top of a reliability pass~~ —
+reliability delivered (Phase 11, 2026-09-03); the Google-sync goal was abandoned
+2026-09-28 (see the scope-change note under Current Milestone). A replan of the remaining
+scope as a fresh local-sync milestone is pending. See
+`.planning/REQUIREMENTS.md` for what was cancelled vs carried forward.
 
 ## Requirements
 

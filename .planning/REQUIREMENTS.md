@@ -1,7 +1,19 @@
 # Requirements: Aura Frames Python Client — v3.0 Google Photos Album Sync
 
 **Defined:** 2026-09-03
-**Core Value:** Make the proven write path boringly reliable, then put a Google Photos album behind it — selected at **album** granularity, mirrored headlessly, never one photo at a time.
+**Core Value:** Make the proven write path boringly reliable, then put a Google Photos
+album behind it — selected at **album** granularity, mirrored headlessly, never one photo
+at a time.
+
+> **2026-09-28 — SCOPE CHANGE:** the Google-sync goal is **abandoned** (user decision).
+> Aura's restored server-side Google sync does not work in practice and will not be used
+> or imitated; any future Google album sync will be a **local** sync built from scratch
+> (own mechanism, local cache, disk minimisation, periodic re-auth accepted), replanned in
+> a fresh milestone. Phases 12-15 are cancelled; the SPK/GP/SAFE/MAP requirements below
+> and TEST-02 are marked **cancelled** (their mechanism-independent content is expected
+> to be re-requiremented, not silently dropped — see the cancelled-item notes). The
+> carried debt items **MOD-02, MOD-04, TEST-01 are carried forward** to the replan.
+> REL/FMT/MOD-03 remain **Complete** — Phase 11 delivered them, verified 2026-09-03.
 
 ## Context for this milestone
 
@@ -45,54 +57,72 @@ programmatic trigger.
 - [x] **FMT-02**: `.png` files upload end-to-end and are verified live on a real frame
 - [x] **FMT-03**: `.heic` is either supported via a decoder dependency or refused with a clear, actionable message — decided explicitly, never a silent failure
 
-### Mechanism Spikes (SPK)
+### Mechanism Spikes (SPK) — CANCELLED 2026-09-28
 
-<!-- Decision-producing, not feature-producing. Gates every GP requirement below. -->
+<!-- Cancelled with the Google-sync goal: Aura's server-side sync does not work in
+     practice, so probing how it works (SPK-01) has no value, and no mechanism will be
+     selected for a build that is no longer planned against this milestone's shape.
+     SPK-02/03/04's substance (shared-album-link viability, browser-automation bootstrap,
+     byte fidelity vs the frame's md5_hash) is expected to be re-requiremented in the
+     fresh local-sync milestone — byte fidelity (SPK-04) remains the load-bearing unknown
+     regardless of mechanism. -->
 
-- [ ] **SPK-01**: Pushd API inspected for Google-album-linking endpoints behind Aura's Ambient API integration; findings recorded
-- [ ] **SPK-02**: Shared-album-link mechanism probed live, including the pagination ceiling and the real size of the user's target albums
-- [ ] **SPK-03**: Browser-automation path probed — one-time cookie bootstrap from a real Chrome profile plus an internal `batchexecute` album listing
-- [ ] **SPK-04**: Byte-fidelity confirmed — the account's Original-quality vs Storage-Saver setting checked, and a downloaded photo's base64-MD5 compared against the frame's reported `md5_hash`
-- [ ] **SPK-05**: A written decision record selects one mechanism, with the evidence and the rejected alternatives' reasons
+- [x] **SPK-01**: ~~Pushd API inspected for Google-album-linking endpoints behind Aura's Ambient API integration; findings recorded~~ **CANCELLED 2026-09-28 — obsolete: Aura's server-side sync does not work; not a reference**
+- [x] **SPK-02**: ~~Shared-album-link mechanism probed live, including the pagination ceiling and the real size of the user's target albums~~ **CANCELLED with the goal; substance carried to the local-sync replan**
+- [x] **SPK-03**: ~~Browser-automation path probed — one-time cookie bootstrap from a real Chrome profile plus an internal `batchexecute` album listing~~ **CANCELLED with the goal; substance carried to the local-sync replan**
+- [x] **SPK-04**: ~~Byte-fidelity confirmed — the account's Original-quality vs Storage-Saver setting checked, and a downloaded photo's base64-MD5 compared against the frame's reported `md5_hash`~~ **CANCELLED with the goal; byte fidelity carries over as the replan's load-bearing unknown**
+- [x] **SPK-05**: ~~A written decision record selects one mechanism, with the evidence and the rejected alternatives' reasons~~ **CANCELLED with the goal; re-requiremented against the two surviving local mechanisms**
 
-### Google Photos Album Sync (GP)
+### Google Photos Album Sync (GP) — CANCELLED 2026-09-28
 
-<!-- Written mechanism-agnostically wherever possible so SPK-05's outcome does not invalidate them. -->
+<!-- Cancelled with the Google-sync goal. Mechanism-independent substance expected to be
+     re-requiremented in the fresh local-sync milestone, largely unchanged: GP-05
+     (concurrent Google-side downloads), GP-06/07 (manifest + plan-from-listing over a
+     pruned cache — the pruned-cache correctness trap), GP-08 (structural dry-run),
+     GP-09/10 (hide/re-show mirror semantics), GP-11 (videos skipped with a count),
+     GP-12 (cache pruning), GP-13 (progress). GP-01..04 will be re-shaped around the
+     local mechanisms (shared-album link / browser automation). -->
 
-- [ ] **GP-01**: The user authorizes/links Google once; the credential or session is persisted, kept out of version control, and re-linking is a single documented command
-- [ ] **GP-02**: `aura-cli status` reports Google link state without leaking the credential
-- [ ] **GP-03**: An album is selected at **album granularity** — never by picking individual photos
-- [ ] **GP-04**: All photos in a selected album can be enumerated, including albums larger than one page
-- [ ] **GP-05**: Album photos download to a local cache directory, with concurrency on the Google side only
-- [ ] **GP-06**: A persisted manifest maps `google_media_id` to `md5_hash` and survives cache pruning
-- [ ] **GP-07**: The sync plan is reconstructed from the album listing plus the manifest, never from a directory walk of a pruned cache
-- [ ] **GP-08**: Google album sync is dry-run by default, structurally — the plan-computing path contains no mutating call
-- [ ] **GP-09**: A photo removed from the Google album is **hidden** on the frame, not deleted
-- [ ] **GP-10**: A photo re-added to the Google album is re-shown without re-uploading
-- [ ] **GP-11**: Videos are skipped with a reported count, never silently dropped
-- [ ] **GP-12**: The cache is pruned after uploads confirm, without breaking the next run's correctness
-- [ ] **GP-13**: Progress is reported for long-running album downloads and uploads
+- [x] **GP-01**: ~~The user authorizes/links Google once; the credential or session is persisted, kept out of version control, and re-linking is a single documented command~~ **CANCELLED with the goal; re-shaped in the replan**
+- [x] **GP-02**: ~~`aura-cli status` reports Google link state without leaking the credential~~ **CANCELLED with the goal; re-shaped in the replan**
+- [x] **GP-03**: ~~An album is selected at **album granularity** — never by picking individual photos~~ **CANCELLED with the goal; album granularity remains a locked user decision for the replan**
+- [x] **GP-04**: ~~All photos in a selected album can be enumerated, including albums larger than one page~~ **CANCELLED with the goal; pagination-ceiling measurement carries to the replan**
+- [x] **GP-05**: ~~Album photos download to a local cache directory, with concurrency on the Google side only~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-06**: ~~A persisted manifest maps `google_media_id` to `md5_hash` and survives cache pruning~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-07**: ~~The sync plan is reconstructed from the album listing plus the manifest, never from a directory walk of a pruned cache~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-08**: ~~Google album sync is dry-run by default, structurally — the plan-computing path contains no mutating call~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-09**: ~~A photo removed from the Google album is **hidden** on the frame, not deleted~~ **CANCELLED with the goal; hide-by-default remains the locked removal semantics for the replan**
+- [x] **GP-10**: ~~A photo re-added to the Google album is re-shown without re-uploading~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-11**: ~~Videos are skipped with a reported count, never silently dropped~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-12**: ~~The cache is pruned after uploads confirm, without breaking the next run's correctness~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **GP-13**: ~~Progress is reported for long-running album downloads and uploads~~ **CANCELLED with the goal; substance re-requiremented in the replan**
 
-### Mirror Safety (SAFE)
+### Mirror Safety (SAFE) — CANCELLED 2026-09-28
 
-<!-- The catastrophic failure mode of every mirror-mode sync tool. First-class requirements. -->
+<!-- Cancelled with the Google-sync goal. The catastrophic-failure-mode requirements are
+     mechanism-independent and expected to be re-requiremented essentially unchanged in
+     the fresh local-sync milestone. -->
 
-- [ ] **SAFE-01**: An empty or partial album listing is treated as an error, never as an instruction to hide the whole frame
-- [ ] **SAFE-02**: A plan whose removals exceed a threshold fraction of the frame is gated behind an explicit confirmation
-- [ ] **SAFE-03**: Real deletion stays opt-in and exact-count-gated, exactly as v2.0 shipped it
-- [ ] **SAFE-04**: A failed or partial download never results in junk bytes being uploaded to the frame
+- [x] **SAFE-01**: ~~An empty or partial album listing is treated as an error, never as an instruction to hide the whole frame~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **SAFE-02**: ~~A plan whose removals exceed a threshold fraction of the frame is gated behind an explicit confirmation~~ **CANCELLED with the goal; substance re-requiremented in the replan**
+- [x] **SAFE-03**: ~~Real deletion stays opt-in and exact-count-gated, exactly as v2.0 shipped it~~ **CANCELLED with the goal; v2.0's gating itself is unaffected and stays shipped**
+- [x] **SAFE-04**: ~~A failed or partial download never results in junk bytes being uploaded to the frame~~ **CANCELLED with the goal; substance re-requiremented in the replan**
 
-### Album-to-Frame Mapping (MAP)
+### Album-to-Frame Mapping (MAP) — CANCELLED 2026-09-28
 
-- [ ] **MAP-01**: A TOML config maps N Google albums to N Aura frames
-- [ ] **MAP-02**: One run reconciles every configured pair, with a failing pair not aborting the rest
-- [ ] **MAP-03**: A single `WriteBudget` is shared across all pairs in a run, since the anti-abuse surface is account-wide
-- [ ] **MAP-04**: The config file holds no secrets
+<!-- Cancelled with the Google-sync goal; the TOML mapping layer will be re-scoped in the
+     fresh milestone against whatever album-selection mechanism the local sync adopts.
+     MAP-03's account-wide WriteBudget rule stays a standing convention regardless. -->
+
+- [x] **MAP-01**: ~~A TOML config maps N Google albums to N Aura frames~~ **CANCELLED with the goal; re-scoped in the replan**
+- [x] **MAP-02**: ~~One run reconciles every configured pair, with a failing pair not aborting the rest~~ **CANCELLED with the goal; re-scoped in the replan**
+- [x] **MAP-03**: ~~A single `WriteBudget` is shared across all pairs in a run, since the anti-abuse surface is account-wide~~ **CANCELLED with the goal; the account-wide-budget convention itself stands**
+- [x] **MAP-04**: ~~The config file holds no secrets~~ **CANCELLED with the goal; secrets-out-of-VCS remains a standing constraint**
 
 ### Testing (TEST)
 
-- [ ] **TEST-01**: Lift-tests-off-network candidates #2 (authenticated value) and #4 (injected config), carried since v1.1
-- [ ] **TEST-02**: The Google source is offline-testable through an injected transport or fixture-backed fake — no component may be testable only against live Google
+- [x] **TEST-01**: ~~Lift-tests-off-network candidates #2 (authenticated value) and #4 (injected config), carried since v1.1~~ **CARRIED FORWARD to the fresh milestone's replan**
+- [x] **TEST-02**: ~~The Google source is offline-testable through an injected transport or fixture-backed fake — no component may be testable only against live Google~~ **CANCELLED with the goal; the offline-testability convention itself stands (v1.1 DI seam) and will apply to whatever the replan builds**
 
 ### Hardening (MOD)
 
@@ -148,43 +178,45 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | FMT-01 | Phase 11 | Complete |
 | FMT-02 | Phase 11 | Complete |
 | FMT-03 | Phase 11 | Complete |
-| SPK-01 | Phase 12 | Pending |
-| SPK-02 | Phase 12 | Pending |
-| SPK-03 | Phase 12 | Pending |
-| SPK-04 | Phase 12 | Pending |
-| SPK-05 | Phase 12 | Pending |
-| GP-01 | Phase 13 | Pending |
-| GP-02 | Phase 13 | Pending |
-| GP-03 | Phase 13 | Pending |
-| GP-04 | Phase 13 | Pending |
-| GP-05 | Phase 14 | Pending |
-| GP-06 | Phase 14 | Pending |
-| GP-07 | Phase 14 | Pending |
-| GP-08 | Phase 14 | Pending |
-| GP-09 | Phase 14 | Pending |
-| GP-10 | Phase 14 | Pending |
-| GP-11 | Phase 14 | Pending |
-| GP-12 | Phase 14 | Pending |
-| GP-13 | Phase 14 | Pending |
-| SAFE-01 | Phase 14 | Pending |
-| SAFE-02 | Phase 14 | Pending |
-| SAFE-03 | Phase 14 | Pending |
-| SAFE-04 | Phase 14 | Pending |
-| MAP-01 | Phase 15 | Pending |
-| MAP-02 | Phase 15 | Pending |
-| MAP-03 | Phase 15 | Pending |
-| MAP-04 | Phase 15 | Pending |
-| TEST-01 | Phase 15 | Pending |
-| TEST-02 | Phase 13 | Pending |
-| MOD-02 | Phase 15 | Pending |
+| SPK-01 | Phase 12 | ~~Pending~~ Cancelled 2026-09-28 |
+| SPK-02 | Phase 12 | ~~Pending~~ Cancelled 2026-09-28 |
+| SPK-03 | Phase 12 | ~~Pending~~ Cancelled 2026-09-28 |
+| SPK-04 | Phase 12 | ~~Pending~~ Cancelled 2026-09-28 |
+| SPK-05 | Phase 12 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-01 | Phase 13 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-02 | Phase 13 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-03 | Phase 13 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-04 | Phase 13 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-05 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-06 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-07 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-08 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-09 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-10 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-11 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-12 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| GP-13 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| SAFE-01 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| SAFE-02 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| SAFE-03 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| SAFE-04 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
+| MAP-01 | Phase 15 | ~~Pending~~ Cancelled 2026-09-28 |
+| MAP-02 | Phase 15 | ~~Pending~~ Cancelled 2026-09-28 |
+| MAP-03 | Phase 15 | ~~Pending~~ Cancelled 2026-09-28 |
+| MAP-04 | Phase 15 | ~~Pending~~ Cancelled 2026-09-28 |
+| TEST-01 | Phase 15 | ~~Pending~~ Carried forward to replan |
+| TEST-02 | Phase 13 | ~~Pending~~ Cancelled 2026-09-28 |
+| MOD-02 | Phase 15 | ~~Pending~~ Carried forward to replan |
 | MOD-03 | Phase 11 | Complete |
-| MOD-04 | Phase 15 | Pending |
-| MOD-05 | Phase 14 | Pending |
+| MOD-04 | Phase 15 | ~~Pending~~ Carried forward to replan |
+| MOD-05 | Phase 14 | ~~Pending~~ Cancelled 2026-09-28 |
 
 **Coverage:**
 
 - v3.0 requirements: 43 total
 - Mapped to phases: 43 ✓ (100% — no orphans, no duplicates)
+- **2026-09-28:** 27 cancelled with the Google-sync goal; 3 carried forward to the fresh
+  local-sync milestone (TEST-01, MOD-02, MOD-04); 13 Complete (Phase 11's REL/FMT/MOD-03)
 
 | Phase | Requirements | Count |
 |-------|--------------|-------|
@@ -194,6 +226,10 @@ one phase; phase numbering continues from v2.0's Phase 10.
 | Phase 14 — Album → Frame Mirror Sync (Single Pair) | GP-05..13, SAFE-01..04, MOD-05 | 14 |
 | Phase 15 — Many-to-Many Mapping & Debt Closeout | MAP-01..04, TEST-01, MOD-02, MOD-04 | 7 |
 
+*(Phases 12-15 and their requirements are cancelled as of 2026-09-28 — tables kept for
+the record. The fresh local-sync milestone will re-requirement the carried debt plus the
+mechanism-independent substance noted in each cancelled section.)*
+
 ---
 *Requirements defined: 2026-09-03*
-*Last updated: 2026-09-03 — traceability populated by the roadmapper (phases 11-15)*
+*Last updated: 2026-09-28 — Google-sync goal abandoned (user decision): SPK/GP/SAFE/MAP + TEST-02 cancelled with phases 12-15; TEST-01, MOD-02, MOD-04 carried forward; mechanism-independent substance to be re-requiremented in a fresh local-sync milestone.*

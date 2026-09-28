@@ -1,18 +1,18 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v3.0
-milestone_name: Google Photos Album Sync (Phases 11-15) — IN PROGRESS
-current_phase: 12
-current_phase_name: Album-Access Mechanism Spike
-status: planning
-stopped_at: Phase 11 complete, ready to plan Phase 12
-last_updated: "2026-09-03T20:19:52.497Z"
-last_activity: 2026-09-03
-last_activity_desc: Phase 11 complete, transitioned to Phase 12
-state_head: 0df140f8b8c3913135d660664e1879147ffed39c
+milestone_name: Write-Path Reliability (Phases 11-15) — REPLANNING (Google sync abandoned 2026-09-28)
+current_phase_name: awaiting milestone replan
+status: awaiting-replan
+stopped_at: Google sync abandoned (2026-09-28) — Aura's server-side fix does not work in practice; phases 12-15 cancelled; awaiting full milestone replan
+last_updated: "2026-09-28T05:43:49.982Z"
+last_activity: 2026-09-28
+last_activity_desc: Google sync abandoned (Aura's server-side fix does not work in practice); phases 12-15 cancelled; awaiting full milestone replan
+state_head: a5af679a7d4db499305df9d4a49b884b72139fbc
 progress:
   total_phases: 5
   completed_phases: 1
+  cancelled_phases: 4
   total_plans: 6
   completed_plans: 6
   percent: 20
@@ -28,14 +28,20 @@ See: .planning/PROJECT.md (updated 2026-09-03)
 album behind it — selected at **album** granularity, mirrored headlessly, never one photo
 at a time.
 
-**Current focus:** Phase 11 — Write-Path Reliability & Format Support
+> **2026-09-28 scope change:** the Google-sync half of that core value is **abandoned** —
+> Aura's own server-side Google sync does not work in practice and nothing will be built
+> on it. Phases 12-15 cancelled; a fresh local-sync milestone (own mechanism, local cache
+> with disk minimisation, periodic re-auth accepted) plus carried debt (MOD-02, MOD-04,
+> TEST-01) is pending replan via `/gsd-new-milestone`. Phase 11 stands delivered.
+
+**Current focus:** None — awaiting milestone replan (Phase 11 delivered 2026-09-03)
 
 ## Current Position
 
-Phase: 12 — Album-Access Mechanism Spike
+Phase: None — awaiting milestone replan (phases 12-15 cancelled 2026-09-28)
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-09-03 — Phase 11 complete, transitioned to Phase 12
+Last activity: 2026-09-28 — Google sync abandoned (Aura's server-side fix does not work in practice); phases 12-15 cancelled; awaiting full milestone replan
 
 ```
 Phases  [                                        ]  0/5   (0%)
@@ -215,7 +221,7 @@ milestone.
 ## Session Continuity
 
 Last session: 2026-09-03T19:30:54.171Z
-Stopped at: Phase 11 complete, ready to plan Phase 12
+Stopped at: Google sync abandoned (2026-09-28) — Aura's server-side fix does not work in practice; phases 12-15 cancelled; awaiting full milestone replan
 Resume file: None
 
 ## Operator Next Steps
