@@ -7,10 +7,14 @@ the `{baseUrl}=d` convention, hashing them with the frame's own base64-MD5
 convention (`auraframes.aws.s3client.get_md5`) for the 16-03 fidelity
 comparison.
 
+Phase 17 (plan 17-01 T3): the parsers MOVED into the production package
+`auraframes/google/parsers.py` — this module imports them (single source of
+truth, D-03) and keeps its CLI surface unchanged.
+
 Usage:
     uv run python probes/shared_link_probe.py <share_url> [--download-n N] [--out DIR]
 
-Privacy: every URL printed goes through `probes.common.redact_link` — the
+Privacy: every URL printed goes through redaction (`redact_link`) — the
 full capability URL is never echoed to stdout and never written to any
 committed file. Full links live only in untracked `probes/*.link` files or
 in the shell invocation itself (D-05 privacy tiers).
@@ -18,7 +22,6 @@ in the shell invocation itself (D-05 privacy tiers).
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -29,162 +32,20 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from probes.common import fetch, redact_link, redact_tokens  # noqa: E402
+from probes.common import fetch, redact_link, redact_tokens  # noqa: E402,F401
+
+# The proven parsers now live in the package; the probe re-exports them so
+# existing probe-side callers (fidelity_check.py, browser_bootstrap.py) and
+# the probe tests keep working unchanged.
+from auraframes.google.parsers import (  # noqa: E402,F401
+    ProbeParseError,
+    _walk_items,
+    extract_ds1_data,
+    parse_af_initdata,
+    parse_snackc_payload,
+)
 
 SUSPECTED_CEILING = 500
-
-_DS1_RE = re.compile(r"AF_initDataCallback\(\s*\{\s*key:\s*['\"]ds:1['\"]")
-
-
-class ProbeParseError(RuntimeError):
-    """Raised when the share page lacks the expected ds:1 payload (fail-loud)."""
-
-
-def extract_ds1_data(html: str) -> list:
-    """Extract and JSON-parse the `data` argument of the ds:1 AF_initDataCallback.
-
-    Regex-locates the `key: 'ds:1'` occurrence, then performs balanced-bracket
-    extraction of the `data:[...]` argument and parses it as a JS array literal.
-    Raises ProbeParseError (naming the missing key) when the page has no ds:1
-    block — fail loud, never emit a partial item list silently.
-    """
-    matches = list(_DS1_RE.finditer(html))
-    if not matches:
-        raise ProbeParseError(
-            "page has no AF_initDataCallback with key 'ds:1' — page shape changed "
-            "or the link did not resolve to an album page; refusing to guess"
-        )
-
-    # Try every ds:1 occurrence (pages can carry several; non-payload lookalikes
-    # — e.g. prose or comments naming the structure — fail their parse and the
-    # walk continues to the next occurrence). First parseable payload wins.
-    last_error: ProbeParseError | None = None
-    for match in matches:
-        try:
-            return _extract_data_at(html, match)
-        except ProbeParseError as exc:
-            last_error = exc
-            continue
-    raise ProbeParseError(
-        f"no parseable ds:1 data block among {len(matches)} occurrence(s): "
-        f"{last_error} — refusing to guess"
-    )
-
-
-def _extract_data_at(html: str, match: re.Match) -> list:
-    # From the match, find the `data:` argument's opening bracket.
-    tail = html[match.end():]
-    data_m = re.search(r"\bdata\s*:", tail)
-    if not data_m:
-        raise ProbeParseError(
-            "ds:1 callback found but has no 'data:' argument — refusing to guess"
-        )
-    after = tail[data_m.end():]
-    bracket_m = re.search(r"\[", after)
-    if not bracket_m:
-        raise ProbeParseError("data argument carries no opening '[' — refusing to guess")
-
-    start = match.end() + data_m.end() + bracket_m.start()
-    depth = 0
-    end = None
-    in_str = False
-    esc = False
-    quote = ""
-    for i in range(start, len(html)):
-        ch = html[i]
-        if in_str:
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == quote:
-                in_str = False
-            continue
-        if ch in ("'", '"'):
-            in_str = True
-            quote = ch
-        elif ch == "[":
-            depth += 1
-        elif ch == "]":
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    if end is None:
-        raise ProbeParseError("unbalanced brackets in ds:1 data payload — truncated page?")
-
-    literal = html[start:end]
-    return _parse_array_literal(literal)
-
-
-def _parse_array_literal(literal: str) -> list:
-    """Parse a JS array literal: strict json.loads first, tolerant fallback second.
-
-    The payload is normally plain JSON (double-quoted). When Google emits JS-isms
-    (single quotes, bare keys, trailing commas), a conservative sanitizer normalizes
-    only those cases — no bespoke parser beyond balanced extraction, per the plan.
-    """
-    import json
-
-    try:
-        parsed = json.loads(literal)
-    except json.JSONDecodeError as first_error:
-        sanitized = literal
-        # Strip // line comments if any leaked in.
-        sanitized = re.sub(r"^\s*//.*$", "", sanitized, flags=re.MULTILINE)
-        # Quote bare object keys:  {foo: 1} -> {"foo": 1}
-        sanitized = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*):", r'\1"\2"\3:', sanitized)
-        # Trailing commas: [1,2,] -> [1,2]
-        sanitized = re.sub(r",\s*([\]}])", r"\1", sanitized)
-        try:
-            parsed = json.loads(sanitized)
-        except json.JSONDecodeError:
-            raise ProbeParseError(
-                f"ds:1 data is neither strict JSON nor tolerantly sanitizable "
-                f"(first error: {first_error.msg} at {first_error.pos}) — refusing to guess"
-            ) from first_error
-        print("parse note: ds:1 payload needed tolerant sanitization (JS-isms present)",
-              file=sys.stderr)
-    if not isinstance(parsed, list):
-        raise ProbeParseError("ds:1 data is not an array — page shape changed")
-    return parsed
-
-
-def _walk_items(node, items):
-    """Depth-first walk collecting media items with the §1b structure:
-    [mediaItemId, [baseUrl, width, height, ...], uploadTimestampMs, ...]."""
-    if not isinstance(node, list):
-        return
-    if (len(node) >= 3 and isinstance(node[0], str)
-            and node[0].startswith("AF1Qip")
-            and isinstance(node[1], list) and node[1]
-            and isinstance(node[1][0], str)
-            and node[1][0].startswith("http")):
-        base = node[1]
-        items.append({
-            "id": node[0],
-            "base_url": base[0],
-            "width": base[1] if len(base) > 1 else None,
-            "height": base[2] if len(base) > 2 else None,
-            "ts_ms": node[2] if isinstance(node[2], (int, float)) else None,
-        })
-        return
-    for child in node:
-        _walk_items(child, items)
-
-
-def parse_af_initdata(html: str) -> list[dict]:
-    """Parse a shared-album page's HTML into a deduped list of media items."""
-    data = extract_ds1_data(html)
-    items: list[dict] = []
-    _walk_items(data, items)
-    seen: set[str] = set()
-    deduped = []
-    for item in items:
-        if item["id"] not in seen:
-            seen.add(item["id"])
-            deduped.append(item)
-    return deduped
 
 
 def resolve_share_url(url: str) -> tuple[str, httpx.Response]:
@@ -221,6 +82,9 @@ def measure_sizes(base_urls: list[str]) -> list[int]:
     Google answers `Content-Range: bytes 0-0/TOTAL` — the album's total disk
     weight is measurable without downloading any photo (live-proven 2026-09-28:
     album C, 24 items → 86.6 MiB, every item answered with its exact size).
+    Migrated to the package as auraframes.google.enumerate.measure_disk_weight;
+    this probe keeps a thin local copy to stay a self-contained diagnostic
+    over plain httpx (no vault/session needed for the anonymous flow).
     """
     sizes: list[int] = []
     http = httpx.Client(timeout=30.0)

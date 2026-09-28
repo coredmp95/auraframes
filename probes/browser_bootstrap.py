@@ -39,9 +39,10 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import probes.cookie_vault as cookie_vault  # noqa: E402
+import probes.cookie_vault as cookie_vault  # noqa: E402  (shim over the package vault)
 from probes.common import redact_link, redact_tokens  # noqa: E402
 from probes.shared_link_probe import _walk_items, parse_af_initdata  # noqa: E402
+from auraframes.google.client import GoogleSession  # noqa: E402
 
 PHOTOS_HOME = "https://photos.google.com/"
 # batchexecute endpoint for the Photos web frontend (authuser keeps the call
@@ -155,13 +156,15 @@ def _extract_sapisid() -> str | None:
 
 def _batchexecute(http: httpx.Client, rpcid: str, payload: list, origin: str) -> httpx.Response:
     """Issue ONE batchexecute POST replicating the public envelope shape:
-    f.req carries [[ [rpcid, json(payload), None, 'generic'] ]], with the
-    standard at/bt boilerplate; SAPISIDHASH Authorization attached when
-    available (xob0t/Google-Photos-Toolkit reference shapes)."""
+    f.req carries the TRIPLE-nested [[ [rpcid, json(payload), null, 'generic'] ]]
+    (phase 17 live-proven: a double-nested envelope answers HTTP 400 — the
+    phase-16 'payload deviné' failure was a nesting bug), with the standard
+    at boilerplate; SAPISIDHASH Authorization attached when available
+    (xob0t/Google-Photos-Toolkit reference shapes)."""
     import hashlib
 
-    inner = json_dumps([rpcid, json_dumps(payload), None, "generic"])
-    freq = json_dumps([[inner]])
+    entry = [rpcid, json_dumps(payload), None, "generic"]
+    freq = json_dumps([[entry]])
     headers = {
         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         "Origin": origin,
@@ -172,7 +175,7 @@ def _batchexecute(http: httpx.Client, rpcid: str, payload: list, origin: str) ->
         now_ms = int(time.time() * 1000)
         auth_hash = hashlib.sha1(f"{now_ms} {sapisid} {origin}".encode()).hexdigest()
         headers["Authorization"] = f"SAPISIDHASH {now_ms}_{auth_hash}"
-    body = f"f.req={freq}&at={query_escape(_AT_TOKEN)}&"
+    body = f"f.req={query_escape(freq)}&at={query_escape(_AT_TOKEN)}&"
     return http.post(_BATCHEXECUTE_URL, headers=headers, content=body.encode())
 
 
@@ -190,18 +193,12 @@ def _http_client() -> httpx.Client:
     visitor by photos.google.com (redirect to the marketing page), while the
     complete jar (domain/path from the harvest) yields the logged-in app page
     with the SNlM0e at-token. UA matches the harvesting browser.
+
+    Phase 17 (plan 17-01 T3): the session builder MOVED to the package —
+    this returns the GoogleSession's httpx.Client (same full-jar recipe,
+    same UA, same 30s timeout + redirects).
     """
-    records = cookie_vault.load()  # denylist check fires here
-    jar = httpx.Cookies()
-    for c in records:
-        jar.set(c["name"], c["value"],
-                domain=c.get("domain", ".google.com"), path=c.get("path", "/"))
-    return httpx.Client(
-        cookies=jar,
-        timeout=30.0,
-        follow_redirects=True,
-        headers={"User-Agent": _UA, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"},
-    )
+    return GoogleSession.from_vault().http
 
 
 def _list_album(url: str) -> int:

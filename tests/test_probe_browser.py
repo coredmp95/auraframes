@@ -1,7 +1,9 @@
 """Offline tests for the cookie vault (plan 16-02 T1).
 
-Zero network, zero playwright import: only cookie_vault's storage semantics
-are exercised, through a temp-dir vault path.
+Phase 17 (plan 17-01 T3): the vault MOVED to auraframes/google/vault.py —
+imports and monkeypatch targets updated accordingly; test bodies unchanged.
+The package-side vault suite lives in test_google_vault.py (same boundary
+coverage plus the legacy-fallback migration tests).
 """
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from probes.cookie_vault import CookieVaultError, cookies_for_httpx, load, save  # noqa: E402
+from auraframes.google.vault import CookieVaultError, cookies_for_httpx, load, save  # noqa: E402
 
 COOKIES = [
     {"name": "SID", "value": "fake-sid-value", "domain": ".google.com"},
@@ -48,7 +50,7 @@ def test_load_from_missing_vault_raises(tmp_path):
 
 
 def test_save_inside_repo_refused(tmp_path, monkeypatch):
-    import probes.cookie_vault as cv
+    import auraframes.google.vault as cv
     fake_root = tmp_path / "repo"
     fake_root.mkdir()
     monkeypatch.setattr(cv, "_REPO_ROOT", fake_root)
@@ -60,7 +62,7 @@ def test_save_inside_repo_refused(tmp_path, monkeypatch):
 def test_sync_path_caller_structurally_refused(tmp_path, monkeypatch):
     """A module named under the sync denylist cannot read the vault — the
     refusal names the offending module (D-06's structural boundary)."""
-    import probes.cookie_vault as cv
+    import auraframes.google.vault as cv
     vault = _vault(tmp_path)
     save(COOKIES, path=vault)
 

@@ -5,36 +5,19 @@ Everything a probe prints that could carry a capability URL goes through
 truncated shape only — `AF1Qip…<last4>`). `fetch()` is a fail-loud raw HTTP
 wrapper: a non-200 is an exception, never a silent pass, matching the repo's
 convention of honest failures over optimistic defaults.
+
+Phase 17 (plan 17-01 T3): the redaction helpers MOVED to
+auraframes/google/redaction.py — this module re-exports them so the probes'
+import surface stays identical.
 """
 from __future__ import annotations
 
-import re
 import sys
 
 import httpx
 
-# A full share-link token: AF1Qip followed by the ~48-char id portion.
-_FULL_TOKEN_RE = re.compile(r"AF1Qip[A-Za-z0-9_-]{40,}")
-
-
-def redact_link(url: str | None) -> str:
-    """Return the truncated capability-URL shape for any URL string.
-
-    `https://photos.google.com/share/AF1QipXXXXXXXX...YYYY` becomes
-    `photos.google.com/share/AF1Qip…YYYY` — enough to correlate two links
-    as different, never enough to resolve either. Idempotent: a string with
-    no full token passes through with the scheme stripped.
-    """
-    if not url:
-        return "(none)"
-    text = _FULL_TOKEN_RE.sub(lambda m: f"AF1Qip…{m.group(0)[-4:]}", url)
-    return text.replace("https://", "")
-
-
-def redact_tokens(text: str) -> str:
-    """Redact every full capability token embedded in arbitrary text (e.g. a
-    raw error body we are about to record in evidence)."""
-    return _FULL_TOKEN_RE.sub(lambda m: f"AF1Qip…{m.group(0)[-4:]}", text)
+# Single source of truth for redaction lives in the package now.
+from auraframes.google.redaction import redact_link, redact_tokens  # noqa: E402,F401
 
 
 def fetch(url: str, *, timeout: float = 30.0) -> httpx.Response:
