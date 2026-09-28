@@ -130,4 +130,45 @@ expire.
 
 ## Plan 16-03 — Byte fidelity
 
-_(pending — after 16-01/16-02 evidence)_
+**Gate record (D-07 gates 2-3):** operator confirmed backup quality **Original**
+(2026-09-28) and approved the read (`get_assets`) and then the test-upload write.
+
+### Account quality setting
+
+**Original** — operator-confirmed from Google Photos settings, 2026-09-28. The bytes
+Google stores are the bytes originally uploaded; `=d` serves them untransformed (§1c
+ALBUM-ACCESS precedent). No Storage-saver lossy tier applies.
+
+### The live comparison (upload-test path, D-07 gate 3 approved)
+
+**Why the planned standing-asset path was replaced:** `FrameApi.get_assets` returned
+**0 assets across every parameter variant** during this session (2026-09-28 ~10:30Z) —
+while `frame.num_assets` reported 251 — a server-side drift on the Pushd assets
+endpoint (the same backend refactor that broke Aura's own Google sync). A frame asset
+hash WAS obtained from the frame detail's embedded `last_feed_item` (hash
+`iPvpbEhC…`, 3461×2645), but that phone-uploaded photo belongs to none of the probed
+albums — the standing-asset comparison was structurally impossible in this session.
+
+**The executed path (stronger, actually): upload-test round-trip** —
+
+| Step | Command | Result |
+|---|---|---|
+| 1. Download album C's first original via `=d` (plain httpx, 3,412,350 bytes) | `probes.shared_link_probe.download_original` | base64-MD5 `DSWMyGKS2k3nxpzqIdh37g==` (via the frame's own `get_md5`) |
+| 2. Upload those exact bytes to the frame (additive push, D-07 gate 3) | `aura-cli push /tmp/fidelity-upload --apply --yes` | upload ok (1 succeeded, 0 retries) |
+| 3. Read the frame's `md5_hash` for the new asset (filter=all listing, post-processing) | `assets.json` re-read | `md5_hash: DSWMyGKS2k3nxpzqIdh37g==` |
+| 4. **Verdict** | **`get_md5(=d bytes) == frame.md5_hash`** | **MATCH — byte-identical, LGS-06 proven** |
+| 5. Cleanup (reversible hide, v2.0 semantics) | `exclude_asset(AssetPartialId)` | `hidden: true, selected: false` re-read confirmed; the frame's slideshow is unchanged |
+
+**Verdict line (D-05 application): the download path preserves the frame's hash
+convention exactly — no mechanism rejection applies; the shared-link/RPC `=d` download
+is fidelity-safe for the mirror-sync diff engine.**
+
+### Honesty notes
+
+- The `get_assets` 0-asset drift was transient-by-observation (the endpoint returned 1
+  asset immediately after the upload minutes later); it is recorded as an observed
+  instability of the Pushd assets endpoint on 2026-09-28 — itself load-bearing evidence
+  for NOT building v4.0 on Aura's server-side Google sync (the operator's own finding).
+- The assets.json response earlier in the session returned `0 assets` while
+  `num_assets: 251` — both facts recorded verbatim; Phase 17's design must treat any
+  single Pushd listing as potentially incomplete and re-verify (mirrors PITFALLS #3).
