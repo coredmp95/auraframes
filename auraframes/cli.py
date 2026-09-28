@@ -163,6 +163,25 @@ def build_parser() -> argparse.ArgumentParser:
     album_parser.add_argument(
         '--list', action='store_true', default=False,
         help='List the account\'s shared albums and exit (discovery aid)')
+    # Phase 18 (CSE-01..08, SAFE-01..04): album → frame mirror sync. Dry-run
+    # is the structural default; --apply is gated (SAFE-02 mass-hide threshold
+    # + y/N) and removal is hide-only (CSE-06) — no delete tier on this verb.
+    gsync_parser = subparsers.add_parser(
+        'google-sync', help='Mirror a Google Photos album onto one frame (dry-run by default; hide-by-default removals)')
+    gsync_parser.add_argument(
+        'album', help='Album share URL, AF1Qip… id, or album-name substring')
+    gsync_parser.add_argument(
+        '--frame', required=True,
+        help='Target frame name substring or id (single album→frame pair)')
+    gsync_parser.add_argument(
+        '--apply', action='store_true', default=False,
+        help='Execute the plan (uploads + hides). Without it, only print the plan')
+    gsync_parser.add_argument(
+        '--yes', action='store_true', default=False,
+        help='Skip the confirmation prompt (required for --apply when running non-interactively)')
+    gsync_parser.add_argument(
+        '--debug', action='store_true', default=False,
+        help='Verbose logging')
     return parser
 
 
@@ -1070,6 +1089,10 @@ def main(argv=None) -> int:
         return run_google_link(debug=args.debug)
     if args.command == 'google-album':
         return run_google_album(args.target, list_all=args.list, debug=args.debug)
+    if args.command == 'google-sync':
+        from auraframes.gsync import run_google_sync
+        return run_google_sync(args.album, args.frame, apply=args.apply,
+                               yes=args.yes, debug=args.debug)
     if args.command == 'inspect':
         return run_inspect(args.frame, debug=args.debug)
     if args.command == 'sync':

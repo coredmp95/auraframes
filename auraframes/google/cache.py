@@ -85,14 +85,17 @@ def _download_one(session, item: dict, cache_dir: Path,
 
 def download_to_cache(session, listing, cache_dir: Path, *,
                       expected_sizes: dict[str, int] | None = None,
-                      manifest=None, workers: int = 4) -> CacheOutcome:
+                      manifest=None, workers: int = 4,
+                      progress=None) -> CacheOutcome:
     """Download every listing item that the manifest does not already cover.
 
     Manifest members are skipped entirely (D-07): steady state = zero
     downloads, zero cache residency — their md5 lives in the manifest and the
     frame already holds the bytes. Concurrency is a bounded pool (default 4,
     injectable down to 1); results are merged after shutdown, so no shared
-    mutable state is touched during flight.
+    mutable state is touched during flight. `progress(google_media_id, ok)`
+    is invoked per RESOLVED item (success or failure) after the merge, so a
+    CLI can drive a progress bar (CSE-08) without thread races.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -125,6 +128,12 @@ def download_to_cache(session, listing, cache_dir: Path, *,
             orphan = cache_dir / google_media_id
             if google_media_id not in staged_ids and orphan.exists():
                 orphan.unlink()
+
+    if progress is not None:
+        for s in outcome.staged:
+            progress(s["google_media_id"], True)
+        for google_media_id, _err in outcome.failed:
+            progress(google_media_id, False)
 
     return outcome
 
