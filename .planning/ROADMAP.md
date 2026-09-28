@@ -133,20 +133,20 @@ Plans:
   4. Removing a photo from the Google album and re-running **hides** it on the frame; re-adding it to the album and re-running re-shows it without re-uploading a byte.
   5. An empty or truncated album listing aborts with an error instead of producing a plan; a plan whose removals exceed a threshold share of the frame requires explicit confirmation; real deletion stays opt-in and exact-count-gated exactly as v2.0 shipped it; and a failed or partial download is reported as failed rather than uploaded as junk bytes.
 
-**Plans**: 0/3 plans executed (planned 2026-09-28)
+**Plans**: 3/3 plans executed (planned 2026-09-28)
 
 Plans:
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — Google-side cache + manifest primitives: concurrent `=d` downloads keyed by google_media_id, SAFE-04 failure accounting, persistent 0600 manifest (CSE-01/02/04/07/08, SAFE-04)
+- [x] 18-01-PLAN.md — Google-side cache + manifest primitives: concurrent `=d` downloads keyed by google_media_id, SAFE-04 failure accounting, persistent 0600 manifest (CSE-01/02/04/07/08, SAFE-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — gsync engine plan-computing half: demand from listing+manifest (never a cache walk), compute_plan reuse, SAFE-01 aborts, second-run zero-upload proof (CSE-03/05, SAFE-01)
+- [x] 18-02-PLAN.md — gsync engine plan-computing half: demand from listing+manifest (never a cache walk), compute_plan reuse, SAFE-01 aborts, second-run zero-upload proof (CSE-03/05, SAFE-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 18-03-PLAN.md — executing CLI half: google-sync verb (dry-run default, --apply gated), SAFE-02 threshold gate, hide-only removal, manifest persistence after confirmed uploads, prune + progress (CSE-06/08, SAFE-02/03)
+- [x] 18-03-PLAN.md — executing CLI half: google-sync verb (dry-run default, --apply gated), SAFE-02 threshold gate, hide-only removal, manifest persistence after confirmed uploads, prune + progress (CSE-06/08, SAFE-02/03)
 
 **Notes**: The crux of the milestone. Dry-run stays a **structural** default — the plan-computing path contains no mutating call, as in Phase 7. Success criterion 3 is the load-bearing correctness point: a pruned cache makes "already synced, still in album" indistinguishable from "removed from album", and a naive directory walk on the pruned cache would classify every photo on the frame as a removal candidate — the manifest is what makes disk minimisation safe. Success criterion 5 is the catastrophic failure mode of every mirror-mode sync tool and ships **with** the hide capability, never after it. Criterion 4 only manifests over two runs, which makes it the single most important live UAT in the milestone. The v2.0 content-hash diff/upload pipeline is reused unchanged underneath.
 
@@ -173,7 +173,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 16. Local Mechanism Spike & Decision | 3/3 | Complete | 2026-09-28 |
 | 17. Google Link & Album Selection | 2/2 | Complete | 2026-09-28 |
-| 18. Album → Frame Mirror Sync (Single Pair) | 0/3 | Planned | - |
+| 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | In Progress|  |
 | 19. Debt Closeout | 0/? | Not started | - |
 
 ## Requirement Coverage (v4.0)

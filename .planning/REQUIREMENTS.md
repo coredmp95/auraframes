@@ -32,23 +32,23 @@ that minimises disk usage — on a write path that is already boringly reliable.
 
 <!-- The disk-minimisation architecture: pruned cache + persistent manifest. -->
 
-- [ ] **CSE-01**: Album photos download to a local cache directory, with concurrency on the Google side only — the Aura write client stays synchronous and paced by `WriteBudget` (MOD-05's rule)
-- [ ] **CSE-02**: A persisted manifest maps `google_media_id` to `md5_hash` and survives cache pruning
-- [ ] **CSE-03**: The sync plan is reconstructed from the album listing plus the manifest, never from a directory walk of the (pruned) cache
-- [ ] **CSE-04**: The cache is pruned after uploads confirm, so steady-state disk usage stays proportional to new/unchanged-in-flight photos, not to the whole album — and pruning never breaks the next run's correctness
-- [ ] **CSE-05**: Google album sync is dry-run by default, structurally — the plan-computing path contains no mutating call (v2.0 Phase 7 convention)
-- [ ] **CSE-06**: A photo removed from the Google album is **hidden** on the frame (`exclude_asset`), never deleted by default; a photo re-added is re-shown without re-uploading
-- [ ] **CSE-07**: Videos are skipped with a reported count, never silently dropped
-- [ ] **CSE-08**: Progress is reported for long-running album downloads and uploads
+- [x] **CSE-01**: Album photos download to a local cache directory, with concurrency on the Google side only — the Aura write client stays synchronous and paced by `WriteBudget` (MOD-05's rule)
+- [x] **CSE-02**: A persisted manifest maps `google_media_id` to `md5_hash` and survives cache pruning
+- [x] **CSE-03**: The sync plan is reconstructed from the album listing plus the manifest, never from a directory walk of the (pruned) cache
+- [x] **CSE-04**: The cache is pruned after uploads confirm, so steady-state disk usage stays proportional to new/unchanged-in-flight photos, not to the whole album — and pruning never breaks the next run's correctness
+- [x] **CSE-05**: Google album sync is dry-run by default, structurally — the plan-computing path contains no mutating call (v2.0 Phase 7 convention)
+- [x] **CSE-06**: A photo removed from the Google album is **hidden** on the frame (`exclude_asset`), never deleted by default; a photo re-added is re-shown without re-uploading
+- [x] **CSE-07**: Videos are skipped with a reported count, never silently dropped
+- [x] **CSE-08**: Progress is reported for long-running album downloads and uploads
 
 ### Mirror Safety (SAFE)
 
 <!-- The catastrophic failure mode of every mirror-mode sync tool. First-class. -->
 
-- [ ] **SAFE-01**: An empty or partial album listing is treated as an error, never as an instruction to hide the whole frame
-- [ ] **SAFE-02**: A plan whose removals exceed a threshold fraction of the frame is gated behind an explicit confirmation
-- [ ] **SAFE-03**: Real deletion stays opt-in and exact-count-gated, exactly as v2.0 shipped it
-- [ ] **SAFE-04**: A failed or partial download never results in junk bytes being uploaded to the frame
+- [x] **SAFE-01**: An empty or partial album listing is treated as an error, never as an instruction to hide the whole frame
+- [x] **SAFE-02**: A plan whose removals exceed a threshold fraction of the frame is gated behind an explicit confirmation
+- [x] **SAFE-03**: Real deletion stays opt-in and exact-count-gated, exactly as v2.0 shipped it
+- [x] **SAFE-04**: A failed or partial download never results in junk bytes being uploaded to the frame
 
 ### Offline Testability (TEST)
 
@@ -102,18 +102,18 @@ phase numbering continues from v3.0's Phase 11.
 | LGS-04 | Phase 17 | Complete |
 | LGS-05 | Phase 17 | Complete |
 | TEST-02 | Phase 17 | Complete |
-| CSE-01 | Phase 18 | Pending |
-| CSE-02 | Phase 18 | Pending |
-| CSE-03 | Phase 18 | Pending |
-| CSE-04 | Phase 18 | Pending |
-| CSE-05 | Phase 18 | Pending |
-| CSE-06 | Phase 18 | Pending |
-| CSE-07 | Phase 18 | Pending |
-| CSE-08 | Phase 18 | Pending |
-| SAFE-01 | Phase 18 | Pending |
-| SAFE-02 | Phase 18 | Pending |
-| SAFE-03 | Phase 18 | Pending |
-| SAFE-04 | Phase 18 | Pending |
+| CSE-01 | Phase 18 | Complete |
+| CSE-02 | Phase 18 | Complete |
+| CSE-03 | Phase 18 | Complete |
+| CSE-04 | Phase 18 | Complete |
+| CSE-05 | Phase 18 | Complete |
+| CSE-06 | Phase 18 | Complete |
+| CSE-07 | Phase 18 | Complete |
+| CSE-08 | Phase 18 | Complete |
+| SAFE-01 | Phase 18 | Complete |
+| SAFE-02 | Phase 18 | Complete |
+| SAFE-03 | Phase 18 | Complete |
+| SAFE-04 | Phase 18 | Complete |
 | TEST-01 | Phase 19 | Pending |
 | MOD-02 | Phase 19 | Pending |
 | MOD-04 | Phase 19 | Pending |
