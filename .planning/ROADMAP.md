@@ -64,9 +64,9 @@ Research: [`research/ALBUM-ACCESS.md`](./research/ALBUM-ACCESS.md) §1-§4 (shar
 
 Three locked user decisions shape this roadmap. **Own mechanism, not Aura's** (2026-09-28): Aura's restored server-side Google sync does not work in practice, so nothing probes or imitates it — the sync is local, built from this project's own primitives. **Both surviving mechanisms are probed live before one is committed**: the shared-album link (no auth, live-verified in research, suspected ~500-item ceiling) and browser automation via a dedicated-Chrome-profile cookie bootstrap plus the internal `batchexecute` RPC (public reference implementation exists). **Disk minimisation is a design requirement, not a preference**: a pruned cache plus a persistent `google_media_id → md5_hash` manifest keeps steady-state disk proportional to new photos, with "keep everything locally" the accepted fallback. Periodic re-authentication is accepted as an operational cost; its cadence is an accepted unknown. The proven v2.0 pipeline (structural dry-run, hide-by-default, exact-count-gated deletion, `WriteBudget`) is reused unchanged — almost all the risky code is already live-verified.
 
-- [ ] **Phase 16: Local Mechanism Spike & Decision** - Probe both surviving mechanisms live, settle byte fidelity, and record the decision that gates everything below
+- [x] **Phase 16: Local Mechanism Spike & Decision** - Probe both surviving mechanisms live, settle byte fidelity, and record the decision that gates everything below — completed 2026-09-28
 - [x] **Phase 17: Google Link & Album Selection** - Link Google once through the chosen mechanism, select an album at album granularity, enumerate every photo in it
-- [ ] **Phase 18: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame through the pruned-cache local pipeline — correct on the second run, safe when the listing lies
+- [x] **Phase 18: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame through the pruned-cache local pipeline — correct on the second run, safe when the listing lies (completed 2026-09-28)
 - [ ] **Phase 19: Debt Closeout** - Close the carried testing/hardening debt so the milestone ships clean
 
 ## Phase Details
@@ -133,7 +133,7 @@ Plans:
   4. Removing a photo from the Google album and re-running **hides** it on the frame; re-adding it to the album and re-running re-shows it without re-uploading a byte.
   5. An empty or truncated album listing aborts with an error instead of producing a plan; a plan whose removals exceed a threshold share of the frame requires explicit confirmation; real deletion stays opt-in and exact-count-gated exactly as v2.0 shipped it; and a failed or partial download is reported as failed rather than uploaded as junk bytes.
 
-**Plans**: 3/3 plans executed (planned 2026-09-28)
+**Plans**: 3/3 plans complete (planned 2026-09-28)
 
 Plans:
 **Wave 1**
@@ -173,7 +173,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 16. Local Mechanism Spike & Decision | 3/3 | Complete | 2026-09-28 |
 | 17. Google Link & Album Selection | 2/2 | Complete | 2026-09-28 |
-| 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | In Progress|  |
+| 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | Complete    | 2026-09-28 |
 | 19. Debt Closeout | 0/? | Not started | - |
 
 ## Requirement Coverage (v4.0)
