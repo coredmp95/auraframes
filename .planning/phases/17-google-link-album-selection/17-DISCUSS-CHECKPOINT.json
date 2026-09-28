@@ -1,0 +1,35 @@
+{
+  "phase": "17",
+  "phase_dir": ".planning/phases/17-google-link-album-selection",
+  "date": "2026-09-28",
+  "workflow": "gsd-discuss-phase 17",
+  "status": "in_progress",
+  "carried_context": {
+    "from_phase_16": [
+      "Decision record signed: browser-automation (dedicated-profile cookie bootstrap + internal snAcKc RPC) with the shared-link page as bootstrap stage",
+      "Cookie vault exists and works: ~/.config/auraframes/probes/google-cookies.json, 0600, untracked, structural denylist (D-06)",
+      "Full enumeration proven: snAcKc(share_token, continuation_token, null, key), 300/page, clean exhaustion (794/794 UI-confirmed)",
+      "Disk weight measurable: measure_sizes() via 1-byte Range GETs on =d (Content-Range total)",
+      "Byte fidelity MATCH proven (=d bytes == frame md5_hash); Original quality setting confirmed",
+      "Both parsers committed + offline-tested: probes/shared_link_probe.py (parse_af_initdata), probes/browser_bootstrap.py (list subcommand)",
+      "D-05 privacy tiers: full links untracked probes/*.link; committed docs redacted AF1Qip...<last4>",
+      "D-07 gates: re-confirm before cookie harvest re-run (only when session expired) and any frame write"
+    ],
+    "locked_decisions": [
+      "Periodic re-auth accepted as operational cost (never a redesign)",
+      "Album-granularity selection only (Picker per-photo rejected)",
+      "Videos excluded from sync scope (carried replan decision)",
+      "Every Google-facing component offline-testable via injected transport (TEST-02)"
+    ]
+  },
+  "gray_areas": {
+    "identified": [
+      "CLI surface for link/select/status commands",
+      "Where Google-facing code lives in the package (probes/ vs auraframes/)",
+      "Account binding and multi-account posture",
+      "Album selection UX (naming, ambiguity, multiple albums)"
+    ],
+    "selected_for_discussion": [],
+    "resolved_by_default": []
+  }
+}
