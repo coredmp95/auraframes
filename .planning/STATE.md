@@ -1,21 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v3.0
-milestone_name: Write-Path Reliability (Phases 11-15) — REPLANNING (Google sync abandoned 2026-09-28)
-current_phase_name: awaiting milestone replan
-status: awaiting-replan
-stopped_at: Google sync abandoned (2026-09-28) — Aura's server-side fix does not work in practice; phases 12-15 cancelled; awaiting full milestone replan
-last_updated: "2026-09-28T05:43:49.982Z"
+milestone: v4.0
+milestone_name: Local Google Photos Album Sync
+status: planning
+last_updated: "2026-09-28T05:51:48.021Z"
 last_activity: 2026-09-28
-last_activity_desc: Google sync abandoned (Aura's server-side fix does not work in practice); phases 12-15 cancelled; awaiting full milestone replan
-state_head: a5af679a7d4db499305df9d4a49b884b72139fbc
 progress:
-  total_phases: 5
-  completed_phases: 1
-  cancelled_phases: 4
-  total_plans: 6
-  completed_plans: 6
-  percent: 20
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -38,14 +33,10 @@ at a time.
 
 ## Current Position
 
-Phase: None — awaiting milestone replan (phases 12-15 cancelled 2026-09-28)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-09-28 — Google sync abandoned (Aura's server-side fix does not work in practice); phases 12-15 cancelled; awaiting full milestone replan
-
-```
-Phases  [                                        ]  0/5   (0%)
-```
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-09-28 — Milestone v4.0 started
 
 ## Milestone Roadmap (v3.0, Phases 11-15)
 
