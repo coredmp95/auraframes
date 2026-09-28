@@ -215,11 +215,34 @@ def download_original(base_url: str, dest: Path) -> tuple[int, str]:
     return len(data), get_md5(data)
 
 
+def measure_sizes(base_urls: list[str]) -> list[int]:
+    """Exact byte sizes via 1-octet Range GETs on `{baseUrl}=d`.
+
+    Google answers `Content-Range: bytes 0-0/TOTAL` — the album's total disk
+    weight is measurable without downloading any photo (live-proven 2026-09-28:
+    album C, 24 items → 86.6 MiB, every item answered with its exact size).
+    """
+    sizes: list[int] = []
+    http = httpx.Client(timeout=30.0)
+    for base in base_urls:
+        r = http.get(f"{base}=d", headers={"Range": "bytes=0-0"})
+        cr = r.headers.get("content-range", "")
+        size = int(cr.rsplit("/", 1)[-1]) if "/" in cr else None
+        if size is None:
+            cl = r.headers.get("content-length")
+            size = int(cl) if cl else 0
+        sizes.append(size)
+    return sizes
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("share_url", help="photos.google.com/share/... or app.goo.gl link")
     parser.add_argument("--download-n", type=int, default=0,
                         help="download the first N originals via =d (default 0: listing only)")
+    parser.add_argument("--sizes", action="store_true", dest="measure_sizes",
+                        help="measure every item's exact byte size via 1-byte Range GETs "
+                             "(album disk weight without downloading photos)")
     parser.add_argument("--out", type=Path, default=Path("probes/.probe-downloads"),
                         help="download directory (gitignored)")
     args = parser.parse_args(argv)
@@ -242,6 +265,13 @@ def main(argv: list[str] | None = None) -> int:
         verdict = (f"below the suspected ~{SUSPECTED_CEILING} ceiling "
                    f"(lower bound so far: {len(items)})")
     print(f"ceiling verdict: {verdict}")
+
+    if getattr(args, "measure_sizes", False):
+        sizes = measure_sizes([i["base_url"] for i in items])
+        total = sum(sizes)
+        print(f"disk weight: {total:,} bytes = {total / 1024 / 1024:.1f} MiB "
+              f"({len(sizes)} items, min {min(sizes):,}, max {max(sizes):,}, "
+              f"avg {total // max(len(sizes), 1):,})")
 
     if args.download_n > 0:
         for item in items[: args.download_n]:

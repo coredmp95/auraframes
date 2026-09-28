@@ -72,6 +72,12 @@ convention; this spike proves the bytes).
    creation per album (accepted setup cost, `user_setup` in 16-01-PLAN).
 2. Parser validity rests on album C's 24/24 ground truth + the fixture suite; item
    dimensions embedded in the page matched expectation ranges for all parsed rows.
+3. **Disk weight is exactly measurable without downloading photos** (operator concern
+   raised post-probe, answered live 2026-09-28): 1-octet `Range: bytes=0-0` GETs on
+   `{baseUrl}=d` return `Content-Range: bytes 0-0/TOTAL` — every item's exact size.
+   Album C measured: 24 items, **86.6 MiB total** (min 129,680 / max 8,847,782 /
+   avg 3,781,582 bytes). Committed as `--sizes` in `shared_link_probe.py` and
+   `measure_sizes()` for Phase 17's pre-sync planning (cache sizing, budgets).
 
 ---
 
