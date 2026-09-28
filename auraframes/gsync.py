@@ -390,6 +390,17 @@ def run_google_sync(album_target: str, frame_arg: str, *, apply: bool = False,
     s3 = s3_client if s3_client is not None else S3Client()
     sqs = sqs_client if sqs_client is not None else SQSClient()
 
+    # CSE-01 (MOD-05's rule): frame writes are paced by the per-account
+    # WriteBudget. Built at this boundary like run_sync does (execute_plan
+    # itself never constructs one); omitted only when the caller injected a
+    # budget=None explicitly. Budget state lives per account email (T-09-02).
+    import os as _os
+    from auraframes.cli import _build_write_budget, _configure_cli_logging
+    if debug:
+        _configure_cli_logging(True)
+    if budget is None and s3_client is None:
+        budget = _build_write_budget(_os.getenv('AURA_EMAIL'), ignore_budget=False)
+
     staged_by_id = staged.staged_by_id
     confirmed_paths: list[str] = []
 
