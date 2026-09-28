@@ -268,10 +268,12 @@ def parse_batchexecute(text: str) -> list[BatchexecuteEntry]:
 
 @dataclass
 class AlbumSummary:
-    """One shared album, as surfaced by the logged-in home page's ds:0 block.
+    """One shared album, as surfaced by photos.google.com/albums' ds:5 block
+    (live-proven row shape; see parse_album_summaries).
 
-    `item_count` stays None when the block carries no count (the summary
-    walk never guesses — the authoritative count is enumerate_album's).
+    `item_count` is the album's METADATA count — it can exceed the photo
+    count the media walker returns when the album carries videos (live:
+    1096 vs 1094 photos). The authoritative PHOTO count is enumerate_album's.
     """
 
     album_id: str | None
@@ -281,25 +283,59 @@ class AlbumSummary:
 
 
 def _walk_album_summaries(node, out):
-    """Depth-first walk of a ds:0 payload collecting shared-album summaries:
-    rows shaped [AF1Qip…, <title-str>, ...] (never item-shaped — the §1b
-    media discriminator requires a http(s) baseUrl at row[1][0])."""
+    """Depth-first walk of the /albums page's ds:5 payload collecting
+    shared-album entries (live-proven 2026-09-28 row shape):
+
+        [album_cover_id, [cover_url, w, h, …], …, …, {<key>: ENTRY}]
+
+    ENTRY = [4, <title:str>, [dates…], <item_count:int>, 1,
+             <page_key_b64:str>, …, <share_token AF1Qip…:str>, …]
+
+    The album's identity token is the SHARE token (the /share/<id> path
+    segment); the base64-decoded field 5 is the share URL's ?key= page_key
+    (both live-proven by enumerating through the constructed URL).
+    """
     if not isinstance(node, list):
         return
-    if (len(node) >= 2 and isinstance(node[0], str)
-            and node[0].startswith("AF1Qip")
-            and isinstance(node[1], str)):
-        out.append(AlbumSummary(album_id=node[0], title=node[1]))
+    if node and isinstance(node[0], str) and node[0].startswith("AF1Qip"):
+        for field_ in node:
+            if not isinstance(field_, dict):
+                continue
+            for entry in field_.values():
+                if (isinstance(entry, list) and len(entry) >= 9
+                        and isinstance(entry[1], str)
+                        and isinstance(entry[3], int)
+                        and isinstance(entry[5], str)
+                        and isinstance(entry[8], str)
+                        and entry[8].startswith("AF1Qip")):
+                    out.append(AlbumSummary(
+                        album_id=entry[8],
+                        title=entry[1],
+                        item_count=entry[3],
+                        share_url=(f"https://photos.google.com/share/{entry[8]}"
+                                   f"?key={_decode_page_key(entry[5])}"),
+                    ))
         return
     for child in node:
         _walk_album_summaries(child, out)
 
 
-def parse_album_summaries(ds0_data: list) -> list[AlbumSummary]:
-    """Parse a ds:0 payload (the logged-in home's album block) into deduped
-    AlbumSummary rows."""
+def _decode_page_key(b64: str) -> str:
+    """Decode the ds:5 entry's base64 share key into the ?key= page_key
+    (live-proven: `UX20fm…` base64 == the ?key= the constructed URL used)."""
+    import base64
+
+    try:
+        return base64.b64decode(b64).decode("ascii", "replace")
+    except Exception:
+        return ""
+
+
+def parse_album_summaries(ds5_data: list) -> list[AlbumSummary]:
+    """Parse the /albums page's ds:5 payload into deduped AlbumSummary rows
+    (title + share token + page_key + metadata item count)."""
     out: list[AlbumSummary] = []
-    _walk_album_summaries(ds0_data, out)
+    _walk_album_summaries(ds5_data, out)
     seen: set[str] = set()
     deduped = []
     for s in out:

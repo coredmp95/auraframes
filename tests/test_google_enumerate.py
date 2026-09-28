@@ -1,10 +1,11 @@
-"""Offline tests for the snAcKc enumerator and disk-weight measurer
-(plan 17-01 T2).
+"""Offline tests for the RPC-first snAcKc enumerator and disk-weight
+measurer (plan 17-01 T2, reworked after the 2026-09-28 live validation).
 
 Zero network: a stateful MockTransport router replays the live-proven
-protocol — share page batch-1, triple-nested f.req envelope, AH_ token
-swap, clean exhaustion — over synthetic pages of 300+300+194 = 794 items
-(the live-confirmed album B shape, LGS-05).
+protocol — batch-1 via a NULL continuation (the share page is never
+fetched), triple-nested f.req envelope, AH_ token swap, clean exhaustion —
+over synthetic pages of 300+300+194 = 794 items (the live-confirmed shape,
+LGS-05).
 """
 from __future__ import annotations
 
@@ -26,19 +27,9 @@ from auraframes.google.enumerate import (  # noqa: E402
     measure_disk_weight,
 )
 
-ALBUM_ID = "AF1QipFAKEalbum0000000000000000000000001"
+ALBUM_ID = "AF1QipFAKEalbum" + "0" * 30 + "1"
 PAGE_KEY = "FAKEPAGEKEY0001"
-SHARE_URL = f"https://photos.google.com/share/{ALBUM_ID}?key={PAGE_KEY}"
 
-SHARE_TOKEN = "AH_" + "T" * 40 + "0001"
-SHARE_HTML = (
-    "<html><body>"
-    "<script>AF_initDataCallback({key: 'ds:1', hash: '2', "
-    "data:[[\"album-header\", null]]});</script>"
-    f"<script>window._continuation = \"{SHARE_TOKEN}\";</script>"
-    "</body></html>"
-)
-SHARE_HTML_NO_TOKEN = SHARE_HTML.replace(SHARE_TOKEN, "no-cursor-here")
 HOME_HTML = (
     "<html><body><script>window.WIZ_global_data = "
     '{"SNlM0e": "SYNTH-AT", "FdrFJe": "12345", "cfb2h": "boq_test_bl", '
@@ -53,7 +44,7 @@ def _next_token(n: int) -> str:
 
 
 def _rpc_items(page: int, count: int) -> list:
-    return [[f"AF1QipRPC{page:02d}{i:06d}",
+    return [[f"AF1QipRPC{page:02d}{i:06d}" + "0" * 32,
              [f"https://lh3.googleusercontent.com/pw/FAKEp{page:02d}i{i:06d}",
               100 + i, 200 + i],
              1700000000000 + i]
@@ -71,31 +62,32 @@ def _rpc_response(items: list, next_token: str | None) -> str:
 
 
 class _GoogleRouter:
-    """Stateful MockTransport replaying the live-proven protocol: it
-    VALIDATES the client's side (triple-nested envelope, token chain,
-    Range headers) and fails the request when the client deviates."""
+    """Stateful MockTransport replaying the live-proven RPC-first protocol:
+    it VALIDATES the client's side (triple-nested envelope, NULL batch-1
+    continuation, token chain, page_key, Range headers) and fails the
+    request when the client deviates."""
 
-    def __init__(self, pages: list[int], *, share_token_attempts: int = 0,
-                 rpc_status: int = 200, rpc_body: str | None = None) -> None:
+    def __init__(self, pages: list[int], *, page_key: str | None = PAGE_KEY,
+                 rpc_status: int = 200, rpc_body: str | None = None,
+                 albums_page: str | None = None) -> None:
         self.pages = pages
-        self.share_token_attempts = share_token_attempts
+        self.page_key = page_key
         self.rpc_status = rpc_status
         self.rpc_body = rpc_body
-        self.share_gets = 0
+        self.albums_page = albums_page
+        self.albums_gets = 0
         self.post_count = 0
         self.size_requests: list[tuple[str, str]] = []
         self.last_freq: str | None = None
-        self._expected_token: str | None = SHARE_TOKEN
+        self._expected_token: str | None = None  # batch-1 = NULL continuation
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.method == "GET" and path == "/":
             return httpx.Response(200, text=HOME_HTML)
-        if request.method == "GET" and "/share/" in path:
-            self.share_gets += 1
-            if self.share_gets <= self.share_token_attempts:
-                return httpx.Response(200, text=SHARE_HTML_NO_TOKEN)
-            return httpx.Response(200, text=SHARE_HTML)
+        if request.method == "GET" and path == "/albums":
+            self.albums_gets += 1
+            return httpx.Response(200, text=self.albums_page or HOME_HTML)
         if request.method == "GET" and path.endswith("=d"):
             num = int(re.search(r"(\d+)$", path.removesuffix("=d")).group(1))
             self.size_requests.append((path, request.headers.get("range", "")))
@@ -117,9 +109,12 @@ class _GoogleRouter:
                     and isinstance(arr[0][0], list) and arr[0][0][0] == "snAcKc"):
                 return httpx.Response(400, text="bad envelope")
             inner = json.loads(arr[0][0][1])
-            token = inner[1]
-            if token != self._expected_token:
+            if inner[0] != ALBUM_ID:
+                return httpx.Response(400, text="wrong album id")
+            if inner[1] != self._expected_token:
                 return httpx.Response(400, text="stale continuation token")
+            if inner[3] != self.page_key:
+                return httpx.Response(400, text="wrong page_key")
             page_idx = self.post_count - 1
             if page_idx >= len(self.pages):
                 return httpx.Response(400, text="too many pages requested")
@@ -136,14 +131,15 @@ def _session(router: _GoogleRouter) -> GoogleSession:
 
 
 def test_enumerate_album_794_items_clean_exhaustion():
-    """The live-confirmed shape: 3 snAcKc pages of 300+300+194 = 794 items,
-    exhausted cleanly, no live network (LGS-05, TEST-02)."""
+    """The live-confirmed shape: 4 snAcKc pages (300+300+300+194 on the live
+    1094-photo album; the synthetic mirror is 300+300+194 = 794), exhausted
+    cleanly, no live network (LGS-05, TEST-02)."""
     router = _GoogleRouter([300, 300, 194])
-    listing = enumerate_album(_session(router), SHARE_URL)
+    listing = enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY)
     assert len(listing.items) == 794
     assert len({i["id"] for i in listing.items}) == 794  # all unique
     assert listing.exhausted_cleanly is True
-    assert listing.page_count == 4  # batch-1 share page + 3 RPC pages
+    assert listing.page_count == 3
     assert listing.album_id == ALBUM_ID
     assert router.post_count == 3
     assert router.last_freq is not None
@@ -151,56 +147,57 @@ def test_enumerate_album_794_items_clean_exhaustion():
     assert json.loads(router.last_freq)[0][0][0] == "snAcKc"
 
 
+def test_enumerate_batch1_uses_null_continuation():
+    """The RPC-first discovery: batch-1 IS a snAcKc call with a NULL
+    continuation — the router rejects any non-null first token with a 400,
+    so passing enumeration proves the null form."""
+    router = _GoogleRouter([300])
+    listing = enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY)
+    assert len(listing.items) == 300
+    inner = json.loads(json.loads(router.last_freq)[0][0][1])
+    assert inner[1] is None or inner[1] != ""  # last call carried the swap
+    assert router.post_count == 1
+
+
 def test_enumerate_token_swap_chain_validated_by_router():
     """The router rejects stale tokens (400) — a passing enumeration proves
     the client swapped AH_ cursors correctly on every page."""
     router = _GoogleRouter([300, 194])
-    listing = enumerate_album(_session(router), SHARE_URL)
+    listing = enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY)
     assert len(listing.items) == 494
     assert router.post_count == 2
 
 
-def test_enumerate_splits_share_url_page_key():
-    """page_key (the ?key= param) is the snAcKc 4th argument (live-proven);
-    the album id is the share URL's final path segment."""
-    router = _GoogleRouter([300])
-    enumerate_album(_session(router), SHARE_URL)
-    inner = json.loads(json.loads(router.last_freq)[0][0][1])
-    assert inner[0] == ALBUM_ID
-    assert inner[3] == PAGE_KEY
-
-
-def test_enumerate_share_page_token_retry():
-    """The AH_ token's intermittent appearance (~3/4 live) is encoded: the
-    enumerator retries token-less share pages within budget."""
-    router = _GoogleRouter([300], share_token_attempts=2)
-    listing = enumerate_album(_session(router), SHARE_URL)
+def test_enumerate_works_without_page_key():
+    """page_key is OPTIONAL (live-proven: null page_key still answers 300
+    items on the 1096-item album); the router asserts the 4th arg is None."""
+    router = _GoogleRouter([300], page_key=None)
+    listing = enumerate_album(_session(router), ALBUM_ID)
     assert len(listing.items) == 300
-    assert router.share_gets == 3
 
 
 def test_enumerate_fails_loud_on_http_400():
     router = _GoogleRouter([300], rpc_status=400)
     with pytest.raises(EnumerateError, match="HTTP 400"):
-        enumerate_album(_session(router), SHARE_URL)
+        enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY)
 
 
 def test_enumerate_fails_loud_on_malformed_envelope():
     router = _GoogleRouter([300], rpc_body=")]}'\nnot json at all\n")
     with pytest.raises(RuntimeError):
-        enumerate_album(_session(router), SHARE_URL)
+        enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY)
 
 
-def test_enumerate_rejects_non_share_url():
+def test_enumerate_requires_album_id():
     router = _GoogleRouter([])
-    with pytest.raises(EnumerateError, match="share link"):
-        enumerate_album(_session(router), "https://example.com/not/a/share")
+    with pytest.raises(EnumerateError, match="album_id is required"):
+        enumerate_album(_session(router), "")
 
 
 def test_enumerate_page_cap_fails_loud_incomplete():
     router = _GoogleRouter([300] * 5)
     with pytest.raises(EnumerateError, match="INCOMPLETE"):
-        enumerate_album(_session(router), SHARE_URL, max_pages=2)
+        enumerate_album(_session(router), ALBUM_ID, page_key=PAGE_KEY, max_pages=2)
 
 
 def test_measure_disk_weight_content_range():

@@ -203,3 +203,32 @@ proven live (read-only):
    `SNlM0e` (at), `FdrFJe` (f.sid), `cfb2h` (bl), and the account email (`oPEP7c`)
    all come from the logged-in home page. The RPC loop + dedup tolerates the first
    RPC call re-serving batch-1 (continuation pages carry fresh tokens).
+
+## Session Addendum 2 — Phase 17 execution (2026-09-28, same day)
+
+Findings made while executing plan 17-01/17-02, all read-only live validations through
+the migrated package:
+
+1. **RPC-FIRST protocol (supersedes the share-page batch-1 for the linked flow)**:
+   `snAcKc(share_token, null, null, page_key)` IS batch-1 — HTTP 200, first 300 items,
+   no share-page fetch needed. The authenticated share page is an SPA shell (no ds:1
+   block, no AH_ cursor; the AF_initDataCallback occurrences present are JS function
+   definitions, not data). The phase-16 share-page batch-1 recipe only ever applied to
+   the ANONYMOUS flow.
+2. **page_key is OPTIONAL**: `snAcKc(share_token, null, null, null)` also answers
+   (HTTP 200, 300 items on the 1096-item album). The /albums listing carries the key,
+   so it is sent when known.
+3. **Full-pagination live proof**: album "Nous" (metadata 1096) enumerated 300+300+
+   300+194 = 1094 photos, clean exhaustion, no token at the end — the 2-item delta is
+   the album's videos, which the §1b photo walker skips by shape.
+4. **Album listing surface (name resolution + `--list`)**: photos.google.com/albums'
+   ds:5 carries the album cards (the home page's ds:5 is the photo feed — NOT albums).
+   Row shape (live-decoded): `[cover_id AF1Qip…, [cover_url, w, h, …], null, null,
+   {"<int-key>": [4, <title:str>, [dates…], <item_count:int>, 1, <page_key_b64:str>,
+   …, <share_token AF1Qip…:str>, …]}]`. The base64-decoded field 5 IS the share URL's
+   `?key=` (verified byte-for-byte on the constructed URL); the metadata item_count of
+   "Cadre" (24) matched the UI ground truth exactly.
+5. **End-to-end live proof through the package**: /albums listing → constructed
+   /share/<token>?key=<key> URL → enumerate_album → 24/24 items, exhausted cleanly,
+   measure_disk_weight → 90,757,982 bytes = 86.6 MiB — the exact weight measured by
+   the phase-16 probe. The CLI's `google-album "Cadre"` path is the same code path.

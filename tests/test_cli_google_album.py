@@ -1,12 +1,15 @@
-"""Offline tests for `aura-cli google-album` (plan 17-02 T2).
+"""Offline tests for `aura-cli google-album` (plan 17-02 T2, reworked to the
+RPC-first live-proven protocol).
 
 Zero network: resolution runs against AlbumSummary fakes (pure function);
 the full command runs with a real GoogleSession over a MockTransport
-replaying the protocol (home page -> share page -> snAcKc pages -> =d
-sizes). Redaction is proven by grepping stdout for full AF1Qip tokens.
+replaying the live-proven flow — /albums ds:5 (real row shape) → snAcKc
+batch-1 with NULL continuation → token-swap pages → =d sizes. Redaction is
+proven by grepping stdout for full AF1Qip tokens.
 """
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
@@ -27,13 +30,11 @@ from auraframes.google.parsers import AlbumSummary  # noqa: E402
 ALBUM_ID_1 = "AF1QipFAKEalbumONE" + "0" * 28 + "1"
 ALBUM_ID_2 = "AF1QipFAKEalbumTWO" + "0" * 28 + "2"
 ALBUM_ID_3 = "AF1QipFAKEalbumTHR" + "0" * 28 + "3"
+PAGE_KEY_1 = "FAKEKEYONE0001"
 ALBUMS = [
-    AlbumSummary(album_id=ALBUM_ID_1, title="Vacances Corse",
-                 share_url=f"https://photos.google.com/share/{ALBUM_ID_1}"),
-    AlbumSummary(album_id=ALBUM_ID_2, title="Vacances Bretagne",
-                 share_url=f"https://photos.google.com/share/{ALBUM_ID_2}"),
-    AlbumSummary(album_id=ALBUM_ID_3, title="Famille 2024",
-                 share_url=f"https://photos.google.com/share/{ALBUM_ID_3}"),
+    AlbumSummary(album_id=ALBUM_ID_1, title="Vacances Corse", item_count=24),
+    AlbumSummary(album_id=ALBUM_ID_2, title="Vacances Bretagne", item_count=5),
+    AlbumSummary(album_id=ALBUM_ID_3, title="Famille 2024", item_count=12),
 ]
 
 
@@ -65,31 +66,30 @@ def test_resolve_album_direct_id_bypasses_names():
 
 # --- Full command over a stateful MockTransport ------------------------------
 
-HOME_TOKEN = "AH_" + "H" * 40 + "0001"
-SHARE_TOKEN = "AH_" + "S" * 40 + "0001"
-
-
-def _home_html() -> str:
-    rows = "".join(
-        f'["{a.album_id}", "{a.title}", null], ' for a in ALBUMS)
-    data_literal = '[[' + rows[:-2] + ']]'
+def _albums_html() -> str:
+    """A synthetic /albums page whose ds:5 uses the LIVE-PROVEN row shape:
+    [cover_id, [cover_url, w, h, …], …, {<key>: [4, title, [dates], count,
+    1, page_key_b64, …, share_token, …]}]."""
+    entries = []
+    for a in ALBUMS:
+        key_b64 = base64.b64encode(f"key-{a.album_id[-4:]}".encode()).decode()
+        entry = ('["AF1QipFAKEcover' + a.album_id[-4:] +
+                 '00000000000000000000000000000' +
+                 '", ["https://lh3.googleusercontent.com/pw/FAKEcover", 1, 2], '
+                 'null, null, {"72930366": [4, "' + a.title +
+                 '", [1700000000000], ' + str(a.item_count) +
+                 ', 1, "' + key_b64 +
+                 '", null, ["x"], "' + a.album_id +
+                 '", ["sig"]]}]')
+        entries.append(entry)
+    data_literal = "[[" + ", ".join(entries) + "]]"
     return (
         '<html><body><script>window.WIZ_global_data = '
         '{"SNlM0e": "SYNTH-AT", "FdrFJe": "123", "cfb2h": "boq_bl", '
         '"oPEP7c": "someone@example.com"};</script>'
-        "<script>AF_initDataCallback({key: 'ds:0', hash: '1', data:"
+        "<script>AF_initDataCallback({key: 'ds:5', hash: '1', data:"
         + data_literal + '});</script>'
         '</body></html>'
-    )
-
-
-def _share_html(album_id: str) -> str:
-    return (
-        "<html><body>"
-        "<script>AF_initDataCallback({key: 'ds:1', hash: '2', "
-        "data:[[\"album-header\", null]]});</script>"
-        f"<script>window._continuation = \"{SHARE_TOKEN}\";</script>"
-        "</body></html>"
     )
 
 
@@ -115,23 +115,35 @@ def _rpc_response(items: list, next_token: str | None) -> str:
 
 
 def _router():
-    state = {"posted": 0}
+    state = {"posted": 0, "expected_token": None}
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if request.method == "GET" and path == "/":
-            return httpx.Response(200, text=_home_html())
-        if request.method == "GET" and "/share/" in path:
-            return httpx.Response(200, text=_share_html(ALBUM_ID_1))
+            return httpx.Response(200, text=_albums_html())
+        if request.method == "GET" and path == "/albums":
+            return httpx.Response(200, text=_albums_html())
         if request.method == "GET" and path.endswith("=d"):
             num = int(path.removesuffix("=d").rsplit("i", 1)[-1])
             return httpx.Response(206, text="x",
                                   headers={"Content-Range": f"bytes 0-0/{num * 10 + 3}"})
         if request.method == "POST":
             state["posted"] += 1
+            # Validate the client's protocol side: triple-nested envelope,
+            # NULL batch-1 continuation, then a correct AH_ token chain.
+            from urllib.parse import unquote
+            parts = dict(p.split("=", 1) for p in request.content.decode().split("&")
+                         if "=" in p)
+            arr = json.loads(unquote(parts["f.req"]))
+            inner = json.loads(arr[0][0][1])
+            if inner[1] != state["expected_token"]:
+                return httpx.Response(400, text="stale continuation")
+            if inner[3] != f"key-{ALBUM_ID_1[-4:]}":
+                return httpx.Response(400, text="wrong page_key")
             page = state["posted"]
             has_next = page < 2
             tok = ("AH_" + "N" * 40 + f"{page + 1:04d}") if has_next else None
+            state["expected_token"] = tok
             return httpx.Response(200, text=_rpc_response(_rpc_items(page, 5), tok))
         return httpx.Response(404)
 
@@ -177,21 +189,24 @@ def test_google_album_not_found_prints_albums_and_exits_2(capsys):
     assert "Famille 2024" in out
 
 
-def test_google_album_by_direct_link_enumerates(capsys):
-    rc = run_google_album(f"https://photos.google.com/share/{ALBUM_ID_1}?key=K1",
+def test_google_album_by_direct_link_resolves_and_enumerates(capsys):
+    """A pasted share link works: the id is extracted and the page_key from
+    the listing (when the link lacks one) comes from the /albums match."""
+    rc = run_google_album(f"https://photos.google.com/share/{ALBUM_ID_1}",
                           session=_session())
     assert rc == 0
     out = capsys.readouterr().out
     assert "Items: 10" in out
 
 
-def test_google_album_list_flag_prints_numbered_albums(capsys):
+def test_google_album_list_flag_prints_numbered_albums_with_counts(capsys):
     rc = run_google_album(None, session=_session(), list_all=True)
     assert rc == 0
     out = capsys.readouterr().out
     assert "3 shared albums:" in out
     assert "1. Vacances Corse" in out
     assert "3. Famille 2024" in out
+    assert "24 items (metadata)" in out
     assert ALBUM_ID_1 not in out       # redaction holds on the listing too
 
 

@@ -415,13 +415,19 @@ def resolve_album(target: str, albums: list) -> AlbumResolution:
     return AlbumResolution(album=None, status='not_found', candidates=albums)
 
 
-def _print_album_candidates(candidates: list, numbered: bool = False) -> None:
-    """Print an album candidate list (redacted ids, D-05/T-17-08)."""
+def _print_album_candidates(candidates: list, numbered: bool = False,
+                            show_count: bool = False) -> None:
+    """Print an album candidate list (redacted ids, D-05/T-17-08); the
+    metadata item count is shown when available (item_count is metadata —
+    videos included; the authoritative photo count is the enumeration's)."""
     for i, candidate in enumerate(candidates, 1):
         label = f'  {i}. ' if numbered else '  - '
         title = candidate.title or '(untitled)'
         id_shape = redact_link(candidate.album_id) if candidate.album_id else '(no id)'
-        print(f'{label}{title} (id shape: {id_shape})')
+        count = ''
+        if show_count and candidate.item_count is not None:
+            count = f' — {candidate.item_count} items (metadata)'
+        print(f'{label}{title} (id shape: {id_shape}){count}')
 
 
 def run_google_album(target: str, *, debug: bool = False, session=None,
@@ -449,14 +455,18 @@ def run_google_album(target: str, *, debug: bool = False, session=None,
             print(f'google-album failed: {e}')
             return 1
 
-    albums = list_shared_albums(session)
+    try:
+        albums = list_shared_albums(session)
+    except EnumerateError as e:
+        print(f'google-album failed: {redact_tokens(str(e))}')
+        return 1
 
     if list_all:
         if not albums:
             print('No shared albums found on this account.')
             return 0
         print(f'{len(albums)} shared albums:')
-        _print_album_candidates(albums, numbered=True)
+        _print_album_candidates(albums, numbered=True, show_count=True)
         return 0
 
     resolved = resolve_album(target, albums)
@@ -464,25 +474,30 @@ def run_google_album(target: str, *, debug: bool = False, session=None,
     if resolved.status == 'ambiguous':
         print(f"'{target}' matches more than one album — re-run with a link/id "
               f"or a fuller name:")
-        _print_album_candidates(resolved.candidates, numbered=True)
+        _print_album_candidates(resolved.candidates, numbered=True, show_count=True)
         return 2
     if resolved.status == 'not_found':
         print(f"No album matches '{target}'. Available shared albums:")
-        _print_album_candidates(albums, numbered=True)
+        _print_album_candidates(albums, numbered=True, show_count=True)
         return 2
 
     album = resolved.album
-    share_url = album.share_url
-    if not share_url:
-        # A name-resolved summary without a share URL: reconstruct in the
-        # proven /share/<album_id> shape (the ds:0 walk always carries ids).
-        share_url = f'https://photos.google.com/share/{album.album_id}'
+    # The page_key (share URL's ?key=) is optional but the /albums listing
+    # carries it — use it when the resolved album matches a listed one.
+    page_key = None
+    if album.share_url and 'key=' in album.share_url:
+        page_key = album.share_url.split('key=', 1)[1].split('&', 1)[0] or None
+    elif album.album_id:
+        listed = next((a for a in albums if a.album_id == album.album_id
+                       and a.share_url and 'key=' in a.share_url), None)
+        if listed:
+            page_key = listed.share_url.split('key=', 1)[1].split('&', 1)[0] or None
 
     print(f'Album: {album.title or "(untitled)"} '
           f'(id shape: {redact_link(album.album_id)})')
 
     try:
-        listing = enumerate_album(session, share_url)
+        listing = enumerate_album(session, album.album_id, page_key=page_key)
     except EnumerateError as e:
         print(f'google-album failed: {redact_tokens(str(e))}')
         return 1
