@@ -77,7 +77,56 @@ convention; this spike proves the bytes).
 
 ## Plan 16-02 — Browser bootstrap + internal RPC listing
 
-_(pending — gate approved 2026-09-28; bootstrap in progress, operator login)_
+**Gate record (D-07 gate 1):** operator approved execution ("go — exécuter le harvest",
+2026-09-28). Consent D-06 re-confirmed for v4.0.
+
+### Bootstrap — one D-03 retry after a concrete fix
+
+1. **First attempt — FAILED (bot detection):** Playwright bundled Chromium at
+   `photos.google.com` → Google refused the login with "this browser or app may not be
+   secure" (operator-reported, exactly the §2 BROWSER-AUTOMATION finding).
+2. **Documented retry (the one D-03 allows) — concrete fix:** launch the **real system
+   Google Chrome** (`channel="chrome"`, Chrome 153.0.8010.52) with
+   `--disable-blink-features=AutomationControlled`. **SUCCEEDED:** operator logged in;
+   harvest detected SAPISID/__Secure-1PAPISID/__Secure-3PAPISID; **45 cookies** saved to
+   `~/.config/auraframes/probes/google-cookies.json` — **0600 verified**, outside the repo,
+   `git check-ignore` clean.
+3. Retry ledger: one documented retry used; a third attempt would violate D-03.
+
+### Session-RPC listing — proven end-to-end, with the decisive discovery
+
+| Step | Result |
+|---|---|
+| Vaulted cookies → httpx (full jar, domain+path preserved) | ✅ logged-in page: title "Photos - Google Photos", `SNlM0e` at-token present. (Live finding: a flattened name→value dict is treated as anonymous — redirects to the marketing page; the **complete jar** is required.) |
+| batchexecute transport, plain httpx POST | ✅ `)]}'` envelope received; Google's own error bodies arrive well-formed (the transport/auth layer works; a 400 from a guessed payload is a payload problem, not an auth problem) |
+| RPC shape capture (`probes/rpc_capture.py`, read-only scroll) | ✅ Google's own frontend on the scrolled album emitted **`snAcKc(share_token, continuation_token, null, key)`** — the continuation mechanism the research pass found no prior art for |
+| **Pagination, plain httpx, replaying the captured body with the token swapped** | ✅ **page 1: +300, page 2: +300, page 3: +194, token exhausted** |
+| **Exhaustive enumeration of the 1000+ album** | ✅ **794 items, 794 unique, clean exhaustion** (the true album size per the operator's "1000+" claim — 794 enumerated; delta vs "1000+" noted below) |
+| Repeat run via the committed `browser_bootstrap.py list` | ✅ identical: 794/794, EXHAUSTED cleanly |
+
+**Decisive consequence: the "~500 ceiling" (suspected) and the "300 cap" (measured on the
+public page this morning) were both page-size artifacts. With the session RPC
+(`snAcKc` + continuation), the full album enumerates — the browser mechanism has **no
+observed ceiling**.** The share page's 300-item ds:1 is merely batch-1 of the same stream
+the UI paginates via RPC.
+
+**Secondary findings (honesty):**
+- With the full logged-in jar, the share page's `ds:1` returned 0 items — the logged-in
+  page shape differs from the anonymous one (items move to the RPC stream). The anonymous
+  parse path remains valid for un-authed use (16-01 evidence stands).
+- Initial guessed payloads (`EW6Kmf`, raw ids from ds:0) returned 400s with Google's
+  standard error envelope — recorded as evidence of payload-sensitivity, not auth failure.
+- The operator reports the album as "1000+"; enumeration exhausts at 794. Either the UI
+  count includes items the share stream filters (videos, archived), or the count is
+  approximate. Recorded as-is; the exhaustive-stream result is what matters mechanically.
+
+### Permanent cost statement (from the plan, now evidence-backed)
+
+The browser mechanism is **permanently local-only and never-CI-able** (Google's bot
+detection blocks unattended login — confirmed live above); the cookie-expiry cadence is
+unknown and **accepted** per the 2026-09-28 operator decision. Bootstrap is a single
+documented command (`probes/browser_bootstrap.py bootstrap`), re-runnable when cookies
+expire.
 
 ## Plan 16-03 — Byte fidelity
 

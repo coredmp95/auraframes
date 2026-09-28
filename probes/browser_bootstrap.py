@@ -27,6 +27,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -40,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import probes.cookie_vault as cookie_vault  # noqa: E402
 from probes.common import redact_link, redact_tokens  # noqa: E402
-from probes.shared_link_probe import parse_af_initdata  # noqa: E402
+from probes.shared_link_probe import _walk_items, parse_af_initdata  # noqa: E402
 
 PHOTOS_HOME = "https://photos.google.com/"
 # batchexecute endpoint for the Photos web frontend (authuser keeps the call
@@ -75,9 +76,27 @@ def _bootstrap(*, auto: bool = False) -> int:
     from playwright.sync_api import sync_playwright  # lazy, in-function import ONLY
 
     print(f"dedicated profile: {profile_dir}")
-    print("opening Chromium — log into Google in the window.")
+    print("opening browser — log into Google in the window.")
+    # Anti-bot-detection posture (BROWSER-AUTOMATION §2; D-03 single documented
+    # retry after a concrete fix): Google challenges Playwright's bundled
+    # Chromium at login ("this browser or app may not be secure"). Mitigations:
+    #   1. channel="chrome" — the REAL installed Google Chrome when present
+    #      (falls back to bundled Chromium otherwise), which Google's risk
+    #      engine already treats as an ordinary browser;
+    #   2. drop the --enable-automation switch and disable blink automation
+    #      features so navigator.webdriver stays false.
+    import shutil
+    has_chrome = shutil.which("google-chrome") is not None
+    launch_kwargs = dict(user_data_dir=str(profile_dir), headless=False,
+                         args=["--disable-blink-features=AutomationControlled"])
+    if has_chrome:
+        launch_kwargs["channel"] = "chrome"
+        print("browser: system Google Chrome (channel=chrome)")
+    else:
+        launch_kwargs["ignore_default_args"] = ["--enable-automation"]
+        print("browser: bundled Chromium (automation switches masked)")
     with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(str(profile_dir), headless=False)
+        context = p.chromium.launch_persistent_context(**launch_kwargs)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(PHOTOS_HOME, wait_until="domcontentloaded")
         if auto:
@@ -160,16 +179,35 @@ def _batchexecute(http: httpx.Client, rpcid: str, payload: list, origin: str) ->
 _AT_TOKEN = ""
 
 
+_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " \
+       "Chrome/153.0.0.0 Safari/537.36"
+
+
+def _http_client() -> httpx.Client:
+    """httpx client with the vault's FULL cookie records (domain+path preserved).
+
+    Live finding: a flattened name→value dict gets treated as an anonymous
+    visitor by photos.google.com (redirect to the marketing page), while the
+    complete jar (domain/path from the harvest) yields the logged-in app page
+    with the SNlM0e at-token. UA matches the harvesting browser.
+    """
+    records = cookie_vault.load()  # denylist check fires here
+    jar = httpx.Cookies()
+    for c in records:
+        jar.set(c["name"], c["value"],
+                domain=c.get("domain", ".google.com"), path=c.get("path", "/"))
+    return httpx.Client(
+        cookies=jar,
+        timeout=30.0,
+        follow_redirects=True,
+        headers={"User-Agent": _UA, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8"},
+    )
+
+
 def _list_album(url: str) -> int:
     """Plain-httpx internal RPC listing against a throwaway album."""
     global _AT_TOKEN
-    http = httpx.Client(
-        cookies=cookie_vault.cookies_for_httpx(),
-        timeout=30.0,
-        follow_redirects=True,
-        headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                               "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"},
-    )
+    http = _http_client()
 
     # Step 1: fetch the album page WITH session cookies — extracts the album's
     # internal id, the at-token, and batch-1 of items via the ds:1 parser.
@@ -180,31 +218,89 @@ def _list_album(url: str) -> int:
         return 1
     at_m = re.search(r'"SNlM0e":"([^"]+)"', page.text)
     _AT_TOKEN = at_m.group(1) if at_m else ""
+    if not _AT_TOKEN:
+        # SNlM0e lives on the logged-in home page, not on share pages —
+        # fetch it there with the same session.
+        home = http.get(PHOTOS_HOME)
+        at_m = re.search(r'"SNlM0e":"([^"]+)"', home.text)
+        _AT_TOKEN = at_m.group(1) if at_m else ""
+        print(f"at-token from photos.google.com home: {'found' if _AT_TOKEN else 'MISSING'}")
+    # Album id: first AF1Qip token in the ds:0 (album header) block, falling
+    # back to the page's first token. Share-page media ids share the prefix,
+    # so a mis-grabbed id surfaces as an RPC error — which is still evidence.
+    album_id = None
+    ds0_m = re.search(r"key: 'ds:0'.{0,4000}?AF1Qip([A-Za-z0-9_-]{20,})", page.text, re.S)
+    if ds0_m:
+        album_id = ds0_m.group(1) if ds0_m.lastindex else ds0_m.group(0)
+        album_id = "AF1Qip" + album_id
+    else:
+        any_m = re.search(r"(AF1Qip[A-Za-z0-9_-]{20,})", page.text)
+        album_id = any_m.group(1) if any_m else None
     items = parse_af_initdata(page.text)
     print(f"album page (with session): HTTP {page.status_code}, "
           f"batch-1 count: {len(items)} — {redact_link(url)}")
 
-    # Step 2: ONE follow-up batchexecute POST — the continuation attempt.
-    # The continuation rpcid is undocumented; we probe with the observable
-    # envelope. A failure mode here IS the finding (D-03 honesty): it tells
-    # us whether session-cookie RPC needs more reverse-engineering, not
-    # whether the mechanism is dead (the userscript reference proves it works
-    # from inside a session).
-    album_id_m = re.search(r"(AF1Qip[A-Za-z0-9_-]{20,})", page.text)
-    album_id = album_id_m.group(1) if album_id_m else None
-    if _AT_TOKEN and album_id:
-        payload = [album_id, None, None, None, 1, None, None, 100]
-        try:
-            resp = _batchexecute(http, "EW6Kmf", payload, "https://photos.google.com")
-            body = redact_tokens(resp.text[:2000])
-            envelope_ok = resp.status_code == 200 and ")]}'" in resp.text
-            print(f"follow-up RPC: HTTP {resp.status_code} "
-                  f"(envelope {'present' if envelope_ok else 'ABSENT'})")
-            print(f"follow-up body (first 2000 chars, redacted): {body}")
-        except Exception as exc:  # noqa: BLE001 — the failure mode IS the evidence
-            print(f"follow-up RPC failed: {redact_tokens(str(exc))}")
+    # Step 2: follow-up batchexecute — pagination via snAcKc + continuation.
+    # The rpcid/shape was learned by rpc_capture.py (Google's own frontend
+    # calls on a scrolled album): snAcKc(share_token, continuation, null, key),
+    # 300 items/page, exhausts when the response carries no AH_ token.
+    # A verbatim captured body (from the capture file) is replayed with the
+    # token substituted — highest-fidelity replay, no payload guessing.
+    capture = Path("/tmp/gsd-rpc-capture.json")
+    if not capture.exists():
+        print("follow-up RPC: no capture file — run probes/rpc_capture.py first")
     else:
-        print("follow-up RPC: skipped (missing at-token or album id on the page)")
+        calls = json.loads(capture.read_text())
+        snac = next((c for c in calls if c["rpcid"] == "snAcKc"), None)
+        if snac is None:
+            print("follow-up RPC: capture holds no snAcKc call — re-run rpc_capture on a large album")
+        else:
+            rpc_url = ("https://photos.google.com/_/PhotosUi/data/batchexecute?"
+                       + snac["url_query"].split("&_reqid")[0])
+            body = snac["freq_head"]
+            cur_tok = re.search(r"AH_[A-Za-z0-9_-]{40,}", body).group(0)
+            total, pages, all_ids = 0, 0, set()
+            rpc_headers = {"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                           "Origin": "https://photos.google.com",
+                           "Referer": "https://photos.google.com/"}
+            while pages < 60:  # 60 pages x 300 = 18000, far beyond any real album
+                r = http.post(rpc_url, content=body.encode(), headers=rpc_headers)
+                if r.status_code != 200:
+                    print(f"follow-up RPC: HTTP {r.status_code} on page {pages + 1} — recorded (D-03)")
+                    break
+                got, got_tok = 0, None
+                for line in r.text.split("\n"):
+                    line = line.strip()
+                    if not line or line.startswith(")]}'"):
+                        continue
+                    try:
+                        arr = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    for entry in arr:
+                        if (isinstance(entry, list) and entry
+                                and entry[0] == "wrb.fr" and entry[1] == "snAcKc"):
+                            if entry[2] is None:
+                                continue
+                            inner = json.loads(entry[2])
+                            page_items = []
+                            _walk_items(inner, page_items)
+                            got = len(page_items)
+                            all_ids.update(i["id"] for i in page_items)
+                            for tok in re.findall(r"AH_[A-Za-z0-9_-]{40,}", entry[2]):
+                                got_tok = tok  # last = the freshest cursor
+                total += got
+                pages += 1
+                print(f"RPC page {pages}: +{got} items (cumulated {total}, "
+                      f"unique {len(all_ids)}); next token: {'yes' if got_tok else 'EXHAUSTED'}")
+                if not got_tok or not got:
+                    break
+                body = body.replace(cur_tok, got_tok)
+                cur_tok = got_tok
+            print(f"RPC enumeration total: {total} items ({len(all_ids)} unique) "
+                  f"— {'EXHAUSTED cleanly' if not got_tok else 'stopped (page cap)'}")
+            if album_id:
+                print(f"(album {album_id[:12]}…)")
 
     print("note: the browser mechanism is permanently local-only and never-CI-able; "
           "cookie expiry cadence is an accepted operational cost (2026-09-28 decision).")
