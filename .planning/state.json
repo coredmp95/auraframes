@@ -1,38 +1,33 @@
 {
   "contract": "1.0.0",
   "flavor": "core",
-  "milestone": "v3.0 — Google Photos Album Sync (Phases 11-15) — IN PROGRESS",
+  "milestone": "v4.0 — Local Google Photos Album Sync",
   "phases": [
     {
-      "number": "11",
-      "name": "Write-Path Reliability & Format Support",
-      "status": "complete"
+      "number": "16",
+      "name": "Local Mechanism Spike & Decision",
+      "status": "in_progress"
     },
     {
-      "number": "12",
-      "name": "Album-Access Mechanism Spike",
-      "status": "pending"
-    },
-    {
-      "number": "13",
+      "number": "17",
       "name": "Google Link & Album Selection",
       "status": "pending"
     },
     {
-      "number": "14",
+      "number": "18",
       "name": "Album → Frame Mirror Sync (Single Pair)",
       "status": "pending"
     },
     {
-      "number": "15",
-      "name": "Many-to-Many Mapping & Debt Closeout",
+      "number": "19",
+      "name": "Debt Closeout",
       "status": "pending"
     }
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 12)",
-    "reason": "Phase 12 of 5 — needs a plan"
+    "label": "Advance to the next step",
+    "reason": "Phase 17 of 4 · 0% · executing"
   },
-  "updated_at": "2026-09-03T20:19:52.507Z"
+  "updated_at": "2026-09-28T11:38:34.156Z"
 }
