@@ -247,6 +247,30 @@ def enumerate_album(session, share_url: str, *, max_pages: int = MAX_PAGES) -> A
     )
 
 
+def list_shared_albums(session) -> list:
+    """The account's shared albums, from the logged-in home page's ds:0 block.
+
+    The discovery aid behind `google-album --list` and the name resolution:
+    titles come from the ds:0 rows, share URLs are CONSTRUCTED in the proven
+    /share/<album_id> shape. Item counts are NOT carried (the authoritative
+    count is enumerate_album's) — the summary never guesses one.
+    """
+    from auraframes.google.parsers import AlbumSummary, extract_initdata, parse_album_summaries
+
+    text = session.home_text()
+    try:
+        ds0 = extract_initdata(text, "ds:0")
+    except ProbeParseError:
+        # A logged-in home without a ds:0 album block: an account with no
+        # shared albums is a legitimate empty listing, not a parse failure.
+        return []
+    summaries: list[AlbumSummary] = parse_album_summaries(ds0)
+    for s in summaries:
+        if s.album_id:
+            s.share_url = f"{PHOTOS_HOME.rstrip('/')}/share/{s.album_id}"
+    return summaries
+
+
 def measure_disk_weight(session, base_urls: list[str]) -> list[int]:
     """Exact per-item byte sizes via 1-octet Range GETs on `{baseUrl}=d`.
 

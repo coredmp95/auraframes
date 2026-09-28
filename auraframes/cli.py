@@ -13,6 +13,17 @@ from auraframes.aura import Aura
 from auraframes.aws.s3client import S3Client
 from auraframes.aws.sqsclient import SQSClient
 from auraframes.client import RateLimitError
+from auraframes.google.bootstrap import BootstrapError, PROFILE_ENV_VAR, default_bootstrap
+from auraframes.google.client import GoogleSession
+from auraframes.google.enumerate import (
+    EnumerateError,
+    enumerate_album,
+    list_shared_albums,
+    measure_disk_weight,
+)
+from auraframes.google.parsers import AlbumSummary
+from auraframes.google.redaction import redact_link, redact_tokens
+from auraframes.google.vault import CookieVaultError
 from auraframes.models.frame import Frame
 from auraframes.ratelimit import WriteBudget, check_geo, _default_resolver, GeoMismatchError, BudgetExhausted
 from auraframes.reconcile import apply_reconciliation, find_placeholders
@@ -138,6 +149,20 @@ def build_parser() -> argparse.ArgumentParser:
         help='Explicit opt-in: treat placeholder rows whose creation time this API never sends '
              '(unknown_age) as eligible for removal too, not just rows old enough per '
              '--max-age-hours. Without this flag, --remove cannot touch unknown-age rows.')
+
+    # Phase 17 (LGS-02..05): Google link + album selection. google-link is
+    # BOTH the link and the re-link command (one documented surface); the
+    # dedicated-profile env prerequisite is enforced in run_google_link.
+    link_parser = subparsers.add_parser(
+        'google-link', help='Link (or re-link) Google Photos via the dedicated-profile browser bootstrap')
+    album_parser = subparsers.add_parser(
+        'google-album', help='Select a Google Photos album and enumerate every item with exact disk weight')
+    album_parser.add_argument(
+        'target', nargs='?', default=None,
+        help='Album share URL, AF1Qip… id, or album-name substring (ambiguity -> numbered list, exit 2)')
+    album_parser.add_argument(
+        '--list', action='store_true', default=False,
+        help='List the account\'s shared albums and exit (discovery aid)')
     return parser
 
 
@@ -170,10 +195,17 @@ def _configure_cli_logging(debug: bool) -> None:
     logger.add(sys.stderr, level='WARNING')
 
 
-def run_status(aura=None, debug: bool = False) -> int:
+def run_status(aura=None, debug: bool = False, google_session=None) -> int:
     """Status command handler. Returns a process exit code (0 success, 1
     failure) — never calls sys.exit directly. Accepts an optional injected
-    `Aura` (dependency-injection seam) so this is testable offline."""
+    `Aura` (dependency-injection seam) so this is testable offline.
+
+    `google_session` (phase 17) is the same DI pattern for the Google
+    section: inject a GoogleSession (real one over a MockTransport in
+    tests) to control its output hermetically. When None, the section is
+    built from the cookie vault — vault absent means `linked: no` with no
+    network call.
+    """
     # Config health check (D-07) — must run first; never print the password
     # value, only the literal set/NOT SET.
     email_set = bool(os.getenv('AURA_EMAIL'))
@@ -205,6 +237,93 @@ def run_status(aura=None, debug: bool = False) -> int:
     for frame in frames:
         print(f'  - {frame.name} (id: {frame.id})')
 
+    # Phase 17 (LGS-03): the Google link section — email + session state
+    # only, NEVER cookie values or vault contents (D-02).
+    for line in _google_status_section(google_session):
+        print(line)
+
+    return 0
+
+
+def _google_status_section(google_session=None) -> list[str]:
+    """Build the `Google:` section lines for `status` (LGS-03/D-02).
+
+    linked/account/session only — never a cookie value, a token, or the
+    vault contents. With no injected session: a missing vault prints
+    `linked: no` with zero network calls; a present vault gets ONE home
+    GET (short timeout) for the usable/expired signal, and any failure
+    degrades to an honest `unreachable` instead of a guess.
+    """
+    lines = ['Google:']
+    if google_session is not None:
+        session = google_session
+    else:
+        try:
+            # Denylist-safe route: vault.load() fires inside from_vault,
+            # whose frame is auraframes.google.client (sanctioned).
+            session = GoogleSession.from_vault(timeout=10.0)
+        except CookieVaultError:
+            lines.append('  linked: no')
+            lines.append('  (no Google session vault — run `aura-cli google-link`)')
+            return lines
+    try:
+        linked = session.is_linked()
+    except Exception as e:
+        lines.append('  linked: unknown (session check failed)')
+        lines.append(f'  session: unreachable ({type(e).__name__})')
+        return lines
+    lines.append(f'  linked: {"yes" if linked else "no"}')
+    if linked:
+        email = None
+        try:
+            email = session.account_email()
+        except Exception:
+            pass
+        lines.append(f'  account: {email or "(not resolvable)"}')
+        lines.append('  session: usable')
+    else:
+        lines.append('  account: (not resolvable)')
+        lines.append('  session: expired')
+    return lines
+
+
+def run_google_link(*, debug: bool = False, bootstrap_fn=None) -> int:
+    """google-link command handler (LGS-02): link AND re-link are the same
+    command. Requires the dedicated-profile env (T-16-06 posture) and runs
+    the interactive bootstrap through the `bootstrap_fn` seam — tests inject
+    a fake and never launch a browser (TEST-02).
+
+    Prints the vault path (path only), the 0600 confirmation and the
+    auth-marker cookie NAMES — never values (T-16-07/D-02).
+    """
+    _configure_cli_logging(debug)
+
+    if not os.environ.get(PROFILE_ENV_VAR, '').strip():
+        print(f'google-link failed: {PROFILE_ENV_VAR} is unset — the daily-driver '
+              f'profile is structurally unreachable; point the env var at a '
+              f'dedicated Chrome profile directory (e.g. ~/.config/auraframes/'
+              f'chrome-profile) and re-run (T-16-06)')
+        return 1
+
+    # Re-link notice (LGS-02): same command refreshes an existing session.
+    # Vault read routes through from_vault (denylist-sanctioned); a dead or
+    # absent vault both fall through to the bootstrap.
+    try:
+        GoogleSession.from_vault()
+        print('existing Google session found — refreshing it (re-link is this same command)')
+    except Exception:
+        pass
+
+    bootstrap = bootstrap_fn or default_bootstrap
+    try:
+        summary = bootstrap()
+    except BootstrapError as e:
+        print(f'google-link failed: {e}')
+        return 1
+
+    print(f"vault saved: {summary['vault_path']} (0600, outside the repo)")
+    print(f"session cookies present: {summary['cookie_count']} total; "
+          f"auth markers: {summary['auth_markers']}")
     return 0
 
 
@@ -246,6 +365,148 @@ def resolve_frame(target: str, frames: list[Frame]) -> FrameResolution:
         return FrameResolution(frame=id_matches[0], status='resolved', candidates=[])
 
     return FrameResolution(frame=None, status='not_found', candidates=frames)
+
+
+@dataclass
+class AlbumResolution:
+    """Result of resolving a `google-album <target>` argument (phase 17,
+    D-05) — mirrors resolve_frame's FrameResolution contract: a 'resolved'/
+    'ambiguous'/'not_found' discriminator plus candidates, deliberately not
+    a raised exception. `album` is an AlbumSummary when resolved.
+
+    Direct targets (share URL or AF1Qip id) bypass name resolution entirely
+    (D-05: "Lien/ID direct accepté tel quel") — they resolve by construction
+    with zero candidates, and the enumeration validates them."""
+
+    album: 'AlbumSummary | None'
+    status: str
+    candidates: list = field(default_factory=list)
+
+
+def resolve_album(target: str, albums: list) -> AlbumResolution:
+    """Resolve a `google-album` target (D-05, resolve_frame-style).
+
+    Pure function — no I/O. Order:
+    1. A target that LOOKS like a share URL (photos.google.com/share/…,
+       photos.app.goo.gl/…) or a full AF1Qip… id resolves directly — no
+       name matching (D-05's link/id path).
+    2. Otherwise: case-insensitive substring match on album titles —
+       exactly one -> resolved; several -> ambiguous (numbered choice is
+       the caller's print; no silent pick, T-17-06).
+    3. Zero matches -> not_found with every album as candidates.
+    """
+    import re as _re
+
+    share_id_m = _re.search(r"/share/([A-Za-z0-9_-]+)", target)
+    if ('photos.google.com/share/' in target or 'photos.app.goo.gl/' in target
+            or _re.fullmatch(r"AF1Qip[A-Za-z0-9_-]{20,}", target)):
+        album_id = share_id_m.group(1) if share_id_m else target
+        return AlbumResolution(album=AlbumSummary(album_id=album_id, title=None,
+                                                  share_url=target),
+                               status='resolved', candidates=[])
+
+    target_lower = target.lower()
+    name_matches = [a for a in albums
+                    if a.title and target_lower in a.title.lower()]
+    if len(name_matches) == 1:
+        return AlbumResolution(album=name_matches[0], status='resolved', candidates=[])
+    if len(name_matches) > 1:
+        return AlbumResolution(album=None, status='ambiguous', candidates=name_matches)
+    return AlbumResolution(album=None, status='not_found', candidates=albums)
+
+
+def _print_album_candidates(candidates: list, numbered: bool = False) -> None:
+    """Print an album candidate list (redacted ids, D-05/T-17-08)."""
+    for i, candidate in enumerate(candidates, 1):
+        label = f'  {i}. ' if numbered else '  - '
+        title = candidate.title or '(untitled)'
+        id_shape = redact_link(candidate.album_id) if candidate.album_id else '(no id)'
+        print(f'{label}{title} (id shape: {id_shape})')
+
+
+def run_google_album(target: str, *, debug: bool = False, session=None,
+                     list_all: bool = False) -> int:
+    """google-album command handler (LGS-04/LGS-05, D-05/D-06): resolve an
+    album by share URL, id, or title substring — ambiguity prints a numbered
+    list and exits 2 (no silent pick, no per-photo picking anywhere) — then
+    enumerate EVERY item (continuation until exhaustion) and print the exact
+    disk weight (1-byte Range GETs).
+
+    `session` is the DI seam (TEST-02): tests inject a GoogleSession over a
+    MockTransport; without injection the session comes from the vault.
+    """
+    _configure_cli_logging(debug)
+
+    if target is None and not list_all:
+        print("google-album: provide an album name, share URL, or id "
+              "(or pass --list to discover the account's shared albums)")
+        return 2
+
+    if session is None:
+        try:
+            session = GoogleSession.from_vault()
+        except CookieVaultError as e:
+            print(f'google-album failed: {e}')
+            return 1
+
+    albums = list_shared_albums(session)
+
+    if list_all:
+        if not albums:
+            print('No shared albums found on this account.')
+            return 0
+        print(f'{len(albums)} shared albums:')
+        _print_album_candidates(albums, numbered=True)
+        return 0
+
+    resolved = resolve_album(target, albums)
+
+    if resolved.status == 'ambiguous':
+        print(f"'{target}' matches more than one album — re-run with a link/id "
+              f"or a fuller name:")
+        _print_album_candidates(resolved.candidates, numbered=True)
+        return 2
+    if resolved.status == 'not_found':
+        print(f"No album matches '{target}'. Available shared albums:")
+        _print_album_candidates(albums, numbered=True)
+        return 2
+
+    album = resolved.album
+    share_url = album.share_url
+    if not share_url:
+        # A name-resolved summary without a share URL: reconstruct in the
+        # proven /share/<album_id> shape (the ds:0 walk always carries ids).
+        share_url = f'https://photos.google.com/share/{album.album_id}'
+
+    print(f'Album: {album.title or "(untitled)"} '
+          f'(id shape: {redact_link(album.album_id)})')
+
+    try:
+        listing = enumerate_album(session, share_url)
+    except EnumerateError as e:
+        print(f'google-album failed: {redact_tokens(str(e))}')
+        return 1
+
+    base_urls = [i['base_url'] for i in listing.items]
+    sizes = measure_disk_weight(session, base_urls)
+    for item, size in zip(listing.items, sizes):
+        item['bytes'] = size
+    total = sum(sizes)
+
+    print(f'Items: {len(listing.items)} '
+          f"(pages: {listing.page_count}, "
+          f"exhausted: {'cleanly' if listing.exhausted_cleanly else 'NO — INCOMPLETE'})")
+    print(f'Disk weight: {total:,} bytes = {total / 1024 / 1024:.1f} MiB '
+          f'(min {min(sizes):,}, max {max(sizes):,}, '
+          f'avg {total // max(len(sizes), 1):,})')
+    print('Per-item (index | id shape | WxH | bytes):')
+    for idx, (item, size) in enumerate(zip(listing.items, sizes), 1):
+        w = item.get('width') if item.get('width') is not None else '?'
+        h = item.get('height') if item.get('height') is not None else '?'
+        id_shape = redact_link(item['id'])
+        print(f'  {idx:4d} | {id_shape} | {w}x{h} | {size:,}')
+
+    return 0
 
 
 def run_inspect(frame_arg: str, aura=None, debug: bool = False) -> int:
@@ -790,6 +1051,10 @@ def main(argv=None) -> int:
 
     if args.command == 'status':
         return run_status(debug=args.debug)
+    if args.command == 'google-link':
+        return run_google_link(debug=args.debug)
+    if args.command == 'google-album':
+        return run_google_album(args.target, list_all=args.list, debug=args.debug)
     if args.command == 'inspect':
         return run_inspect(args.frame, debug=args.debug)
     if args.command == 'sync':

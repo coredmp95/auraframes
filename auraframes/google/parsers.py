@@ -19,6 +19,10 @@ from dataclasses import dataclass
 
 _DS1_RE = re.compile(r"AF_initDataCallback\(\s*\{\s*key:\s*['\"]ds:1['\"]")
 
+# Any AF_initDataCallback block, key captured (ds:0 album headers, ds:1 media,
+# ds:N anything else the frontend carries).
+_ANY_DS_RE = re.compile(r"AF_initDataCallback\(\s*\{\s*key:\s*['\"](ds:\d+)['\"]")
+
 # snAcKc continuation cursors: AH_ followed by 40+ URL-safe chars (live-proven).
 AH_TOKEN_RE = re.compile(r"AH_[A-Za-z0-9_-]{40,}")
 
@@ -27,38 +31,44 @@ class ProbeParseError(RuntimeError):
     """Raised when a Google page/payload lacks the expected structure (fail-loud)."""
 
 
-def extract_ds1_data(html: str) -> list:
-    """Extract and JSON-parse the `data` argument of the ds:1 AF_initDataCallback.
+def extract_initdata(html: str, key: str) -> list:
+    """Extract and JSON-parse the `data` argument of the given ds:N AF_initDataCallback.
 
-    Regex-locates the `key: 'ds:1'` occurrence, then performs balanced-bracket
+    Regex-locates the `key: 'ds:N'` occurrences, then performs balanced-bracket
     extraction of the `data:[...]` argument and parses it as a JS array literal.
-    Raises ProbeParseError (naming the missing key) when the page has no ds:1
+    Raises ProbeParseError (naming the missing key) when the page has no such
     block — fail loud, never emit a partial item list silently.
     """
-    matches = list(_DS1_RE.finditer(html))
+    matches = [m for m in _ANY_DS_RE.finditer(html) if m.group(1) == key]
     if not matches:
         raise ProbeParseError(
-            "page has no AF_initDataCallback with key 'ds:1' — page shape changed "
+            f"page has no AF_initDataCallback with key '{key}' — page shape changed "
             "or the link did not resolve to an album page; refusing to guess"
         )
 
-    # Try every ds:1 occurrence (pages can carry several; non-payload lookalikes
+    # Try every occurrence (pages can carry several; non-payload lookalikes
     # — e.g. prose or comments naming the structure — fail their parse and the
     # walk continues to the next occurrence). First parseable payload wins.
     last_error: ProbeParseError | None = None
     for match in matches:
         try:
-            return _extract_data_at(html, match)
+            return _extract_data_at(html, match, key=key)
         except ProbeParseError as exc:
             last_error = exc
             continue
     raise ProbeParseError(
-        f"no parseable ds:1 data block among {len(matches)} occurrence(s): "
+        f"no parseable {key} data block among {len(matches)} occurrence(s): "
         f"{last_error} — refusing to guess"
     )
 
 
-def _extract_data_at(html: str, match: re.Match) -> list:
+def extract_ds1_data(html: str) -> list:
+    """Extract and JSON-parse the `data` argument of the ds:1 AF_initDataCallback
+    (the shared-album media payload). Thin wrapper over `extract_initdata`."""
+    return extract_initdata(html, "ds:1")
+
+
+def _extract_data_at(html: str, match: re.Match, *, key: str = "ds:1") -> list:
     # From the match, find the `data:` argument's opening bracket.
     tail = html[match.end():]
     data_m = re.search(r"\bdata\s*:", tail)
@@ -101,10 +111,10 @@ def _extract_data_at(html: str, match: re.Match) -> list:
         raise ProbeParseError("unbalanced brackets in ds:1 data payload — truncated page?")
 
     literal = html[start:end]
-    return _parse_array_literal(literal)
+    return _parse_array_literal(literal, key=key)
 
 
-def _parse_array_literal(literal: str) -> list:
+def _parse_array_literal(literal: str, *, key: str = "ds:1") -> list:
     """Parse a JS array literal: strict json.loads first, tolerant fallback second.
 
     The payload is normally plain JSON (double-quoted). When Google emits JS-isms
@@ -123,15 +133,14 @@ def _parse_array_literal(literal: str) -> list:
         sanitized = re.sub(r",\s*([\]}])", r"\1", sanitized)
         try:
             parsed = json.loads(sanitized)
-        except json.JSONDecodeError:
-            raise ProbeParseError(
-                f"ds:1 data is neither strict JSON nor tolerantly sanitizable "
-                f"(first error: {first_error.msg} at {first_error.pos}) — refusing to guess"
-            ) from first_error
+        except json.JSONDecodeError:        raise ProbeParseError(
+            f"{key} data is neither strict JSON nor tolerantly sanitizable "
+            f"(first error: {first_error.msg} at {first_error.pos}) — refusing to guess"
+        ) from first_error
         print("parse note: ds:1 payload needed tolerant sanitization (JS-isms present)",
               file=sys.stderr)
     if not isinstance(parsed, list):
-        raise ProbeParseError("ds:1 data is not an array — page shape changed")
+        raise ProbeParseError(f"{key} data is not an array — page shape changed")
     return parsed
 
 
@@ -255,3 +264,46 @@ def parse_batchexecute(text: str) -> list[BatchexecuteEntry]:
             "— truncated or reshaped envelope; refusing to guess"
         )
     return entries
+
+
+@dataclass
+class AlbumSummary:
+    """One shared album, as surfaced by the logged-in home page's ds:0 block.
+
+    `item_count` stays None when the block carries no count (the summary
+    walk never guesses — the authoritative count is enumerate_album's).
+    """
+
+    album_id: str | None
+    title: str | None
+    share_url: str | None = None
+    item_count: int | None = None
+
+
+def _walk_album_summaries(node, out):
+    """Depth-first walk of a ds:0 payload collecting shared-album summaries:
+    rows shaped [AF1Qip…, <title-str>, ...] (never item-shaped — the §1b
+    media discriminator requires a http(s) baseUrl at row[1][0])."""
+    if not isinstance(node, list):
+        return
+    if (len(node) >= 2 and isinstance(node[0], str)
+            and node[0].startswith("AF1Qip")
+            and isinstance(node[1], str)):
+        out.append(AlbumSummary(album_id=node[0], title=node[1]))
+        return
+    for child in node:
+        _walk_album_summaries(child, out)
+
+
+def parse_album_summaries(ds0_data: list) -> list[AlbumSummary]:
+    """Parse a ds:0 payload (the logged-in home's album block) into deduped
+    AlbumSummary rows."""
+    out: list[AlbumSummary] = []
+    _walk_album_summaries(ds0_data, out)
+    seen: set[str] = set()
+    deduped = []
+    for s in out:
+        if s.album_id and s.album_id not in seen:
+            seen.add(s.album_id)
+            deduped.append(s)
+    return deduped
