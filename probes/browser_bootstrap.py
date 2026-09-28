@@ -59,20 +59,48 @@ def _require_dedicated_profile() -> Path:
     return path
 
 
-def _bootstrap() -> int:
-    """Interactive one-time cookie harvest from the dedicated profile."""
+def _bootstrap(*, auto: bool = False) -> int:
+    """Interactive one-time cookie harvest from the dedicated profile.
+
+    auto=True polls the context for completed Google auth (SAPISID-family
+    cookies) instead of waiting for an Enter in the terminal — for runs
+    launched from a non-interactive shell. Same consent scope, same profile,
+    same vault.
+    """
     profile_dir = _require_dedicated_profile()
     from playwright.sync_api import sync_playwright  # lazy, in-function import ONLY
 
     print(f"dedicated profile: {profile_dir}")
-    print("opening Chromium — log into Google in the window, then come back here.")
+    print("opening Chromium — log into Google in the window.")
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(str(profile_dir), headless=False)
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(PHOTOS_HOME, wait_until="domcontentloaded")
-        input("…press Enter here AFTER logging in on the opened window> ")
-        cookies = context.cookies()
-        context.close()
+        if auto:
+            import time
+
+            _AUTH_MARKERS = {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}
+            print("waiting for login to complete (auto-detect, 10 min timeout)…")
+            deadline = time.monotonic() + 600
+            auth_names: set[str] = set()
+            while time.monotonic() < deadline:
+                cookies = context.cookies()
+                auth_names = {c["name"] for c in cookies if c["name"] in _AUTH_MARKERS}
+                if auth_names:
+                    break
+                time.sleep(2)
+            if not auth_names:
+                context.close()
+                print("PROBE FAILED: no auth cookies detected within 10 minutes — "
+                      "was the login completed in the opened window?", file=sys.stderr)
+                return 1
+            print(f"login detected via {sorted(auth_names)} — harvesting")
+            cookies = context.cookies()
+            context.close()
+        else:
+            input("…press Enter here AFTER logging in on the opened window> ")
+            cookies = context.cookies()
+            context.close()
 
     if not any(c["name"] in ("SID", "SAPISID", "__Secure-1PSID") for c in cookies):
         print("PROBE FAILED: no Google session cookies found after login — "
@@ -81,11 +109,12 @@ def _bootstrap() -> int:
 
     vault = cookie_vault.save(cookies)
     # Identity signal only — never cookie values (T-16-07).
-    auth_names = sorted({c["name"] for c in cookies
-                         if c["name"] in ("SID", "SAPISID", "__Secure-1PSID",
-                                          "__Secure-3PSID", "LSID")})
+    markers = sorted({c["name"] for c in cookies
+                      if c["name"] in ("SID", "SAPISID", "__Secure-1PSID",
+                                       "__Secure-3PSID", "LSID", "__Secure-1PAPISID",
+                                       "__Secure-3PAPISID")})
     print(f"vault saved: {vault} (0600, untracked)")
-    print(f"session cookies present: {len(cookies)} total; auth markers: {auth_names}")
+    print(f"session cookies present: {len(cookies)} total; auth markers: {markers}")
     return 0
 
 
@@ -201,13 +230,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("bootstrap", help="interactive login + cookie harvest into the vault")
+    sub.choices["bootstrap"].add_argument("--auto", action="store_true",
+                                          help="auto-detect login completion instead of "
+                                               "waiting for Enter (for non-interactive runs)")
     p_list = sub.add_parser("list", help="plain-httpx batchexecute album listing via vaulted cookies")
     p_list.add_argument("--url", required=False, default=None,
                         help="throwaway album share/URL (or put a full link in probes/*.link)")
     args = parser.parse_args(argv)
 
     if args.command == "bootstrap":
-        return _bootstrap()
+        return _bootstrap(auto=getattr(args, "auto", False))
     url = args.url
     if not url:
         links = sorted(Path(__file__).parent.glob("*.link"))

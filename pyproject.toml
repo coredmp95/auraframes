@@ -26,6 +26,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+google-browser = [
+    "playwright>=1.63.0",
+]
 
 [project.scripts]
 aura-cli = "auraframes.cli:main"
