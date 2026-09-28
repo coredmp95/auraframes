@@ -88,14 +88,16 @@ Boolean variables accept `1`, `true`, `yes`, `on` (case-insensitive); anything e
 ## CLI Usage (`aura-cli`)
 
 A CLI wraps the library (installed as the `aura-cli` entry point by `uv sync`). There are
-four commands:
+six commands:
 
 | Command | What it does | Writes? |
 |---------|--------------|---------|
-| `status` | Check credentials, log in, list your frames | No |
+| `status` | Check credentials, log in, list your frames, show the Google link state | No |
 | `inspect` | Show one frame's photos and metadata | No |
 | `sync` | Make a frame **match** a local directory | Yes, with `--apply` |
 | `push` | Upload from a supply directory — **never** removes | Yes, with `--apply` |
+| `google-link` | Link (or re-link) your Google Photos account | Vault write only (outside the repo) |
+| `google-album` | Select a Google Photos album and enumerate it exactly | No (read-only) |
 
 **→ Full reference with every flag, real output, and known issues: [`docs/CLI.md`](docs/CLI.md)**
 
@@ -227,6 +229,60 @@ uv run aura-cli push ./buffet/ --frame "Living Room" --apply --yes --limit 40
 ```
 
 **If you are unsure which to use, use `push`** — it cannot take anything away.
+
+### Google Photos albums — `google-link` / `google-album`
+
+These commands read your **Google Photos** shared albums (a separate account from the Aura
+API). The mechanism is the browser-automation one proven in phase 16: a dedicated-profile
+browser harvests the session cookies once, and every later operation is plain authenticated
+HTTP over the internal `batchexecute` API — no browser runs again.
+
+**One-time setup:** point `AURA_PROBE_CHROME_PROFILE` at a **dedicated** Chrome profile
+directory (your daily-driver profile is structurally unreachable), then link:
+
+```bash
+export AURA_PROBE_CHROME_PROFILE=~/.config/auraframes/chrome-profile
+uv run aura-cli google-link
+```
+
+A browser window opens; log into Google inside it. The command auto-detects the completed
+login, saves the session to `~/.config/auraframes/google-cookies.json` with `0600`
+permissions outside the repository, and prints only identity signals — cookie **names**, a
+count, never values. **Re-linking is the same command**: when a session expires (they do,
+that cadence is an accepted operational cost), run `google-link` again.
+
+Then select and enumerate an album by name, share link, or id:
+
+```bash
+# Discover the account's shared albums:
+uv run aura-cli google-album --list
+
+# By name substring — ambiguity prints a numbered list and stops (exit 2):
+uv run aura-cli google-album "Corse"
+
+# By share link or album id — used exactly as given:
+uv run aura-cli google-album "https://photos.google.com/share/AF1Qip...?key=..."
+```
+
+The resolved album is walked **completely** (the internal `snAcKc` continuation RPC,
+300 items/page, until exhaustion — the count must match what the Google Photos UI shows)
+and every item's exact byte size is measured with 1-byte `Range` requests, so the summary
+prints the exact disk weight without downloading a single photo:
+
+```
+Album: Vacances Corse (id shape: photos.google.com/share/AF1Qip…0001)
+Items: 24 (pages: 1, exhausted: cleanly)
+Disk weight: 90,813,552 bytes = 86.6 MiB (min 512,331, max 8,120,444, avg 3,783,898)
+Per-item (index | id shape | WxH | bytes):
+     1 | AF1Qip…base1 | 4898x3265 | 3,412,350
+     ...
+```
+
+**Privacy posture:** session cookies live only in the `0600` vault outside the repository
+and are readable solely by the `auraframes.google` package (sync/CLI code paths are
+structurally refused); album capability URLs are secrets-like and are always printed
+redacted (`AF1Qip…<last4>`). `status` reports the Google link state — `linked: yes/no`,
+the account email, session usability — and never a cookie value or token.
 
 ### Exit codes and logging
 
