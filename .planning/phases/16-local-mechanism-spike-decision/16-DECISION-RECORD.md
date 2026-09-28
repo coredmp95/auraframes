@@ -37,6 +37,9 @@ plain-httpx `batchexecute` calls with the full cookie jar.
 - Replaying the captured body with the token swapped: **300 + 300 + 194 = 794 items,
   794 unique, clean token exhaustion** on the operator's real 1000+ album. Reproduced by
   the committed `probes/browser_bootstrap.py list`. **No ceiling observed.**
+- **Ground-truth validation:** the operator scrolled the album UI to its end — Google
+  Photos displays **794 photos**, exactly matching the enumeration. Exhaustiveness is
+  confirmed by the UI itself (the "1000+" figure was an estimate).
 - Full-jar cookies (domain+path preserved) are required — a flattened dict is treated
   as anonymous (live finding, recorded).
 - Byte fidelity: the `=d` original of album C pushed to the frame came back with the

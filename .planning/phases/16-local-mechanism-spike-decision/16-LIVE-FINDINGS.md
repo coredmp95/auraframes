@@ -119,6 +119,11 @@ the UI paginates via RPC.
 - The operator reports the album as "1000+"; enumeration exhausts at 794. Either the UI
   count includes items the share stream filters (videos, archived), or the count is
   approximate. Recorded as-is; the exhaustive-stream result is what matters mechanically.
+- **GROUND-TRUTH CONFIRMATION (2026-09-28, post-probe):** the operator scrolled the
+  album's infinite-scroll UI to the end — Google Photos displays **794 photos**, exactly
+  the RPC enumeration count. The "1000+" was an estimate; the enumeration is validated
+  as exhaustive by the UI itself. The share-page 300-item ds:1 batch is conclusively a
+  page-size artifact, and `snAcKc` continuation covers the full album.
 
 ### Permanent cost statement (from the plan, now evidence-backed)
 
