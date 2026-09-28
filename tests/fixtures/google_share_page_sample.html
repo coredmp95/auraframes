@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- Fully synthetic fixture (authored, never recorded from the live site) —
+     extends the phase-16 probe fixture pattern (probe_af_initdata_sample.html)
+     for the production package tests. Structure mirrors ALBUM-ACCESS.md §1b:
+     AF_initDataCallback({key:'ds:1', hash:'2', data:[...]}) with media items
+     shaped [mediaItemId, [baseUrl, width, height, ...], ts, ...]. Also carries
+     the logged-in page markers the client parses: the SNlM0e at-token, f.sid
+     (FdrFJe), bl (cfb2h) and the oPEP7c account-email row (synthetic values
+     only). -->
+<html lang="en">
+<head><title>Shared album — synthetic fixture</title></head>
+<body>
+<script>_widgetData = {'dummy': 1};</script>
+<script>AF_initDataCallback({key: 'ds:0', hash: '1', data:[["AF1QipFAKEalbum0000000000000000000000001", "synthetic album title"]]});</script>
+<script>AF_initDataCallback({key: 'ds:1', hash: '2', data:[["album-header", null],
+ ["AF1QipFAKEitem0000000000000000000000000000001",
+  ["https://lh3.googleusercontent.com/pw/FAKEbase0000000000000000000001",
+   4898, 3265, null, null, null, null, null, [null,null,1], [3420724]],
+  1532210429477, "qFAKEsig00000000000000000000000001", -21600000],
+ ["AF1QipFAKEitem0000000000000000000000000000002",
+  ["https://lh3.googleusercontent.com/pw/FAKEbase0000000000000000000002",
+   4032, 3024, null, null, null, null, null, [null,null,1], [3420724]],
+  1532210429488, "qFAKEsig00000000000000000000000002", -21600000],
+ ["AF1QipFAKEitem0000000000000000000000000000003",
+  ["https://lh3.googleusercontent.com/pw/FAKEbase0000000000000000000003",
+   1920, 1080, null, null, null, null, null, [null,null,1], [3420724]],
+  1532210429499, "qFAKEsig00000000000000000000000003", -21600000],
+ ["AF1QipFAKEitem0000000000000000000000000000004",
+  ["https://lh3.googleusercontent.com/pw/FAKEbase0000000000000000000004",
+   3024, 4032, null, null, null, null, null, [null,null,1], [3420724]],
+  1532210429511, "qFAKEsig00000000000000000000000004", -21600000],
+ ["footer-meta", ["other-string-not-a-url", 1, 2], 0, "sig", 0]]});</script>
+<script>AF_initDataCallback({key: 'ds:2', hash: '3', data:["also ignoreme"]});</script>
+<script>window.WIZ_global_data = {"SNlM0e": "SYNTH-AT-TOKEN-0001", "FdrFJe": "923456789012",
+ "cfb2h": "boq_photosuiserver_20260928.01_fr", "oPEP7c": "synthetic.account@example.com"};</script>
+</body>
+</html>
