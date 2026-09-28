@@ -183,3 +183,23 @@ is fidelity-safe for the mirror-sync diff engine.**
 - The assets.json response earlier in the session returned `0 assets` while
   `num_assets: 251` — both facts recorded verbatim; Phase 17's design must treat any
   single Pushd listing as potentially incomplete and re-verify (mirrors PITFALLS #3).
+
+## Addendum (2026-09-28, phase 17 execution): the RPC is fully constructible — no capture needed
+
+While migrating the probe into `auraframes/google/`, three generalizations were
+proven live (read-only):
+
+1. **The phase-16 "guessed payload" 400s were a NESTING bug, not a payload problem.**
+   A byte-diff between the verbatim replay (200) and every constructed attempt (400)
+   shows the envelope is **triple-nested** `f.req=[[["snAcKc",<payload>,null,"generic"]]]`;
+   the probe's `_batchexecute` helper emitted double nesting. With the corrected form,
+   a fully-constructed request (fresh `at`/`f.sid`/`bl` from the logged-in home page)
+   returns HTTP 200 with the exact expected item count.
+2. **`page_key` (the 4th snAcKc argument) is the share URL's own `?key=` query
+   parameter** (`/share/<album_id>?key=<page_key>` — visible in the page's canonical
+   link). No per-album capture is needed; the album id is the URL path segment.
+3. **Batch-1 inputs come from ordinary page fetches**: the first `AH_` continuation
+   token appears on the share page itself (intermittent across fetches — retry);
+   `SNlM0e` (at), `FdrFJe` (f.sid), `cfb2h` (bl), and the account email (`oPEP7c`)
+   all come from the logged-in home page. The RPC loop + dedup tolerates the first
+   RPC call re-serving batch-1 (continuation pages carry fresh tokens).
