@@ -21,6 +21,7 @@ this module never requires playwright (isolation rule, BROWSER-AUTOMATION §4.2)
 
 Usage:
     uv run python probes/browser_bootstrap.py bootstrap
+    uv run python probes/browser_bootstrap.py bootstrap --auto   (30 min wait)
     uv run python probes/browser_bootstrap.py list --url <throwaway-album-link>
 """
 from __future__ import annotations
@@ -29,6 +30,7 @@ import argparse
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -44,6 +46,8 @@ PHOTOS_HOME = "https://photos.google.com/"
 # batchexecute endpoint for the Photos web frontend (authuser keeps the call
 # bound to the logged-in account the vault came from).
 _BATCHEXECUTE_URL = "https://photos.google.com/_/PhotosUi/data/batchexecute"
+
+_AUTO_WAIT_SECONDS = 30 * 60  # the operator may log in much later
 
 
 def _require_dedicated_profile() -> Path:
@@ -77,11 +81,10 @@ def _bootstrap(*, auto: bool = False) -> int:
         page = context.pages[0] if context.pages else context.new_page()
         page.goto(PHOTOS_HOME, wait_until="domcontentloaded")
         if auto:
-            import time
-
             _AUTH_MARKERS = {"SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID"}
-            print("waiting for login to complete (auto-detect, 10 min timeout)…")
-            deadline = time.monotonic() + 600
+            print(f"waiting for login to complete (auto-detect, "
+                  f"{_AUTO_WAIT_SECONDS // 60} min timeout)…", flush=True)
+            deadline = time.monotonic() + _AUTO_WAIT_SECONDS
             auth_names: set[str] = set()
             while time.monotonic() < deadline:
                 cookies = context.cookies()
@@ -91,10 +94,10 @@ def _bootstrap(*, auto: bool = False) -> int:
                 time.sleep(2)
             if not auth_names:
                 context.close()
-                print("PROBE FAILED: no auth cookies detected within 10 minutes — "
+                print("PROBE FAILED: no auth cookies detected within the wait window — "
                       "was the login completed in the opened window?", file=sys.stderr)
                 return 1
-            print(f"login detected via {sorted(auth_names)} — harvesting")
+            print(f"login detected via {sorted(auth_names)} — harvesting", flush=True)
             cookies = context.cookies()
             context.close()
         else:
@@ -134,13 +137,12 @@ def _extract_sapisid() -> str | None:
 def _batchexecute(http: httpx.Client, rpcid: str, payload: list, origin: str) -> httpx.Response:
     """Issue ONE batchexecute POST replicating the public envelope shape:
     f.req carries [[ [rpcid, json(payload), None, 'generic'] ]], with the
-    standard at/bt boilerplate; SAPISID-derived Authorization attached when
+    standard at/bt boilerplate; SAPISIDHASH Authorization attached when
     available (xob0t/Google-Photos-Toolkit reference shapes)."""
     import hashlib
-    import time
 
     inner = json_dumps([rpcid, json_dumps(payload), None, "generic"])
-    freq = json_dumps([[json_dumps([inner])]])
+    freq = json_dumps([[inner]])
     headers = {
         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         "Origin": origin,
@@ -151,18 +153,11 @@ def _batchexecute(http: httpx.Client, rpcid: str, payload: list, origin: str) ->
         now_ms = int(time.time() * 1000)
         auth_hash = hashlib.sha1(f"{now_ms} {sapisid} {origin}".encode()).hexdigest()
         headers["Authorization"] = f"SAPISIDHASH {now_ms}_{auth_hash}"
-    body = f"f.req={freq}&at={query_escape(_extract_at())}&"
-    resp = http.post(_BATCHEXECUTE_URL, headers=headers, content=body.encode())
-    return resp
+    body = f"f.req={freq}&at={query_escape(_AT_TOKEN)}&"
+    return http.post(_BATCHEXECUTE_URL, headers=headers, content=body.encode())
 
 
 _AT_TOKEN = ""
-
-
-def _extract_at() -> str:
-    """The WIZ_global_data 'SNlM0e' anti-CSRF token from the album page —
-    fetched fresh by the caller's page GET; the list flow caches it."""
-    return _AT_TOKEN
 
 
 def _list_album(url: str) -> int:
@@ -183,8 +178,8 @@ def _list_album(url: str) -> int:
         print(f"PROBE FAILED: album page returned HTTP {page.status_code} "
               f"(session cookies attached) — {redact_link(url)}", file=sys.stderr)
         return 1
-    _AT_TOKEN_m = re.search(r'"SNlM0e":"([^"]+)"', page.text)
-    _AT_TOKEN = _AT_TOKEN_m.group(1) if _AT_TOKEN_m else ""
+    at_m = re.search(r'"SNlM0e":"([^"]+)"', page.text)
+    _AT_TOKEN = at_m.group(1) if at_m else ""
     items = parse_af_initdata(page.text)
     print(f"album page (with session): HTTP {page.status_code}, "
           f"batch-1 count: {len(items)} — {redact_link(url)}")
@@ -202,9 +197,9 @@ def _list_album(url: str) -> int:
         try:
             resp = _batchexecute(http, "EW6Kmf", payload, "https://photos.google.com")
             body = redact_tokens(resp.text[:2000])
-            continuation_ok = resp.status_code == 200 and ")]}'" in resp.text
+            envelope_ok = resp.status_code == 200 and ")]}'" in resp.text
             print(f"follow-up RPC: HTTP {resp.status_code} "
-                  f"(envelope {'present' if continuation_ok else 'ABSENT'})")
+                  f"(envelope {'present' if envelope_ok else 'ABSENT'})")
             print(f"follow-up body (first 2000 chars, redacted): {body}")
         except Exception as exc:  # noqa: BLE001 — the failure mode IS the evidence
             print(f"follow-up RPC failed: {redact_tokens(str(exc))}")
@@ -243,8 +238,6 @@ def main(argv: list[str] | None = None) -> int:
     url = args.url
     if not url:
         links = sorted(Path(__file__).parent.glob("*.link"))
-        if links:
-            url = links[0].read_text().strip()
     if not url:
         raise SystemExit("PROBE FAILED: no album URL — pass --url or drop a full "
                          "link into an untracked probes/*.link file")
