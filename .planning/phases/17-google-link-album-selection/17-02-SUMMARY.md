@@ -61,3 +61,16 @@ offline-tested through injected seams (TEST-02), zero browser, zero live network
   22 CLI), 6 deselected (live).
 - `aura-cli google-link --help` / `google-album --help` / `status --help` all exit 0.
 - No test launches a browser or hits live Google (TEST-02).
+
+## Post-execution addendum — live-decoded album listing surface
+
+The plan's assumed album-listing surface ("the ds:0-driven album list from the
+logged-in home") was wrong: the home page's ds:5 is the photo feed. The real
+surface, live-decoded this session, is **photos.google.com/albums' ds:5** —
+row shape `[cover_id AF1Qip…, [cover_url…], null, null, {<int-key>:
+[4, title, [dates], item_count, 1, page_key_b64, …, share_token AF1Qip…, …]}]`.
+`list_shared_albums()` reads that page and yields titles + metadata counts +
+constructed share URLs (the b64-decoded page_key verified byte-for-byte). Name
+resolution, `--list` and the enumeration then run RPC-first (see the 17-01
+summary addendum). End-to-end live proof through the CLI's own code path:
+`google-album "Cadre"` machinery → 24/24 items, exhausted cleanly, 86.6 MiB exact.

@@ -22,10 +22,10 @@ that minimises disk usage — on a write path that is already boringly reliable.
 <!-- Decision-producing first, then the selection surface the mechanism allows. -->
 
 - [x] **LGS-01**: Both surviving mechanisms are probed live against the user's real albums and one written decision record selects one, with the evidence and the rejected alternative's reason — the shared-album-link probe measures the real albums' item counts against the suspected ~500-item ceiling (a 600+ synthetic album is built only if the real albums can't measure it), and the browser-automation probe completes one cookie bootstrap plus one internal-RPC album listing
-- [ ] **LGS-02**: The Google credential/session is linked once via a single documented command, persisted out of version control, and re-linking is that same command — periodic re-authentication is an accepted operational cost, never a design blocker
-- [ ] **LGS-03**: `aura-cli status` reports the Google link/session state (linked, which account, session usable) without ever printing the credential or session token
-- [ ] **LGS-04**: An album is selected at **album granularity** — by share link, id, or name — never by picking individual photos (Picker-API per-photo selection remains rejected)
-- [ ] **LGS-05**: All photos in a selected album can be enumerated, including albums larger than one page of whatever mechanism provides
+- [x] **LGS-02**: The Google credential/session is linked once via a single documented command, persisted out of version control, and re-linking is that same command — periodic re-authentication is an accepted operational cost, never a design blocker (phase 17: `aura-cli google-link`, 0600 vault outside the repo)
+- [x] **LGS-03**: `aura-cli status` reports the Google link/session state (linked, which account, session usable) without ever printing the credential or session token (phase 17: `_google_status_section`, cookie-value-absence test-proven)
+- [x] **LGS-04**: An album is selected at **album granularity** — by share link, id, or name — never by picking individual photos (Picker-API per-photo selection remains rejected) (phase 17: `google-album` resolve_album, numbered ambiguity exit 2)
+- [x] **LGS-05**: All photos in a selected album can be enumerated, including albums larger than one page of whatever mechanism provides (phase 17: RPC-first snAcKc, live-proven 24/24 + 1094 paginated, exact disk weight)
 - [x] **LGS-06**: Byte fidelity is settled once in the spike and guarded after: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame downloaded back through the chosen mechanism base64-MD5-matches the frame's reported `md5_hash` — a mechanism that cannot achieve this is rejected outright
 
 ### Local Cache & Sync Engine (CSE)
@@ -55,7 +55,7 @@ that minimises disk usage — on a write path that is already boringly reliable.
 <!-- TEST-02's convention, re-stated for the local mechanisms; TEST-01's carried debt. -->
 
 - [ ] **TEST-01**: Lift-tests-off-network candidates #2 (authenticated value) and #4 (injected config), carried since v1.1, are closed
-- [ ] **TEST-02**: Every Google-facing component is offline-testable through an injected transport or fixture-backed fake — no component may be testable only against live Google
+- [x] **TEST-02**: Every Google-facing component is offline-testable through an injected transport or fixture-backed fake — no component may be testable only against live Google (phase 17: 59 google tests over MockTransport/injected seams; mock validates the protocol side)
 
 ### Hardening (MOD)
 
@@ -97,11 +97,11 @@ phase numbering continues from v3.0's Phase 11.
 |-------------|-------|--------|
 | LGS-01 | Phase 16 | Complete |
 | LGS-06 | Phase 16 | Complete |
-| LGS-02 | Phase 17 | Pending |
-| LGS-03 | Phase 17 | Pending |
-| LGS-04 | Phase 17 | Pending |
-| LGS-05 | Phase 17 | Pending |
-| TEST-02 | Phase 17 | Pending |
+| LGS-02 | Phase 17 | Complete |
+| LGS-03 | Phase 17 | Complete |
+| LGS-04 | Phase 17 | Complete |
+| LGS-05 | Phase 17 | Complete |
+| TEST-02 | Phase 17 | Complete |
 | CSE-01 | Phase 18 | Pending |
 | CSE-02 | Phase 18 | Pending |
 | CSE-03 | Phase 18 | Pending |

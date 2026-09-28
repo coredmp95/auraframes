@@ -70,3 +70,17 @@ segment.
   37 new google/probe tests), 6 deselected (live).
 - Probes smoke: `probes/shared_link_probe.py --help` OK;
   `import probes.browser_bootstrap, probes.shared_link_probe` against the package OK.
+
+## Post-execution addendum — RPC-first rework (same session)
+
+Live re-validation through the migrated package (read-only) discovered the
+authenticated share page is an SPA shell (no ds:1 block, no AH_ cursor) and that
+`snAcKc(share_token, null, null, page_key)` IS batch-1 — HTTP 200, first 300 items,
+no share-page fetch. `enumerate_album` was reworked to
+`enumerate_album(album_id, *, page_key=None, max_pages=60)` with NO share-page
+dependency, and the full protocol was live-proven: 300+300+300+194 = 1094 photos
+on the 1096-item album (delta = videos, skipped by the photo walker), 24/24 on the
+24-item album with 86.6 MiB exact disk weight. Full details in the
+16-LIVE-FINDINGS.md Session Addendum 2; the rework commit is the head of this
+branch's phase-17 work. The tests enforce the protocol on the mock side (a
+non-null batch-1 continuation or a stale token answers 400).

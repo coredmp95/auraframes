@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v4.0
 milestone_name: Local Google Photos Album Sync
-current_phase: 17 — planned (2 plans, 2 waves)
-status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-09-28T09:57:55.005Z"
+current_phase: 18
+current_phase_name: Album → Frame Mirror Sync (Single Pair)
+status: planning-ready
+stopped_at: Phase 17 verified and marked complete
+last_updated: "2026-09-28T18:10:00.000Z"
 last_activity: 2026-09-28
-state_head: 5f67f16f9a24235a36b9e35a62b77543663e8d95
+last_activity_desc: Phase 17 executed (2 plans), verified 5/5, marked complete
+state_head: 5559551
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 3
-  completed_plans: 3
-  percent: 0
-current_phase_name: Local Mechanism Spike & Decision
-last_activity_desc: Phase 16 marked complete
+  completed_phases: 1
+  total_plans: 5
+  completed_plans: 5
+  percent: 25
 ---
 
 # Project State
@@ -29,14 +29,13 @@ local pipeline — album selected at album granularity, mirrored headlessly, cac
 to minimise disk, never one photo at a time, on a write path that is already boringly
 reliable.
 
-**Current focus:** Phase 16 — Local Mechanism Spike & Decision
+**Current focus:** Phase 17 — Google Link & Album Selection
 
 ## Current Position
 
-Phase: 16 — COMPLETE
-Plan: Not started
-Status: Phase 16 complete
-Last activity: 2026-09-28
+Phase: 17 (Google Link & Album Selection) — COMPLETE (verified 2026-09-28, 5/5 criteria)
+Next: Phase 18 (Album → Frame Mirror Sync) — planning ready
+Last activity: 2026-09-28 — Phase 17 executed: auraframes/google/ package + CLI google-link/google-album/status, RPC-first enumerator live-proven (24/24 + 86.6 MiB end-to-end), 345 offline tests green
 
 ```
 Phases  [                                        ]  0/4   (0%)
@@ -68,7 +67,9 @@ Phase numbering continues from v3.0's Phase 11 — it does not reset.
 | 4 | v1.1 | 3 | Complete |
 | 5-10 | v2.0 | 17 | Complete |
 | 11 | v3.0 | 6 | Complete |
-| 16-19 | v4.0 | TBD | Not started |
+| 16 | v4.0 | 3 | Complete |
+| 17 | v4.0 | 2 | Complete |
+| 18-19 | v4.0 | TBD | Not started |
 
 *Per-plan timings for v1.0/v1.1/v2.0/v3.0 are archived in `milestones/`.*
 

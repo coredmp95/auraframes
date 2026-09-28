@@ -65,7 +65,7 @@ Research: [`research/ALBUM-ACCESS.md`](./research/ALBUM-ACCESS.md) §1-§4 (shar
 Three locked user decisions shape this roadmap. **Own mechanism, not Aura's** (2026-09-28): Aura's restored server-side Google sync does not work in practice, so nothing probes or imitates it — the sync is local, built from this project's own primitives. **Both surviving mechanisms are probed live before one is committed**: the shared-album link (no auth, live-verified in research, suspected ~500-item ceiling) and browser automation via a dedicated-Chrome-profile cookie bootstrap plus the internal `batchexecute` RPC (public reference implementation exists). **Disk minimisation is a design requirement, not a preference**: a pruned cache plus a persistent `google_media_id → md5_hash` manifest keeps steady-state disk proportional to new photos, with "keep everything locally" the accepted fallback. Periodic re-authentication is accepted as an operational cost; its cadence is an accepted unknown. The proven v2.0 pipeline (structural dry-run, hide-by-default, exact-count-gated deletion, `WriteBudget`) is reused unchanged — almost all the risky code is already live-verified.
 
 - [ ] **Phase 16: Local Mechanism Spike & Decision** - Probe both surviving mechanisms live, settle byte fidelity, and record the decision that gates everything below
-- [ ] **Phase 17: Google Link & Album Selection** - Link Google once through the chosen mechanism, select an album at album granularity, enumerate every photo in it
+- [x] **Phase 17: Google Link & Album Selection** - Link Google once through the chosen mechanism, select an album at album granularity, enumerate every photo in it
 - [ ] **Phase 18: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame through the pruned-cache local pipeline — correct on the second run, safe when the listing lies
 - [ ] **Phase 19: Debt Closeout** - Close the carried testing/hardening debt so the milestone ships clean
 
@@ -110,7 +110,13 @@ Plans:
   4. Listing a selected album returns every photo in it, including albums larger than one page of the mechanism's listing surface, and the returned count matches what the user sees in Google Photos.
   5. Every Google-facing component above is exercised by the offline test suite through an injected transport or fixture-backed fake — no component is testable only against live Google.
 
-**Plans**: TBD
+**Plans**: 2/2 plans executed (verified 2026-09-28 — 5/5 success criteria, 345-passing offline suite, live end-to-end proof 24/24 + 86.6 MiB)
+
+Plans:
+**Wave 1**
+
+- [x] 17-01-PLAN.md — migrate the proven Google mechanics into auraframes/google/ (session client, parsers, RPC-first enumerator, vault) with offline injected-transport tests (LGS-05, TEST-02)
+- [x] 17-02-PLAN.md — CLI wiring: google-link (bootstrap seam), google-album (name/link/id + full enumeration + disk weight), Google-aware status (LGS-02..04)
 
 **Notes**: Built on whichever mechanism Phase 16 selects. If browser automation wins, the browser dependency sits behind a leaf module that never appears in a test-suite import graph (per `research/BROWSER-AUTOMATION.md`), and the shared-link parser behind the same seam if the link mechanism wins. TEST-02 lands here rather than later because a component testable only against live Google would be a regression against the v1.1 DI seam.
 
