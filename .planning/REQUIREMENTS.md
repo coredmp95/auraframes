@@ -21,12 +21,12 @@ that minimises disk usage — on a write path that is already boringly reliable.
 
 <!-- Decision-producing first, then the selection surface the mechanism allows. -->
 
-- [ ] **LGS-01**: Both surviving mechanisms are probed live against the user's real albums and one written decision record selects one, with the evidence and the rejected alternative's reason — the shared-album-link probe measures the real albums' item counts against the suspected ~500-item ceiling (a 600+ synthetic album is built only if the real albums can't measure it), and the browser-automation probe completes one cookie bootstrap plus one internal-RPC album listing
+- [x] **LGS-01**: Both surviving mechanisms are probed live against the user's real albums and one written decision record selects one, with the evidence and the rejected alternative's reason — the shared-album-link probe measures the real albums' item counts against the suspected ~500-item ceiling (a 600+ synthetic album is built only if the real albums can't measure it), and the browser-automation probe completes one cookie bootstrap plus one internal-RPC album listing
 - [ ] **LGS-02**: The Google credential/session is linked once via a single documented command, persisted out of version control, and re-linking is that same command — periodic re-authentication is an accepted operational cost, never a design blocker
 - [ ] **LGS-03**: `aura-cli status` reports the Google link/session state (linked, which account, session usable) without ever printing the credential or session token
 - [ ] **LGS-04**: An album is selected at **album granularity** — by share link, id, or name — never by picking individual photos (Picker-API per-photo selection remains rejected)
 - [ ] **LGS-05**: All photos in a selected album can be enumerated, including albums larger than one page of whatever mechanism provides
-- [ ] **LGS-06**: Byte fidelity is settled once in the spike and guarded after: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame downloaded back through the chosen mechanism base64-MD5-matches the frame's reported `md5_hash` — a mechanism that cannot achieve this is rejected outright
+- [x] **LGS-06**: Byte fidelity is settled once in the spike and guarded after: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame downloaded back through the chosen mechanism base64-MD5-matches the frame's reported `md5_hash` — a mechanism that cannot achieve this is rejected outright
 
 ### Local Cache & Sync Engine (CSE)
 
@@ -95,8 +95,8 @@ phase numbering continues from v3.0's Phase 11.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LGS-01 | Phase 16 | Pending |
-| LGS-06 | Phase 16 | Pending |
+| LGS-01 | Phase 16 | Complete |
+| LGS-06 | Phase 16 | Complete |
 | LGS-02 | Phase 17 | Pending |
 | LGS-03 | Phase 17 | Pending |
 | LGS-04 | Phase 17 | Pending |

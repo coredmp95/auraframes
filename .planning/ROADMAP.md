@@ -83,17 +83,17 @@ Three locked user decisions shape this roadmap. **Own mechanism, not Aura's** (2
   3. The browser-automation path has been probed end-to-end once — a one-time cookie bootstrap from a dedicated Chrome profile plus one internal `batchexecute` album listing — with its permanent local-only, never-CI-able cost stated plainly rather than discovered mid-build.
   4. Byte fidelity is settled: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame is downloaded back through the candidate mechanism and its base64-MD5 compared directly against the frame's reported `md5_hash` — a mechanism that cannot match is rejected outright.
 
-**Plans**: 3 plans
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 16-01-PLAN.md — shared-album-link probe: fetch/parse/count real albums, =d fidelity hash (LGS-01, LGS-06)
-- [ ] 16-02-PLAN.md — browser-automation probe: cookie vault + denylist, Playwright bootstrap (gated), batchexecute listing (LGS-01)
+- [x] 16-01-PLAN.md — shared-album-link probe: fetch/parse/count real albums, =d fidelity hash (LGS-01, LGS-06)
+- [x] 16-02-PLAN.md — browser-automation probe: cookie vault + denylist, Playwright bootstrap (gated), batchexecute listing (LGS-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 16-03-PLAN.md — byte-fidelity comparison + 16-DECISION-RECORD.md with the operator's signed selection (LGS-01, LGS-06)
+- [x] 16-03-PLAN.md — byte-fidelity comparison + 16-DECISION-RECORD.md with the operator's signed selection (LGS-01, LGS-06)
 
 **Notes**: Decision-producing, not feature-producing. SPK-01/Pushd-probing from v3.0 is dead and stays dead — Aura's server-side sync does not work and nothing is built on it. Byte fidelity (success criterion 4) is load-bearing for the whole milestone: if downloaded bytes do not match the frame's `md5_hash` convention, every sync run re-uploads every photo forever. Cookie-expiry cadence is an accepted unknown (user decision 2026-09-28) — the re-bootstrap command's existence is required by LGS-02, not the cadence measurement. Closed dead ends are not re-opened: Picker per-photo picking, app-created albums, Takeout, Data Portability API, restricted-scope allowlist, Aura's server-side mechanism.
 
@@ -152,7 +152,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 16. Local Mechanism Spike & Decision | 0/? | Not started | - |
+| 16. Local Mechanism Spike & Decision | 3/3 | In Progress|  |
 | 17. Google Link & Album Selection | 0/? | Not started | - |
 | 18. Album → Frame Mirror Sync (Single Pair) | 0/? | Not started | - |
 | 19. Debt Closeout | 0/? | Not started | - |
