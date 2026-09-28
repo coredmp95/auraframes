@@ -95,33 +95,40 @@ phase numbering continues from v3.0's Phase 11.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| LGS-01 | TBD | Pending |
-| LGS-02 | TBD | Pending |
-| LGS-03 | TBD | Pending |
-| LGS-04 | TBD | Pending |
-| LGS-05 | TBD | Pending |
-| LGS-06 | TBD | Pending |
-| CSE-01 | TBD | Pending |
-| CSE-02 | TBD | Pending |
-| CSE-03 | TBD | Pending |
-| CSE-04 | TBD | Pending |
-| CSE-05 | TBD | Pending |
-| CSE-06 | TBD | Pending |
-| CSE-07 | TBD | Pending |
-| CSE-08 | TBD | Pending |
-| SAFE-01 | TBD | Pending |
-| SAFE-02 | TBD | Pending |
-| SAFE-03 | TBD | Pending |
-| SAFE-04 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| MOD-02 | TBD | Pending |
-| MOD-04 | TBD | Pending |
+| LGS-01 | Phase 16 | Pending |
+| LGS-06 | Phase 16 | Pending |
+| LGS-02 | Phase 17 | Pending |
+| LGS-03 | Phase 17 | Pending |
+| LGS-04 | Phase 17 | Pending |
+| LGS-05 | Phase 17 | Pending |
+| TEST-02 | Phase 17 | Pending |
+| CSE-01 | Phase 18 | Pending |
+| CSE-02 | Phase 18 | Pending |
+| CSE-03 | Phase 18 | Pending |
+| CSE-04 | Phase 18 | Pending |
+| CSE-05 | Phase 18 | Pending |
+| CSE-06 | Phase 18 | Pending |
+| CSE-07 | Phase 18 | Pending |
+| CSE-08 | Phase 18 | Pending |
+| SAFE-01 | Phase 18 | Pending |
+| SAFE-02 | Phase 18 | Pending |
+| SAFE-03 | Phase 18 | Pending |
+| SAFE-04 | Phase 18 | Pending |
+| TEST-01 | Phase 19 | Pending |
+| MOD-02 | Phase 19 | Pending |
+| MOD-04 | Phase 19 | Pending |
 
 **Coverage:**
 
 - v4.0 requirements: 22 total
-- Mapped to phases: TBD (roadmapper fills)
+- Mapped to phases: 22 ✓ (100% — no orphans, no duplicates)
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 16 — Local Mechanism Spike & Decision | LGS-01, LGS-06 | 2 |
+| Phase 17 — Google Link & Album Selection | LGS-02..05, TEST-02 | 5 |
+| Phase 18 — Album → Frame Mirror Sync (Single Pair) | CSE-01..08, SAFE-01..04 | 12 |
+| Phase 19 — Debt Closeout | TEST-01, MOD-02, MOD-04 | 3 |
 
 ---
 *Requirements defined: 2026-09-28*
