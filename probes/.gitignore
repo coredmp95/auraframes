@@ -1,0 +1,8 @@
+# Probe artifacts — never committed (D-05 privacy tiers):
+# .probe-downloads/ holds =d originals fetched live; *.link files hold FULL
+# capability URLs. Committed docs carry redacted shapes only.
+.probe-downloads/
+*.link
+# Cookie vault path is outside the repo by construction; this line is a
+# belt-and-braces guard in case someone points it inside.
+google-cookies.json
