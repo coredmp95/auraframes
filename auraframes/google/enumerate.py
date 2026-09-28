@@ -16,13 +16,18 @@ phase-16 share-page bootstrap for the linked flow):
 - The album's item-count METADATA (the /albums ds:5 value) can exceed the
   photo count the walker returns (live: 1096 metadata vs 1094 photos — the
   delta matches the album's videos, which the §1b photo walker skips).
-  The authoritative photo count is the enumeration's.
-- scalars (SNlM0e at-token, FdrFJe f.sid, cfb2h bl) come from the logged-in
-  photos home page; the f.req envelope is TRIPLE-nested (double nesting
-  answers HTTP 400 — the phase-16 finding that started this all).
+  The authoritative photo count is the enumeration's.- scalars (SNlM0e at-token, FdrFJe f.sid, cfb2h bl) come from the logged-in
+photos home page; the f.req envelope is TRIPLE-nested (double nesting
+answers HTTP 400 — the phase-16 finding that started this all).
+- ONE bounded retry (post-phase-17 hardening, live smoke 2026-09-28):
+Google occasionally answers HTTP 200 with a well-formed wrb.fr/snAcKc
+entry whose inner payload is null. The exact call is re-issued once
+(same cursor — a null answer consumed no page); a null again fails
+loud. The budget is one retry per enumeration, not per page.
 
-Fail-loud discipline (T-17-02): HTTP != 200, a malformed envelope or a
-page-cap overrun raises — never a silent partial listing.
+Fail-loud discipline (T-17-02): HTTP != 200, a malformed envelope, a
+persisting null payload or a page-cap overrun raises — never a silent
+partial listing.
 """
 from __future__ import annotations
 
@@ -45,6 +50,13 @@ PHOTOS_ALBUMS = "https://photos.google.com/albums"
 
 MAX_PAGES = 60  # 60 x 300 = 18000, far beyond any real album (T-17-04 cap)
 PAGE_SIZE = 300  # live-proven page size
+
+# ONE bounded retry for the live-observed transient (2026-09-28 smoke):
+# HTTP 200 carrying a well-formed snAcKc entry whose inner payload is
+# null. The budget is GLOBAL to one enumerate_album run — one recovery
+# per enumeration, not per page — and a null answer never consumed a
+# page, so the retry re-issues the exact same call (same cursor).
+_retry_budget = {"snAcKc_null_payload": 1}
 
 # WIZ_global_data scalars on the home page.
 _FSID_RE = _FSID_RE = None  # replaced below (kept name stable for tests)
@@ -121,7 +133,10 @@ def _snackc_page(session, scalars: _SessionScalars, album_id: str,
                  continuation_token: str | None) -> tuple[list[dict], str | None]:
     """Issue ONE snAcKc batchexecute call; return (items, next_token_or_None).
 
-    continuation_token=None is the live-proven batch-1 form."""
+    continuation_token=None is the live-proven batch-1 form. A null inner
+    payload on HTTP 200 (live-observed transient) is retried exactly once
+    with the same cursor while the global budget lasts; a persisting null
+    fails loud rather than emitting a partial listing."""
     args = [album_id, continuation_token, None, page_key]
     freq = _freq_envelope("snAcKc", args)
     url = (
@@ -132,20 +147,38 @@ def _snackc_page(session, scalars: _SessionScalars, album_id: str,
         f"&hl=fr&soc-app=165&soc-platform=1&soc-device=1"
     )
     body = f"f.req={quote(freq, safe='')}&at={quote(scalars.at, safe='')}&"
-    resp = session.http.post(url, content=body.encode("utf-8"),
-                             headers=_rpc_headers(session))
-    if resp.status_code != 200:
+    headers = _rpc_headers(session)
+
+    def _post() -> httpx.Response:
+        return session.http.post(url, content=body.encode("utf-8"),
+                                 headers=headers)
+
+    def _snackc_entries(resp: httpx.Response) -> list:
+        if resp.status_code != 200:
+            raise EnumerateError(
+                f"snAcKc batchexecute returned HTTP {resp.status_code} "
+                f"(album {album_id[:12]}…, continuation sent: "
+                f"{continuation_token is not None}) — failing loud; body head: "
+                f"{redact_tokens(resp.text[:200])}"
+            )
+        entries = [e for e in parse_batchexecute(resp.text)
+                   if e.rpcid == "snAcKc"]
+        if not entries:
+            raise EnumerateError(
+                "snAcKc batchexecute answer carries no wrb.fr/snAcKc entry — "
+                "malformed envelope; refusing to guess"
+            )
+        return entries
+
+    entries = _snackc_entries(_post())
+    if entries[0].payload is None and _retry_budget["snAcKc_null_payload"] > 0:
+        _retry_budget["snAcKc_null_payload"] -= 1
+        entries = _snackc_entries(_post())
+    if entries[0].payload is None:
         raise EnumerateError(
-            f"snAcKc batchexecute returned HTTP {resp.status_code} "
-            f"(album {album_id[:12]}…, continuation sent: "
-            f"{continuation_token is not None}) — failing loud; body head: "
-            f"{redact_tokens(resp.text[:200])}"
-        )
-    entries = [e for e in parse_batchexecute(resp.text) if e.rpcid == "snAcKc"]
-    if not entries:
-        raise EnumerateError(
-            "snAcKc batchexecute answer carries no wrb.fr/snAcKc entry — "
-            "malformed envelope; refusing to guess"
+            "snAcKc carries a null inner payload on HTTP 200 (live-observed "
+            "transient); the single bounded retry did not recover it — "
+            "failing loud, never a partial listing"
         )
     page = parse_snackc_payload(entries[0].payload)
     return page.items, page.continuation_token
@@ -162,9 +195,13 @@ def enumerate_album(session, album_id: str, *, page_key: str | None = None,
     `album_id` is the SHARE token (the /share/<id> path segment — what the
     /albums listing carries and what the live proof used). `page_key` is
     the share URL's ?key= value when known (optional, live-proven).
+
+    A null-payload snAcKc answer on HTTP 200 (live-observed transient) is
+    retried once per run with the same cursor — see _snackc_page.
     """
     if not album_id or not isinstance(album_id, str):
         raise EnumerateError("album_id is required — refusing to guess")
+    _retry_budget["snAcKc_null_payload"] = 1  # one bounded retry per run
     scalars = _session_scalars(session)
 
     listing = AlbumListing(album_id=album_id)
