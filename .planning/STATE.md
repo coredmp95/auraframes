@@ -1,21 +1,16 @@
 ---
 gsd_state_version: "1.0"
-milestone: v4.0
-milestone_name: Local Google Photos Album Sync
-status: Awaiting next milestone
-stopped_at: v4.0 phases 16-19 all complete — milestone ready for closeout
-last_updated: "2026-09-29T05:21:09.853Z"
+milestone: v5.0
+milestone_name: "Distribution & Rename: pushframe packages"
+status: planning
+last_updated: "2026-09-29T06:06:53.471Z"
 last_activity: 2026-09-29
-last_activity_desc: Milestone v4.0 completed and archived
-state_head: e1d3588cdcb313b3f59e8b4bd39f768e7b7577d6
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
-current_phase: 19
-current_plan: Not started
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -33,10 +28,10 @@ reliable.
 
 ## Current Position
 
-Phase: Milestone v4.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-09-29 — Milestone v4.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-09-29 — Milestone v5.0 started
 
 ## Milestone Roadmap (v4.0, Phases 16-19)
 
