@@ -54,15 +54,15 @@ that minimises disk usage — on a write path that is already boringly reliable.
 
 <!-- TEST-02's convention, re-stated for the local mechanisms; TEST-01's carried debt. -->
 
-- [ ] **TEST-01**: Lift-tests-off-network candidates #2 (authenticated value) and #4 (injected config), carried since v1.1, are closed
+- [x] **TEST-01**: Lift-tests-off-network candidates #2 (authenticated value) and #4 (injected config), carried since v1.1, are closed
 - [x] **TEST-02**: Every Google-facing component is offline-testable through an injected transport or fixture-backed fake — no component may be testable only against live Google (phase 17: 59 google tests over MockTransport/injected seams; mock validates the protocol side)
 
 ### Hardening (MOD)
 
 <!-- Carried from the v1.1-era debt register; re-scoped from v3.0's Phase 15. -->
 
-- [ ] **MOD-02**: AWS pool IDs and bucket name moved out of hardcoded constants into config
-- [ ] **MOD-04**: `Aura._init_logger()` no longer leaks loguru sinks on repeated construction
+- [x] **MOD-02**: AWS pool IDs and bucket name moved out of hardcoded constants into config
+- [x] **MOD-04**: `Aura._init_logger()` no longer leaks loguru sinks on repeated construction
 
 ## Future Requirements
 
@@ -114,9 +114,9 @@ phase numbering continues from v3.0's Phase 11.
 | SAFE-02 | Phase 18 | Complete |
 | SAFE-03 | Phase 18 | Complete |
 | SAFE-04 | Phase 18 | Complete |
-| TEST-01 | Phase 19 | Pending |
-| MOD-02 | Phase 19 | Pending |
-| MOD-04 | Phase 19 | Pending |
+| TEST-01 | Phase 19 | Complete |
+| MOD-02 | Phase 19 | Complete |
+| MOD-04 | Phase 19 | Complete |
 
 **Coverage:**
 

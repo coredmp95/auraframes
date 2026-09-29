@@ -57,7 +57,7 @@ Full detail archived in [`milestones/v3.0-ROADMAP.md`](./milestones/v3.0-ROADMAP
 
 </details>
 
-### 🚧 v4.0 Local Google Photos Album Sync (Phases 16-19) — IN PROGRESS
+### 🚧 v4.0 Local Google Photos Album Sync (Phases 16-19) — ALL PHASES COMPLETE 2026-09-29
 
 Requirements: [`REQUIREMENTS.md`](./REQUIREMENTS.md) — 22 requirements, all mapped below.
 Research: [`research/ALBUM-ACCESS.md`](./research/ALBUM-ACCESS.md) §1-§4 (shared-link, browser automation, dead ends — §5 Pushd/Ambient obsolete), [`research/BROWSER-AUTOMATION.md`](./research/BROWSER-AUTOMATION.md), [`research/ALBUM-ACCESS-V4-ADDENDUM.md`](./research/ALBUM-ACCESS-V4-ADDENDUM.md) (targeted 2026-09-28), [`research/PITFALLS.md`](./research/PITFALLS.md).
@@ -67,7 +67,7 @@ Three locked user decisions shape this roadmap. **Own mechanism, not Aura's** (2
 - [x] **Phase 16: Local Mechanism Spike & Decision** - Probe both surviving mechanisms live, settle byte fidelity, and record the decision that gates everything below — completed 2026-09-28
 - [x] **Phase 17: Google Link & Album Selection** - Link Google once through the chosen mechanism, select an album at album granularity, enumerate every photo in it
 - [x] **Phase 18: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame through the pruned-cache local pipeline — correct on the second run, safe when the listing lies (completed 2026-09-28)
-- [ ] **Phase 19: Debt Closeout** - Close the carried testing/hardening debt so the milestone ships clean
+- [x] **Phase 19: Debt Closeout** - Close the carried testing/hardening debt so the milestone ships clean (completed 2026-09-29)
 
 ## Phase Details
 
@@ -166,8 +166,8 @@ Plans:
 Plans:
 **Wave 1** (both plans independent — single wave)
 
-- [ ] 19-01-PLAN.md — config-ize AWS bucket + pool IDs into settings.py, literals become defaults, grep/hasattr regression gates (MOD-02)
-- [ ] 19-02-PLAN.md — module-level logger guard (one file per process), Client base_url seam, exact authenticated-value offline tests (MOD-04, TEST-01 #2/#4)
+- [x] 19-01-PLAN.md — config-ize AWS bucket + pool IDs into settings.py, literals become defaults, grep/hasattr regression gates (MOD-02)
+- [x] 19-02-PLAN.md — module-level logger guard (one file per process), Client base_url seam, exact authenticated-value offline tests (MOD-04, TEST-01 #2/#4)
 
 **Notes**: Mirrors v3.0 Phase 15's original intent, minus everything Google-shaped: the debt items are folded into a thin closeout phase rather than given their own milestone. MOD-01's full async migration stays out of scope.
 
@@ -180,7 +180,7 @@ Plans:
 | 16. Local Mechanism Spike & Decision | 3/3 | Complete | 2026-09-28 |
 | 17. Google Link & Album Selection | 2/2 | Complete | 2026-09-28 |
 | 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | Complete    | 2026-09-28 |
-| 19. Debt Closeout | 0/2 | Planned | - |
+| 19. Debt Closeout | 2/2 | Complete    | 2026-09-29 |
 
 ## Requirement Coverage (v4.0)
 
