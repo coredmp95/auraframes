@@ -161,7 +161,13 @@ Plans:
   2. AWS pool IDs and the bucket name come from configuration rather than hardcoded constants, with no behavior change when the config is unset.
   3. Repeatedly constructing `Aura()` in one process no longer accumulates duplicate loguru sinks or log files.
 
-**Plans**: TBD
+**Plans**: 2/2 plans complete (planned 2026-09-28)
+
+Plans:
+**Wave 1** (both plans independent — single wave)
+
+- [ ] 19-01-PLAN.md — config-ize AWS bucket + pool IDs into settings.py, literals become defaults, grep/hasattr regression gates (MOD-02)
+- [ ] 19-02-PLAN.md — module-level logger guard (one file per process), Client base_url seam, exact authenticated-value offline tests (MOD-04, TEST-01 #2/#4)
 
 **Notes**: Mirrors v3.0 Phase 15's original intent, minus everything Google-shaped: the debt items are folded into a thin closeout phase rather than given their own milestone. MOD-01's full async migration stays out of scope.
 
@@ -174,7 +180,7 @@ Plans:
 | 16. Local Mechanism Spike & Decision | 3/3 | Complete | 2026-09-28 |
 | 17. Google Link & Album Selection | 2/2 | Complete | 2026-09-28 |
 | 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | Complete    | 2026-09-28 |
-| 19. Debt Closeout | 0/? | Not started | - |
+| 19. Debt Closeout | 0/2 | Planned | - |
 
 ## Requirement Coverage (v4.0)
 
@@ -193,4 +199,4 @@ No orphaned requirements; no requirement mapped to more than one phase.
 _No items currently in backlog._
 
 ---
-*Roadmap last updated: 2026-09-28 — phase 18 planned (3 plans, waves 1-3); phase 16 marked complete; phase 17 progress row corrected.*
+*Roadmap last updated: 2026-09-28 — phase 19 planned (2 plans, single wave).*
