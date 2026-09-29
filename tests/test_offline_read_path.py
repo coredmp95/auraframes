@@ -157,3 +157,58 @@ def test_offline_get_assets_survives_missing_asset_settings():
     assets, _ = FrameApi(client).get_assets("frame-fake-0001")
 
     assert assets[0].selected is True
+
+
+# --- TEST-01 (Phase 19): the two v1.1 lift-tests-off-network candidates ---
+
+
+def test_offline_login_sets_exact_authenticated_values():
+    """Candidate #2 (authenticated value): after login against the canned
+    fixture, the session headers carry the fixture's EXACT values — not just
+    any non-empty string (the presence-only assertion this candidate
+    supersedes lives in test_offline_login_sets_auth_headers above)."""
+    aura = offline_aura()
+    aura.login(email='fake@example.invalid', password='fake-pw')
+
+    headers = aura._client.http2_client.headers
+    assert headers['x-token-auth'] == 'fake-auth-token-0001'
+    assert headers['x-user-id'] == 'user-fake-0001'
+
+
+def test_authenticated_headers_propagate_to_subsequent_requests():
+    """Candidate #2 (propagation half): a follow-up request through the SAME
+    logged-in client carries both authenticated headers on the wire — the
+    behavior `add_default_headers` exists for and only the live suite
+    exercised implicitly before."""
+    seen: dict[str, str | None] = {}
+
+    def capturing_frames_route(request: httpx.Request) -> httpx.Response:
+        seen['x-token-auth'] = request.headers.get('x-token-auth')
+        seen['x-user-id'] = request.headers.get('x-user-id')
+        return httpx.Response(200, json=_load_fixture('frames.json'))
+
+    aura = offline_aura(overrides={'/v5/frames.json': capturing_frames_route})
+    aura.login(email='fake@example.invalid', password='fake-pw')
+    aura.frame_api.get_frames()  # a request AFTER login, same client
+
+    assert seen['x-token-auth'] == 'fake-auth-token-0001'
+    assert seen['x-user-id'] == 'user-fake-0001'
+
+
+def test_client_base_url_is_injectable():
+    """Candidate #4 (injected config): Client accepts base_url and requests
+    land on the injected host with its path prefix — offline via a capturing
+    transport, zero network. The v1.1 deferral ('endpoint config deferred to
+    candidate #4') closes here."""
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen['host'] = request.url.host
+        seen['path'] = request.url.path
+        return httpx.Response(200, json={"result": {}})
+
+    client = Client(transport=httpx.MockTransport(handler), base_url='https://mock.invalid/v9')
+    client.get('/probe.json')
+
+    assert seen['host'] == 'mock.invalid'
+    assert seen['path'] == '/v9/probe.json'

@@ -14,12 +14,18 @@ from tests.offline import offline_aura
 
 
 @pytest.fixture(autouse=True)
-def _reset_loguru():
+def _reset_loguru(monkeypatch):
     # loguru's `logger` is a process-global singleton and Aura._init_logger()
     # accumulates sinks across constructions; reset around each test so the
     # stderr assertions below are deterministic and a sink bound to a
     # torn-down capsys buffer from a prior test can't fire in a later one.
+    # Phase 19 (MOD-04): _init_logger() is now guarded by a process-level
+    # flag, so resetting the flag too lets each test's Aura() construction
+    # re-register sinks as this file's contract expects.
+    import auraframes.aura as aura_module
+
     logger.remove()
+    monkeypatch.setattr(aura_module, '_LOGGER_READY', False)
     yield
     logger.remove()
 

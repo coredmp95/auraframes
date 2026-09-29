@@ -19,6 +19,17 @@ from auraframes.export import get_image_from_asset
 from auraframes.models.asset import Asset, AssetPartialId
 from auraframes.utils.io import build_path, write_model
 
+# MOD-04 (Phase 19): process-level guard against the loguru sink leak.
+# `_init_logger()` used to add a stderr sink AND a `logs/file_{time}.log`
+# file sink on EVERY `Aura()` construction, so a process that builds several
+# instances (CLIs, tests via offline_aura) spawned one log file per instance
+# and accumulated duplicate sinks. The FIRST construction in a process
+# configures logging; subsequent ones are no-ops for sinks. This is a
+# module-level flag on purpose (NOT a per-instance one — distinct instances
+# were the leak), and it deliberately performs no wholesale sink teardown:
+# cli.py's _configure_cli_logging() stays the single reconfigure point.
+_LOGGER_READY = False
+
 
 class Aura:
 
@@ -149,12 +160,23 @@ class Aura:
         return self.sqsClient.get_queue_url(frame_id)
 
     def _init_logger(self):
+        """Configure the process's loguru sinks exactly once (MOD-04, D-03):
+        the first Aura() construction registers the stderr + file sinks; any
+        further construction is a sink no-op. Performs no teardown — cli.py's
+        _configure_cli_logging() owns wholesale reconfiguration.
+        """
+        global _LOGGER_READY
+        if _LOGGER_READY:
+            return
         # Ensure the loguru file sink's target dir exists before the first
         # instantiation so it does not raise FileNotFoundError (D-08).
         os.makedirs('logs/', exist_ok=True)
-        # logger.remove()  # remove / set this to debug if needed
+        # (The old commented-out "set this to debug if needed" sink-teardown
+        # vestige is gone: with the process guard, tearing down every sink on
+        # a later construction would silence the process for good.)
         logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
                                                     "<level>{level: <8}</level> | "
                                                     "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
                                                     "<level>{message}</level> Context: {extra}")
         logger.add('logs/file_{time}.log')
+        _LOGGER_READY = True

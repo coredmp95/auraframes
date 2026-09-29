@@ -159,8 +159,12 @@ def _redact(value):
 
 class Client:
 
-    def __init__(self, history_len: int = 30, transport: httpx.BaseTransport | None = None):
-        self.http2_client = httpx.Client(http2=True, base_url=f'{AURA_API_BASE_URL}/{AURA_API_VERSION}', headers={
+    def __init__(self, history_len: int = 30, transport: httpx.BaseTransport | None = None,
+                 base_url: str | None = None):
+        # TEST-01 candidate #4 (Phase 19): base_url is injectable for offline
+        # tests; None keeps the historical composition byte-identical.
+        resolved_base_url = base_url or f'{AURA_API_BASE_URL}/{AURA_API_VERSION}'
+        self.http2_client = httpx.Client(http2=True, base_url=resolved_base_url, headers={
             'accept-language': 'en-US',
             'cache-control': 'no-cache',
             'user-agent': USER_AGENT,
