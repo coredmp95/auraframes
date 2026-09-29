@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v4.0
 milestone_name: Local Google Photos Album Sync
-current_phase: 19
-current_plan: Not started
-status: planning-ready
+status: Awaiting next milestone
 stopped_at: v4.0 phases 16-19 all complete — milestone ready for closeout
-last_updated: "2026-09-29T05:02:51.379Z"
+last_updated: "2026-09-29T05:21:09.853Z"
 last_activity: 2026-09-29
-last_activity_desc: Phase 19 complete
-state_head: 0351e231fed774cf59da3e9fedddf12dbdabf85b
+last_activity_desc: Milestone v4.0 completed and archived
+state_head: e1d3588cdcb313b3f59e8b4bd39f768e7b7577d6
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 10
   completed_plans: 10
   percent: 100
+current_phase: 19
+current_plan: Not started
 ---
 
 # Project State
@@ -33,13 +33,10 @@ reliable.
 
 ## Current Position
 
-Phase: 19 — COMPLETE (last phase of v4.0)
-Next: Milestone v4.0 closeout — ship review, milestone summary, push/PR decision
-Last activity: 2026-09-29 — Phase 19 complete — TEST-01/MOD-02/MOD-04 closed, 401 offline tests green
-
-```
-Phases  [██████████████████████████████████████]  4/4   (100%)
-```
+Phase: Milestone v4.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-29 — Milestone v4.0 completed and archived
 
 ## Milestone Roadmap (v4.0, Phases 16-19)
 
@@ -167,7 +164,4 @@ Resume file: .planning/phases/16-local-mechanism-spike-decision/16-CONTEXT.md
 
 ## Operator Next Steps
 
-1. Review `.planning/ROADMAP.md` (Phases 16-19) and `.planning/REQUIREMENTS.md`.
-2. Run `/gsd-discuss-phase 16` (or `/gsd-plan-phase 16`) to start the mechanism spike.
-3. Phase 16's decision record is the milestone's gate — nothing in Phases 17-19 should be
-   planned in detail until it exists.
+- Start the next milestone with /gsd-new-milestone

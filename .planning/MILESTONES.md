@@ -1,5 +1,54 @@
 # Milestones
 
+## v4.0 Local Google Photos Album Sync (Shipped: 2026-09-29)
+
+**Phases completed:** 4 phases (16-19), 10 plans, offline suite 349 → **401 tests**
+
+**What the milestone delivers:** `aura-cli google-link` / `google-album` / `google-sync` —
+a Google Photos album is mirrored onto an Aura frame through the project's **own** local
+pipeline (no Aura server-side mechanism, no browser at sync time), with a pruned cache +
+persistent manifest keeping steady-state disk proportional to new photos, hide-by-default
+mirror semantics, and the proven v2.0 write path underneath.
+
+**Key accomplishments (per phase):**
+
+- **Phase 16 — Local Mechanism Spike & Decision (3 plans):** both surviving mechanisms
+  probed live against the real albums; byte fidelity settled (a frame photo downloaded back
+  through the candidate mechanism base64-MD5-matched the frame's `md5_hash` — MATCH); the
+  written decision record selected the browser-cookie-harvest + internal-`batchexecute` RPC
+  path (shared link suspected ~500-item ceiling; the authenticated RPC walk has none).
+- **Phase 17 — Google Link & Album Selection (2 plans):** one-time cookie harvest into a
+  0600 vault outside the repo (re-link = same command); `google-album` resolves by
+  name/link/id and walks an album completely (300/page `snAcKc` continuation RPC),
+  count-matched to the UI and byte-weighted via 1-byte Range requests. 59 Google tests
+  offline over injected transports (TEST-02); a live transient (null-payload response)
+  hardened into a single bounded retry after execution.
+- **Phase 18 — Album → Frame Mirror Sync, single pair (3 plans):** concurrent `=d`
+  downloads into a prunable cache (concurrency never crosses the frame-write seam); a
+  demand model rebuilt from listing + manifest — never a cache walk — makes the second run
+  zero-upload even after pruning; SAFE-01 aborts on empty/truncated listings; the
+  `google-sync` verb is structurally dry-run by default with `--apply`/`--yes` fail-closed
+  and hide-only removal (SAFE-02 threshold gate at 20 %). Proven live end-to-end on the
+  real pair: 24 uploads, steady-state zero-download/zero-upload, remove→hide (log-evidenced
+  `exclude_asset`), re-add→re-show without re-uploading a byte (`18-UAT.md`).
+- **Phase 19 — Debt Closeout (2 plans):** the v1.1-carried debts closed — AWS bucket/pool
+  IDs config-ized with unchanged defaults (MOD-02), the loguru sink leak killed with a
+  module-level guard, one log file per process (MOD-04), and the two lift-tests-off-network
+  candidates closed by exact-value offline assertions (TEST-01 #2/#4).
+
+**Live-proven in this milestone:** mechanism decision + fidelity MATCH (16), 24/24 + 1094
+photos enumerated with exact disk weights (17), the full mirror over two real runs with
+log evidence for every write (18). The Google session's null-payload transient (17) became
+the bounded-retry hardening (commit `96ebe50`).
+
+**Known limitations carried forward:** Google session expiry is an accepted operational
+cost (re-link is the same command); videos are skipped with a counted line (frame reports
+null md5 for videos — content-hash diffing cannot see them); `google-sync` never deletes
+(hide-only; the gated delete tiers stay with `sync`); single album↔frame pair — many-to-many
+mapping is future requirement GSF-01.
+
+---
+
 ## v2.0 Directory-to-Frame Sync (Shipped: 2026-09-02)
 
 **Phases completed:** 6 phases, 17 plans, 43 tasks
@@ -52,6 +101,6 @@
 - Lifted most of `test_read_path.py`'s assertions off the live network: default `pytest` now exercises login, listing, pagination, and error handling with zero credentials/network, while the `@live` suite stays byte-identical and remains the drift oracle.
 - Verified: 7/7 must-haves passed, UAT 8/8 passed with 0 issues.
 
-**Known gaps carried to v2.0:** Architecture-review candidates #2 (authenticated value) and #4 (injected config) — the remaining "lift tests off the live network" slice; pre-existing `Aura._init_logger()` loguru sink leak on repeated construction (flagged by code review, not fixed).
+**Known gaps carried to v2.0:** Architecture-review candidates #2 (authenticated value) and #4 (injected config) — the remaining "lift tests off the live network" slice; pre-existing `Aura._init_logger()` loguru sink leak on repeated construction (flagged by code review, not fixed). *(Both closed in v4.0's Phase 19 — 2026-09-29.)*
 
 ---
