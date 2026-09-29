@@ -72,7 +72,7 @@ precedence.
 - `AURA_DEVICE_IDENTIFIER`: The unique identifier of the device to mimic. (Default: `0000000000000000`)
   - Ideally this should be set to your unique identifier, though it accepts others.
 
-**Optional — write budget & geo guard** (used by `sync --apply` and `push`; see
+**Optional — write budget & geo guard** (used by `sync --apply`, `push`, and `google-sync --apply`; see
 [*Write Path*](#write-path-upload--status--anti-abuse-budget) below):
 - `AURA_COUNTRY`: Expected account country for the geo pre-flight check, e.g. `FR`.
   **Unset disables the check entirely.**
@@ -83,12 +83,18 @@ precedence.
 - `AURA_WRITE_BUDGET_MAX_WAIT`: Max seconds to wait. (Default: `3600`)
 - `AURA_STATE_DIR`: Where the persisted budget lives. (Default: `~/.config/auraframes`)
 
+**Optional — Google sync:**
+- `AURA_PROBE_CHROME_PROFILE`: Dedicated Chrome profile directory used by `google-link` for
+  the one-time cookie harvest (required for that command only).
+- `AURA_GOOGLE_SYNC_REMOVAL_THRESHOLD`: Fraction of the frame's photos above which
+  `google-sync` demands explicit confirmation before hiding (Default: `0.2`).
+
 Boolean variables accept `1`, `true`, `yes`, `on` (case-insensitive); anything else is false.
 
 ## CLI Usage (`aura-cli`)
 
 A CLI wraps the library (installed as the `aura-cli` entry point by `uv sync`). There are
-six commands:
+eight commands:
 
 | Command | What it does | Writes? |
 |---------|--------------|---------|
@@ -96,8 +102,10 @@ six commands:
 | `inspect` | Show one frame's photos and metadata | No |
 | `sync` | Make a frame **match** a local directory | Yes, with `--apply` |
 | `push` | Upload from a supply directory — **never** removes | Yes, with `--apply` |
+| `reconcile` | Report (and optionally remove) stuck placeholder rows on a frame | Only with `--apply` |
 | `google-link` | Link (or re-link) your Google Photos account | Vault write only (outside the repo) |
 | `google-album` | Select a Google Photos album and enumerate it exactly | No (read-only) |
+| `google-sync` | Mirror a Google Photos album onto a frame (dry run by default) | Yes, with `--apply` |
 
 **→ Full reference with every flag, real output, and known issues: [`docs/CLI.md`](docs/CLI.md)**
 
@@ -283,6 +291,74 @@ and are readable solely by the `auraframes.google` package (sync/CLI code paths 
 structurally refused); album capability URLs are secrets-like and are always printed
 redacted (`AF1Qip…<last4>`). `status` reports the Google link state — `linked: yes/no`,
 the account email, session usability — and never a cookie value or token.
+
+### `google-sync` — mirror a Google album onto a frame
+
+One verb ties the Google side to the frame: enumerate the album, download what is missing,
+upload it, and mirror removals as **hides**. Start to finish:
+
+```bash
+# One-time setup (or again whenever the Google session expires):
+export AURA_PROBE_CHROME_PROFILE=~/.config/auraframes/chrome-profile
+uv run aura-cli google-link
+
+# Find the album, then mirror it:
+uv run aura-cli google-album --list
+uv run aura-cli google-sync "Cadre" --frame "Cadre de Fabrice"           # dry-run plan (writes nothing)
+uv run aura-cli google-sync "Cadre" --frame "Cadre de Fabrice" --apply   # one y/N, then it mirrors
+
+# Non-interactive (CI, scripts) — --yes is required for --apply, otherwise it fails closed:
+uv run aura-cli google-sync "Cadre" --frame "Cadre de Fabrice" --apply --yes
+```
+
+A real first run against the live pair (album « Cadre », 24 photos, one of them already on
+the frame but hidden from an earlier experiment):
+
+```
+Plan: 23 to upload, 1 to re-show, 0 unchanged, 0 to hide, 0 already hidden
+Videos skipped: 0 (metadata delta — videos are out of sync scope, never silently dropped)
+Upload candidates: 23 items, 129,680 → 8,847,782 bytes (sum ≈ 87.0 MiB)
+```
+
+The re-show line is the md5 dedupe working across accounts: that photo's bytes were already
+on the frame, so the plan re-shows it instead of re-uploading it. After this apply the
+cache is pruned and the manifest persists — so a steady-state run costs one album listing
+and one frame listing, and **downloads and uploads nothing**:
+
+```
+Plan: 0 to upload, 0 to re-show, 23 unchanged, 0 to hide, 1 already hidden
+Videos skipped: 0 (metadata delta — videos are out of sync scope, never silently dropped)
+```
+
+#### Why the second run is free
+
+Photos download once into a staging cache
+(`~/.config/auraframes/google-cache/<album>/`), are uploaded with the same md5 convention
+the frame uses, and the cache is **pruned** after the uploads confirm. What survives is a
+persistent manifest (`~/.config/auraframes/google-manifest.json`, mode `0600`) mapping each
+Google photo id to its md5. The plan is rebuilt from the **album listing + manifest**, never
+from a walk of the pruned cache — that is what makes disk minimisation safe: "already synced"
+and "removed from the album" stay distinguishable.
+
+#### Mirror semantics
+
+- **Remove a photo from the Google album**, re-run with `--apply`: it is **hidden** on the
+  frame (`exclude_asset`) — it stops displaying but stays. Re-add it to the album and the
+  next run re-shows it **without re-uploading a byte**. Both halves were proven live (see
+  `18-UAT.md` in the planning tree).
+- **Videos are skipped with a counted line** (the frame reports null md5 for videos, so
+  content-hash diffing cannot see them) — never silently dropped.
+- An **empty or truncated album listing aborts** with an error instead of producing a plan
+  (SAFE-01) — a Google-side glitch can never read as "delete/hide everything".
+- If a plan's removals exceed **20 % of the frame's photos**, an explicit confirmation
+  echoes both counts first (SAFE-02; threshold overridable via
+  `AURA_GOOGLE_SYNC_REMOVAL_THRESHOLD`).
+- **This verb never deletes.** Removal means hide; the gated `--delete`/`--hard-delete`
+  tiers stay with `sync` only (SAFE-03).
+- A failed or partial download is reported as failed and retried next run — never uploaded
+  as junk bytes (SAFE-04).
+- Google-side downloads run concurrently (bounded pool); every frame write stays sequential
+  and paced by the [write budget](#write-path-upload--status--anti-abuse-budget).
 
 ### Exit codes and logging
 
