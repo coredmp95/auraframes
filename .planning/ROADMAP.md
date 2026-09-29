@@ -7,190 +7,111 @@
 - ✅ **v2.0 Directory-to-Frame Sync** — Phases 5-10 (shipped 2026-09-02) — a real `status`/`inspect`/`sync`/`push` CLI that mirrors a local photo directory to a live Aura frame, with the write path proven live for the first time and hide-by-default removal
 - ✅ **v3.0 Write-Path Reliability** — Phase 11 (delivered 2026-09-03; phases 12-15 cancelled 2026-09-28 when the Google-sync goal was abandoned — Aura's own server-side sync does not work in practice) — spurious 401s killed, placeholder rows reconciled, PNG/HEIC accepted
 - ✅ **v4.0 Local Google Photos Album Sync** — Phases 16-19 (shipped 2026-09-29) — sync a Google Photos album to a frame through this project's **own** local pipeline: live-probed mechanism, pruned cache with a persistent manifest, album granularity, hide-by-default mirror semantics
+- 🚧 **v5.0 Distribution & Rename: pushframe packages** — Phases 20-22 (started 2026-09-29) — installable, distributable Ubuntu/Debian packages and PyPI publishing under a clean, trademark-safe identity: the project becomes `pushframe`, leaves the fork, and ships `.deb` + APT repo + PyPI from one release action
 
 ## Phases
 
-<details>
-<summary>✅ v1.0 Revive & Verify (Phases 1-3) — SHIPPED 2026-06-30</summary>
+### 🚧 v5.0 Distribution & Rename: pushframe packages (Phases 20-22) — IN PROGRESS
 
-Full detail archived in [`milestones/v1.0-ROADMAP.md`](./milestones/v1.0-ROADMAP.md).
+Requirements: [`REQUIREMENTS.md`](./REQUIREMENTS.md) — 16 requirements, all mapped below.
 
-- [x] Phase 1: Toolchain Revival (2/2 plans) — completed 2026-06-29 — installs/imports on Python 3.14 via `uv`, model layer on pydantic v2
-- [x] Phase 2: Live Read-Path Verification (2/2 plans) — completed 2026-06-29 — login, list frames, paginated asset fetch, image download with EXIF verified live
-- [x] Phase 3: Run Docs & Verification Report (1/1 plan) — completed 2026-06-29 — documented `uv` setup/run + repo-root VERIFICATION-REPORT.md
+One operator decision shapes this roadmap, plus three from the naming research
+(2026-09-29). **The fork is left via a new standalone repository**: `coredmp95/pushframe`
+is created as a normal repo (not a fork), receives the full 337-commit history, and the
+local remote switches during Phase 20 — the old `auraframes` fork stays as an archive.
+**The identity is `pushframe` everywhere**: `aura-cli` is already taken on PyPI (Neo4j
+Aura's CLI), "Aura Frames" is a trademarked consumer brand, and `pushframe` verified free
+on PyPI with no Debian collision. The rename covers **binary + module + config directory**
+(`~/.config/pushframe/`, with a first-run migration of vaults/budget/manifest) with **no
+`aura-cli` compatibility alias**. Legal posture: the mark appears only in the
+not-affiliated disclaimer (nominative use to identify compatibility). Distributable means
+**one release action** (a tag) producing `.deb` + APT repo update + PyPI upload.
 
-</details>
-
-<details>
-<summary>✅ v1.1 Client Transport Seam (Phase 4) — SHIPPED 2026-07-05</summary>
-
-Full detail archived in [`milestones/v1.1-ROADMAP.md`](./milestones/v1.1-ROADMAP.md).
-
-- [x] Phase 4: Client Transport Seam for Offline Testability (3/3 plans) — completed 2026-07-05 — additive `Client(transport=...)`/`Aura(client=...)` DI seam, reusable offline `httpx.MockTransport` harness + sanitized fixtures, lifting most of `test_read_path.py` off the live network
-
-</details>
-
-<details>
-<summary>✅ v2.0 Directory-to-Frame Sync (Phases 5-10) — SHIPPED 2026-09-02</summary>
-
-Full detail archived in [`milestones/v2.0-ROADMAP.md`](./milestones/v2.0-ROADMAP.md).
-
-- [x] Phase 5: CLI Skeleton + Status (2/2 plans) — completed 2026-07-06
-- [x] Phase 6: Inspect + Frame Resolution (2/2 plans) — completed 2026-07-07
-- [x] Phase 7: Sync-Diffing Engine, Dry-Run Only (3/3 plans) — completed 2026-07-07
-- [x] Phase 8: Destructive Execution (4/4 plans) — completed 2026-07-08
-- [x] Phase 9: Proactive Write Rate-Limiter & Geo Guard (2/2 plans) — completed 2026-07-09
-- [x] Phase 10: Hide-instead-of-delete sync mode (4/4 plans) — completed 2026-08-25
-
-</details>
-
-<details>
-<summary>✅ v3.0 Write-Path Reliability (Phase 11 delivered; 12-15 cancelled) — 2026-09-03/28</summary>
-
-Full detail archived in [`milestones/v3.0-ROADMAP.md`](./milestones/v3.0-ROADMAP.md); requirements in [`milestones/v3.0-REQUIREMENTS.md`](./milestones/v3.0-REQUIREMENTS.md).
-
-- [x] Phase 11: Write-Path Reliability & Format Support (6/6 plans) — completed 2026-09-03 — 401 verify-then-retry, `batch_update` unacknowledged-id validation, placeholder reconciliation (`reconcile` verb, live-verified removal), content-derived `data_uti` with PNG/HEIC live-proven, honest pagination assertions
-- [x] Phase 12: Album-Access Mechanism Spike — **CANCELLED 2026-09-28** before any planning (Google-sync goal abandoned)
-- [x] Phase 13: Google Link & Album Selection — **CANCELLED 2026-09-28**
-- [x] Phase 14: Album → Frame Mirror Sync (Single Pair) — **CANCELLED 2026-09-28**
-- [x] Phase 15: Many-to-Many Mapping & Debt Closeout — **CANCELLED 2026-09-28** (debt carried into v4.0)
-
-</details>
-
-### ✅ v4.0 Local Google Photos Album Sync (Phases 16-19) — SHIPPED 2026-09-29
-
-Requirements: [`REQUIREMENTS.md`](./REQUIREMENTS.md) — 22 requirements, all mapped below.
-Research: [`research/ALBUM-ACCESS.md`](./research/ALBUM-ACCESS.md) §1-§4 (shared-link, browser automation, dead ends — §5 Pushd/Ambient obsolete), [`research/BROWSER-AUTOMATION.md`](./research/BROWSER-AUTOMATION.md), [`research/ALBUM-ACCESS-V4-ADDENDUM.md`](./research/ALBUM-ACCESS-V4-ADDENDUM.md) (targeted 2026-09-28), [`research/PITFALLS.md`](./research/PITFALLS.md).
-
-Three locked user decisions shape this roadmap. **Own mechanism, not Aura's** (2026-09-28): Aura's restored server-side Google sync does not work in practice, so nothing probes or imitates it — the sync is local, built from this project's own primitives. **Both surviving mechanisms are probed live before one is committed**: the shared-album link (no auth, live-verified in research, suspected ~500-item ceiling) and browser automation via a dedicated-Chrome-profile cookie bootstrap plus the internal `batchexecute` RPC (public reference implementation exists). **Disk minimisation is a design requirement, not a preference**: a pruned cache plus a persistent `google_media_id → md5_hash` manifest keeps steady-state disk proportional to new photos, with "keep everything locally" the accepted fallback. Periodic re-authentication is accepted as an operational cost; its cadence is an accepted unknown. The proven v2.0 pipeline (structural dry-run, hide-by-default, exact-count-gated deletion, `WriteBudget`) is reused unchanged — almost all the risky code is already live-verified.
-
-- [x] **Phase 16: Local Mechanism Spike & Decision** - Probe both surviving mechanisms live, settle byte fidelity, and record the decision that gates everything below — completed 2026-09-28
-- [x] **Phase 17: Google Link & Album Selection** - Link Google once through the chosen mechanism, select an album at album granularity, enumerate every photo in it
-- [x] **Phase 18: Album → Frame Mirror Sync (Single Pair)** - Mirror one Google album onto one Aura frame through the pruned-cache local pipeline — correct on the second run, safe when the listing lies (completed 2026-09-28)
-- [x] **Phase 19: Debt Closeout** - Close the carried testing/hardening debt so the milestone ships clean (completed 2026-09-29)
+- [ ] **Phase 20: pushframe Rename, Migration & Repo Switch** - Rename binary+module to `pushframe`, migrate config, move the repo out of the fork
+- [ ] **Phase 21: Debian Package & APT Repo** - Build a policy-clean `.deb` by script, publish a signed APT repo on GitHub Pages
+- [ ] **Phase 22: PyPI + Release Engineering** - Publish to PyPI, make one tag produce every artifact
 
 ## Phase Details
 
-### Phase 16: Local Mechanism Spike & Decision
+### Phase 20: pushframe Rename, Migration & Repo Switch
 
-**Goal**: Know — from live evidence, not assumption — which album-level mechanism this milestone builds on, and whether its bytes are diffable at all
-**Depends on**: Nothing (first phase of v4.0; builds on shipped Phase 11)
-**Requirements**: LGS-01, LGS-06
+**Goal**: The tool is `pushframe` everywhere — module, binary, config, docs — the config migrates losslessly on first run, and the project lives in its own standalone GitHub repository
+**Depends on**: Nothing (first phase of v5.0; builds on shipped Phase 19)
+**Requirements**: IDN-01, IDN-02, IDN-03, IDN-04, IDN-05, IDN-06
 **Success Criteria** (what must be TRUE):
 
-  1. A written decision record names one selected mechanism, the live evidence behind it, and the reason the rejected alternative was rejected — this document gates every later phase.
-  2. The shared-album-link path has been probed against the user's own real target albums, with their actual item counts recorded against the suspected ~500-item ceiling (a 600+ synthetic album is built only if the real albums cannot measure it).
-  3. The browser-automation path has been probed end-to-end once — a one-time cookie bootstrap from a dedicated Chrome profile plus one internal `batchexecute` album listing — with its permanent local-only, never-CI-able cost stated plainly rather than discovered mid-build.
-  4. Byte fidelity is settled: the account's Original-quality vs Storage-Saver setting is checked, and a photo already on the frame is downloaded back through the candidate mechanism and its base64-MD5 compared directly against the frame's reported `md5_hash` — a mechanism that cannot match is rejected outright.
+  1. `git grep auraframes` over `*.py` outside the migration module and its tests matches nothing; the offline suite (401+ tests) is green after the rename; the console script is `pushframe` and no `aura-cli` entry point ships.
+  2. On a machine with an existing `~/.config/auraframes/` (Google cookie vault incl. the legacy probes path, Google manifest, write budget), the first `pushframe` run migrates everything to `~/.config/pushframe/`, prints a one-line notice, and `pushframe status` shows the Google link still usable; re-running changes nothing (idempotent).
+  3. On a fresh machine (no config), `pushframe` creates `~/.config/pushframe/` directly and never touches `auraframes`.
+  4. `PUSHFRAME_*` env vars work as primary (`PUSHFRAME_EMAIL` authenticates) with `AURA_*` still honored as documented fallbacks, stated in `--help` and README.
+  5. The new standalone repo `coredmp95/pushframe` exists (not a fork), holds the full history, `git remote -v` points `origin` at it, master is pushed, and the README's provenance note credits zmanowar with a link to the original repo; the old fork is untouched.
 
-**Plans**: 3/3 plans executed
+**Plans**: TBD
 
-Plans:
-**Wave 1**
+**Notes**: The rename is mechanical; the safety net is the 401-test offline suite plus
+grep gates. Keep the migration strictly additive on disk: create the new directory,
+move, leave the old one untouched (never delete a vault). The repo switch is a GitHub
+side-action (create repo) + `git remote set-url` + push — no force-push anywhere.
 
-- [x] 16-01-PLAN.md — shared-album-link probe: fetch/parse/count real albums, =d fidelity hash (LGS-01, LGS-06)
-- [x] 16-02-PLAN.md — browser-automation probe: cookie vault + denylist, Playwright bootstrap (gated), batchexecute listing (LGS-01)
+### Phase 21: Debian Package & APT Repo
 
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 16-03-PLAN.md — byte-fidelity comparison + 16-DECISION-RECORD.md with the operator's signed selection (LGS-01, LGS-06)
-
-**Notes**: Decision-producing, not feature-producing. SPK-01/Pushd-probing from v3.0 is dead and stays dead — Aura's server-side sync does not work and nothing is built on it. Byte fidelity (success criterion 4) is load-bearing for the whole milestone: if downloaded bytes do not match the frame's `md5_hash` convention, every sync run re-uploads every photo forever. Cookie-expiry cadence is an accepted unknown (user decision 2026-09-28) — the re-bootstrap command's existence is required by LGS-02, not the cadence measurement. Closed dead ends are not re-opened: Picker per-photo picking, app-created albums, Takeout, Data Portability API, restricted-scope allowlist, Aura's server-side mechanism.
-
-### Phase 17: Google Link & Album Selection
-
-**Goal**: The user links Google once through the chosen mechanism, names an album at album granularity, and the CLI can enumerate every photo inside it
-**Depends on**: Phase 16 (the decision record determines the mechanism)
-**Requirements**: LGS-02, LGS-03, LGS-04, LGS-05, TEST-02
+**Goal**: `dpkg -i pushframe_*.deb` (or `apt install ./pushframe_….deb`) gives a working `pushframe` on Ubuntu 26.04, built by a repo script and distributable from a signed APT repository on GitHub Pages
+**Depends on**: Phase 20 (the renamed package is what gets packaged)
+**Requirements**: DEB-01, DEB-02, DEB-03, DEB-04, DEB-05
 **Success Criteria** (what must be TRUE):
 
-  1. The user runs one documented command to link/authorize Google; the credential or session persists across runs, stays out of version control, and re-running that same command re-links when the session expires (periodic re-auth is an accepted cost, never a redesign).
-  2. `aura-cli status` reports whether Google is linked and for which account, and whether the session is usable, without ever printing the credential, cookie, or token.
-  3. An album is selected at **album granularity** — by share link, id, or name — with no step anywhere that asks the user to pick individual photos.
-  4. Listing a selected album returns every photo in it, including albums larger than one page of the mechanism's listing surface, and the returned count matches what the user sees in Google Photos.
-  5. Every Google-facing component above is exercised by the offline test suite through an injected transport or fixture-backed fake — no component is testable only against live Google.
+  1. In a clean Ubuntu 26.04 container, `apt install ./pushframe_<v>_all.deb && pushframe status --help` works with the binary on PATH and no manual Python setup.
+  2. A single repo script (version read from pyproject) builds the `.deb` deterministically; `lintian` reports no errors.
+  3. Debian metadata is correct: Package `pushframe`, maintainer, description with the unofficial disclaimer, license, interpreter dependency expressed, files under `/usr/lib/pushframe/` + `/usr/bin/pushframe`, nothing root-owned in `$HOME`, postrm leaves `$HOME` alone.
+  4. The GitHub Pages APT repo serves the package: after adding the sources entry and key per the README instructions, `apt update && apt install pushframe` installs it; the Release file is signed.
+  5. The uninstall path is clean: `apt remove pushframe` leaves `$HOME` intact and removes only `/usr/lib/pushframe/` + the symlink.
 
-**Plans**: 2/2 plans executed (verified 2026-09-28 — 5/5 success criteria, 345-passing offline suite, live end-to-end proof 24/24 + 86.6 MiB)
+**Plans**: TBD
 
-Plans:
-**Wave 1**
+**Notes**: Chosen layout is a private runtime under `/usr/lib/pushframe/` (hermetic,
+upstream-recommended app pattern) rather than distutils-installing into the system
+Python — Python 3.14 is the pinned interpreter and the distro's python3 must never be
+mutated. fpm vs hand-rolled dpkg-deb vs dh is a plan-level decision; the script matters,
+not the tool. The APT repo lives in a `gh-pages`-style branch of the new repo (reprepro
+or dpkg-scanpackages; a dedicated key documented in the README).
 
-- [x] 17-01-PLAN.md — migrate the proven Google mechanics into auraframes/google/ (session client, parsers, RPC-first enumerator, vault) with offline injected-transport tests (LGS-05, TEST-02)
-- [x] 17-02-PLAN.md — CLI wiring: google-link (bootstrap seam), google-album (name/link/id + full enumeration + disk weight), Google-aware status (LGS-02..04)
+### Phase 22: PyPI + Release Engineering
 
-**Notes**: Built on whichever mechanism Phase 16 selects. If browser automation wins, the browser dependency sits behind a leaf module that never appears in a test-suite import graph (per `research/BROWSER-AUTOMATION.md`), and the shared-link parser behind the same seam if the link mechanism wins. TEST-02 lands here rather than later because a component testable only against live Google would be a regression against the v1.1 DI seam.
-
-### Phase 18: Album → Frame Mirror Sync (Single Pair)
-
-**Goal**: One Google album mirrors onto one Aura frame through the local pipeline — still correct on the second run after the cache is pruned, and safe when the album listing lies
-**Depends on**: Phase 17
-**Requirements**: CSE-01, CSE-02, CSE-03, CSE-04, CSE-05, CSE-06, CSE-07, CSE-08, SAFE-01, SAFE-02, SAFE-03, SAFE-04
+**Goal**: `uv tool install pushframe` works from real PyPI, and one tagged release produces every artifact — `.deb`, APT repo update, PyPI upload — with no hand steps
+**Depends on**: Phase 21 (the deb/APT side exists; release engineering ties all channels together)
+**Requirements**: PYI-01, PYI-02, REL-01, REL-02, REL-03
 **Success Criteria** (what must be TRUE):
 
-  1. `aura-cli` prints a full upload / re-show / unchanged / hide plan for one album→frame pair without touching the frame at all, with skipped videos counted and named rather than silently dropped, and progress reported while the album downloads.
-  2. Album photos download concurrently into a local cache while every write to the frame stays sequential and paced by the existing `WriteBudget` — concurrency never reaches the Aura write client.
-  3. Running the same sync twice against an unchanged album reports zero to upload on the second run **even though the cache was pruned after the first**, because the plan is rebuilt from the album listing plus a persisted `google_media_id → md5_hash` manifest, never from a directory walk of the pruned cache — and steady-state disk usage after pruning stays proportional to in-flight photos, not the whole album.
-  4. Removing a photo from the Google album and re-running **hides** it on the frame; re-adding it to the album and re-running re-shows it without re-uploading a byte.
-  5. An empty or truncated album listing aborts with an error instead of producing a plan; a plan whose removals exceed a threshold share of the frame requires explicit confirmation; real deletion stays opt-in and exact-count-gated exactly as v2.0 shipped it; and a failed or partial download is reported as failed rather than uploaded as junk bytes.
+  1. `uv tool install pushframe` (and `pipx`/`pip install pushframe`) from **real** PyPI yields a working binary after first uploading to TestPyPI and rehearsing the flow there.
+  2. A release is one action (tag push or workflow dispatch): CI builds the `.deb`, updates the APT repo, and uploads to PyPI — no artifact is ever hand-built; the version lives in exactly one place.
+  3. `pushframe --version` reports the release version; the project has moved off `0.1.0` (first distribution release: `5.0.0`).
+  4. The README "Install" section documents all three install paths (`.deb` file, APT one-liner, `uv tool install pushframe`), each verified on a clean environment in this phase.
 
-**Plans**: 3/3 plans complete (planned 2026-09-28)
+**Plans**: TBD
 
-Plans:
-**Wave 1**
-
-- [x] 18-01-PLAN.md — Google-side cache + manifest primitives: concurrent `=d` downloads keyed by google_media_id, SAFE-04 failure accounting, persistent 0600 manifest (CSE-01/02/04/07/08, SAFE-04)
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 18-02-PLAN.md — gsync engine plan-computing half: demand from listing+manifest (never a cache walk), compute_plan reuse, SAFE-01 aborts, second-run zero-upload proof (CSE-03/05, SAFE-01)
-
-**Wave 3** *(blocked on Wave 2 completion)*
-
-- [x] 18-03-PLAN.md — executing CLI half: google-sync verb (dry-run default, --apply gated), SAFE-02 threshold gate, hide-only removal, manifest persistence after confirmed uploads, prune + progress (CSE-06/08, SAFE-02/03)
-
-**Notes**: The crux of the milestone. Dry-run stays a **structural** default — the plan-computing path contains no mutating call, as in Phase 7. Success criterion 3 is the load-bearing correctness point: a pruned cache makes "already synced, still in album" indistinguishable from "removed from album", and a naive directory walk on the pruned cache would classify every photo on the frame as a removal candidate — the manifest is what makes disk minimisation safe. Success criterion 5 is the catastrophic failure mode of every mirror-mode sync tool and ships **with** the hide capability, never after it. Criterion 4 only manifests over two runs, which makes it the single most important live UAT in the milestone. The v2.0 content-hash diff/upload pipeline is reused unchanged underneath.
-
-### Phase 19: Debt Closeout
-
-**Goal**: The carried testing/hardening debt is closed so the milestone ships clean
-**Depends on**: Phase 18 (the single pair must be proven live before the cleanup layer lands on a moving codebase)
-**Requirements**: TEST-01, MOD-02, MOD-04
-**Success Criteria** (what must be TRUE):
-
-  1. The default test suite runs green with no credentials and no network, including the two lift-tests-off-network candidates carried since v1.1 (authenticated value, injected config).
-  2. AWS pool IDs and the bucket name come from configuration rather than hardcoded constants, with no behavior change when the config is unset.
-  3. Repeatedly constructing `Aura()` in one process no longer accumulates duplicate loguru sinks or log files.
-
-**Plans**: 2/2 plans complete (planned 2026-09-28)
-
-Plans:
-**Wave 1** (both plans independent — single wave)
-
-- [x] 19-01-PLAN.md — config-ize AWS bucket + pool IDs into settings.py, literals become defaults, grep/hasattr regression gates (MOD-02)
-- [x] 19-02-PLAN.md — module-level logger guard (one file per process), Client base_url seam, exact authenticated-value offline tests (MOD-04, TEST-01 #2/#4)
-
-**Notes**: Mirrors v3.0 Phase 15's original intent, minus everything Google-shaped: the debt items are folded into a thin closeout phase rather than given their own milestone. MOD-01's full async migration stays out of scope.
+**Notes**: TestPyPI is the rehearsal stage — the real-PyPI criterion is only met after a
+clean TestPyPI run. Trusted publishing (OIDC) preferred over long-lived tokens. The
+`google-browser` extra (playwright) stays optional and must not leak into base-package
+deps.
 
 ## Progress
 
-**Execution Order:** 16 → 17 → 18 → 19
+**Execution Order:** 20 → 21 → 22
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 16. Local Mechanism Spike & Decision | 3/3 | Complete | 2026-09-28 |
-| 17. Google Link & Album Selection | 2/2 | Complete | 2026-09-28 |
-| 18. Album → Frame Mirror Sync (Single Pair) | 3/3 | Complete    | 2026-09-28 |
-| 19. Debt Closeout | 2/2 | Complete    | 2026-09-29 |
+| 20. pushframe Rename, Migration & Repo Switch | 0/? | Not started | - |
+| 21. Debian Package & APT Repo | 0/? | Not started | - |
+| 22. PyPI + Release Engineering | 0/? | Not started | - |
 
-## Requirement Coverage (v4.0)
+## Requirement Coverage (v5.0)
 
 | Phase | Requirements | Count |
 |-------|--------------|-------|
-| 16 | LGS-01, LGS-06 | 2 |
-| 17 | LGS-02, LGS-03, LGS-04, LGS-05, TEST-02 | 5 |
-| 18 | CSE-01..08, SAFE-01..04 | 12 |
-| 19 | TEST-01, MOD-02, MOD-04 | 3 |
-| **Total** | | **22 / 22** |
+| 20 | IDN-01..06 | 6 |
+| 21 | DEB-01..05 | 5 |
+| 22 | PYI-01..02, REL-01..03 | 5 |
+| **Total** | | **16 / 16** |
 
 No orphaned requirements; no requirement mapped to more than one phase.
 
@@ -199,4 +120,4 @@ No orphaned requirements; no requirement mapped to more than one phase.
 _No items currently in backlog._
 
 ---
-*Roadmap last updated: 2026-09-29 — milestone v4.0 shipped (all 4 phases complete; archived under [`milestones/v4.0-ROADMAP.md`](./milestones/v4.0-ROADMAP.md)).*
+*Roadmap last updated: 2026-09-29 — milestone v5.0 started (3 phases: rename+repo switch, Debian+APT, PyPI+release engineering).*
