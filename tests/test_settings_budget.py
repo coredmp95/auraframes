@@ -113,3 +113,58 @@ def test_write_budget_wait_and_geo_fail_open_parse_via_bool_env(monkeypatch):
 
     assert settings.AURA_WRITE_BUDGET_WAIT is False
     assert settings.AURA_GEO_FAIL_OPEN is False
+
+
+# --- MOD-02 (Phase 19): AWS bucket + pool IDs are settings, not literals ---
+
+_AWS_ENV_NAMES = ('AURA_AWS_S3_BUCKET', 'AURA_AWS_UPLOAD_POOL_ID', 'AURA_AWS_SQS_POOL_ID')
+
+# The exact literals that shipped hardcoded for years -- unset env must yield
+# byte-identical behavior (ROADMAP phase-19 criterion 2).
+_SHIPPED_DEFAULTS = {
+    'AWS_S3_BUCKET': 'images.senseapp.co',
+    'AWS_UPLOAD_IDENTITY_POOL_ID': 'us-east-1:b92826c0-8274-43db-abff-136977c13598',
+    'AWS_SQS_IDENTITY_POOL_ID': 'us-east-1:98ccd0ff-69fe-4e9a-ad34-671b4381ab12',
+}
+
+
+def _clear_aws_env(monkeypatch):
+    for name in _AWS_ENV_NAMES:
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_aws_settings_default_to_the_shipped_literals(monkeypatch):
+    _clear_aws_env(monkeypatch)
+    importlib.reload(settings)
+
+    assert settings.AWS_S3_BUCKET == _SHIPPED_DEFAULTS['AWS_S3_BUCKET']
+    assert settings.AWS_UPLOAD_IDENTITY_POOL_ID == _SHIPPED_DEFAULTS['AWS_UPLOAD_IDENTITY_POOL_ID']
+    assert settings.AWS_SQS_IDENTITY_POOL_ID == _SHIPPED_DEFAULTS['AWS_SQS_IDENTITY_POOL_ID']
+
+
+def test_aws_settings_are_env_overridable(monkeypatch):
+    _clear_aws_env(monkeypatch)
+    monkeypatch.setenv('AURA_AWS_S3_BUCKET', 'bucket.other.invalid')
+    monkeypatch.setenv('AURA_AWS_UPLOAD_POOL_ID', 'us-east-1:00000000-0000-0000-0000-000000000001')
+    monkeypatch.setenv('AURA_AWS_SQS_POOL_ID', 'us-east-1:00000000-0000-0000-0000-000000000002')
+    importlib.reload(settings)
+
+    assert settings.AWS_S3_BUCKET == 'bucket.other.invalid'
+    assert settings.AWS_UPLOAD_IDENTITY_POOL_ID.endswith('000000000001')
+    assert settings.AWS_SQS_IDENTITY_POOL_ID.endswith('000000000002')
+
+
+def test_aws_modules_wire_settings_not_literals():
+    # The AWS modules must read through settings (MOD-02's whole point): their
+    # module attributes must track settings values by identity-of-config, and
+    # the module source must contain no hardcoded literal anymore.
+    from auraframes.aws import s3client, sqsclient
+
+    assert s3client.BUCKET_KEY == settings.AWS_S3_BUCKET
+    assert s3client.UPLOAD_IDENTITY_POOL_ID == settings.AWS_UPLOAD_IDENTITY_POOL_ID
+    assert sqsclient.SQS_IDENTITY_POOL_ID == settings.AWS_SQS_IDENTITY_POOL_ID
+
+    for path in (s3client.__file__, sqsclient.__file__):
+        src = Path(path).read_text()
+        assert 'images.senseapp.co' not in src
+        assert "'us-east-1:" not in src

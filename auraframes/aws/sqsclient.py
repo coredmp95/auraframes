@@ -1,9 +1,12 @@
 import boto3
 
 from auraframes.aws.awsclient import AWSClient
+from auraframes.utils.settings import AWS_SQS_IDENTITY_POOL_ID
 
-# TODO: May want to redact the pool ids -- read them in through config?
-SQS_IDENTITY_POOL_ID = 'us-east-1:98ccd0ff-69fe-4e9a-ad34-671b4381ab12'
+# MOD-02 (Phase 19): the pool ID moved to settings.py (env-overridable,
+# unchanged default). Kept as an alias so existing references keep working;
+# no literal remains in this module.
+SQS_IDENTITY_POOL_ID = AWS_SQS_IDENTITY_POOL_ID
 
 
 # TODO: Might want to thread this out, as the wait time could be an issue

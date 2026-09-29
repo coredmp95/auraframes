@@ -30,3 +30,13 @@ AURA_WRITE_BUDGET_MAX_WAIT = float(os.getenv('AURA_WRITE_BUDGET_MAX_WAIT', '3600
 AURA_COUNTRY = os.getenv('AURA_COUNTRY')
 AURA_GEO_FAIL_OPEN = _bool_env('AURA_GEO_FAIL_OPEN', True)
 AURA_STATE_DIR = Path(os.getenv('AURA_STATE_DIR', '~/.config/auraframes')).expanduser()
+
+# AWS endpoints/identifiers (Phase 19, MOD-02) -- moved out of the hardcoded
+# module constants in auraframes/aws/s3client.py and sqsclient.py (closing
+# their `TODO: read them in through config?`). Defaults ARE the literals that
+# shipped for years, so an unset environment behaves byte-identically.
+AWS_S3_BUCKET = os.getenv('AURA_AWS_S3_BUCKET', 'images.senseapp.co')
+AWS_UPLOAD_IDENTITY_POOL_ID = os.getenv(
+    'AURA_AWS_UPLOAD_POOL_ID', 'us-east-1:b92826c0-8274-43db-abff-136977c13598')
+AWS_SQS_IDENTITY_POOL_ID = os.getenv(
+    'AURA_AWS_SQS_POOL_ID', 'us-east-1:98ccd0ff-69fe-4e9a-ad34-671b4381ab12')

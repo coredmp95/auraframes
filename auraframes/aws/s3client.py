@@ -4,10 +4,13 @@ import uuid
 import hashlib
 
 from auraframes.aws.awsclient import AWSClient
+from auraframes.utils.settings import AWS_S3_BUCKET, AWS_UPLOAD_IDENTITY_POOL_ID
 
-BUCKET_KEY = 'images.senseapp.co'
-# TODO: May want to redact the pool ids -- read them in through config?
-UPLOAD_IDENTITY_POOL_ID = 'us-east-1:b92826c0-8274-43db-abff-136977c13598'
+# MOD-02 (Phase 19): the bucket name and pool ID moved to settings.py
+# (env-overridable, unchanged defaults). Kept as aliases so existing
+# references keep working; no literal remains in this module.
+BUCKET_KEY = AWS_S3_BUCKET
+UPLOAD_IDENTITY_POOL_ID = AWS_UPLOAD_IDENTITY_POOL_ID
 AWS_UPLOAD_PART_SIZE = 16384
 
 
